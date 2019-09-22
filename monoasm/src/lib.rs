@@ -6,7 +6,7 @@ use std::ops::{Index, IndexMut};
 const PAGE_SIZE: usize = 4096;
 
 #[derive(Copy, Clone, PartialEq)]
-enum Or {
+pub enum Or {
     Imm(u64),
     Reg(Reg),
     Ind(Reg),
@@ -15,13 +15,13 @@ enum Or {
 }
 
 #[derive(Copy, Clone, PartialEq)]
-enum Dest {
+pub enum Dest {
     Reg(Reg),
     Rel(Label),
 }
 
 #[derive(Copy, Clone, PartialEq)]
-enum Reg {
+pub enum Reg {
     Rax = 0,
     Rcx = 1,
     Rdx = 2,
@@ -41,7 +41,7 @@ enum Reg {
 }
 
 #[derive(Copy, Clone, PartialEq)]
-enum Mode {
+pub enum Mode {
     Ind = 0,   // (rax)
     InD8 = 1,  // (rax + disp8)
     InD32 = 2, // (rax + disp32)
@@ -49,7 +49,7 @@ enum Mode {
 }
 
 #[derive(Copy, Clone, PartialEq)]
-struct Label(usize);
+pub struct Label(usize);
 
 struct Reloc {
     loc: Option<usize>,
@@ -66,7 +66,7 @@ impl Reloc {
 }
 
 /// http://www.jonathanturner.org/2015/12/building-a-simple-jit-in-rust.html
-struct JitMemory {
+pub struct JitMemory {
     contents: *mut u8,
     counter: usize,
     label_count: usize,
@@ -74,11 +74,11 @@ struct JitMemory {
 }
 
 impl JitMemory {
-    fn new() -> JitMemory {
+    pub fn new() -> JitMemory {
         let contents: *mut u8;
         let size = 4096;
         unsafe {
-            let mut page = mem::uninitialized();
+            let mut page = mem::MaybeUninit::uninit().assume_init();
             libc::posix_memalign(&mut page, PAGE_SIZE, size);
             libc::mprotect(
                 page,
@@ -102,22 +102,22 @@ impl JitMemory {
         print!("\n");
     }
 
-    fn get_mem_addr(&self) -> u64 {
+    pub fn get_mem_addr(&self) -> u64 {
         self.contents as u64
     }
 
-    fn label(&mut self) -> Label {
+    pub fn label(&mut self) -> Label {
         let label = Label(self.label_count);
         self.label_count += 1;
         self.reloc.push(Reloc::new());
         label
     }
 
-    fn bind_label(&mut self, label: Label) {
+    pub fn bind_label(&mut self, label: Label) {
         self.reloc[label.0].loc = Some(self.counter);
     }
 
-    fn finalize(&mut self) -> (fn() -> i64) {
+    pub fn finalize(&mut self) -> (fn() -> i64) {
         let mut relocs: Vec<(usize, i32)> = vec![];
         for rel in &mut self.reloc {
             let pos = rel.loc.unwrap();
@@ -191,7 +191,7 @@ impl JitMemory {
 }
 
 impl JitMemory {
-    fn movq(&mut self, op1: Or, op2: Or) {
+    pub fn movq(&mut self, op1: Or, op2: Or) {
         match (op1, op2) {
             (Or::Imm(_), _) => panic!("Invalid op: moveq Imm, _"),
             // MOV r/m64, imm32
@@ -264,7 +264,7 @@ impl JitMemory {
 }
 
 impl JitMemory {
-    fn call(&mut self, dest: Dest) {
+    pub fn call(&mut self, dest: Dest) {
         match dest {
             Dest::Reg(r) => {
                 if r as u8 > 7 {
@@ -282,11 +282,11 @@ impl JitMemory {
     }
 
     #[inline]
-    fn ret(&mut self) {
+    pub fn ret(&mut self) {
         self.emitb(0xc3);
     }
 
-    fn pushq(&mut self, r: Reg) {
+    pub fn pushq(&mut self, r: Reg) {
         //self.emitb(0xff);
         //self.modrm_digit(Mode::Reg, 6, r);
         if (r as u8) > 7 {
@@ -295,7 +295,7 @@ impl JitMemory {
         self.emitb_with_rd(0x50, r);
     }
 
-    fn popq(&mut self, r: Reg) {
+    pub fn popq(&mut self, r: Reg) {
         //self.emitb(0x8f);
         //self.modrm_digit(Mode::Reg, 0, r);
         if (r as u8) > 7 {
@@ -339,47 +339,47 @@ impl JitMemory {
     }
 
     #[inline]
-    fn addq(&mut self, op1: Or, op2: Or) {
+    pub fn addq(&mut self, op1: Or, op2: Or) {
         self.binary_op(0x81, 0x01, 0, op1, op2);
     }
 
     #[inline]
-    fn orq(&mut self, op1: Or, op2: Or) {
+    pub fn orq(&mut self, op1: Or, op2: Or) {
         self.binary_op(0x81, 0x09, 1, op1, op2);
     }
 
     #[inline]
-    fn adcq(&mut self, op1: Or, op2: Or) {
+    pub fn adcq(&mut self, op1: Or, op2: Or) {
         self.binary_op(0x81, 0x11, 2, op1, op2);
     }
 
     #[inline]
-    fn sbbq(&mut self, op1: Or, op2: Or) {
+    pub fn sbbq(&mut self, op1: Or, op2: Or) {
         self.binary_op(0x81, 0x19, 3, op1, op2);
     }
 
     #[inline]
-    fn andq(&mut self, op1: Or, op2: Or) {
+    pub fn andq(&mut self, op1: Or, op2: Or) {
         self.binary_op(0x81, 0x21, 4, op1, op2);
     }
 
     #[inline]
-    fn subq(&mut self, op1: Or, op2: Or) {
+    pub fn subq(&mut self, op1: Or, op2: Or) {
         self.binary_op(0x81, 0x29, 5, op1, op2);
     }
 
     #[inline]
-    fn xorq(&mut self, op1: Or, op2: Or) {
+    pub fn xorq(&mut self, op1: Or, op2: Or) {
         self.binary_op(0x81, 0x31, 6, op1, op2);
     }
 
     #[inline]
-    fn cmpq(&mut self, op1: Or, op2: Or) {
+    pub fn cmpq(&mut self, op1: Or, op2: Or) {
         self.binary_op(0x81, 0x39, 7, op1, op2);
     }
 
     // IMUL r/m64: RDX:RAX <- RAX * r/m64
-    fn imulq(&mut self, op: Or) {
+    pub fn imulq(&mut self, op: Or) {
         match op {
             Or::Reg(r) => {
                 self.rexw(Reg::Rax, r);
@@ -391,7 +391,7 @@ impl JitMemory {
     }
 
     // IMUL r32, r/m32: r32 <- r32 * r/m32
-    fn imull(&mut self, op1: Or, op2: Or) {
+    pub fn imull(&mut self, op1: Or, op2: Or) {
         match (op1, op2) {
             (Or::Reg(r1), Or::Ind(r2)) => {
                 self.emitb(0x0f);
@@ -408,20 +408,20 @@ impl JitMemory {
         }
     }
 
-    fn jmp(&mut self, dest: Label) {
+    pub fn jmp(&mut self, dest: Label) {
         self.emitb(0xe9);
         self.reloc[dest.0].disp.push((4, self.counter));
         self.emitl(0);
     }
 
-    fn jne(&mut self, dest: Label) {
+    pub fn jne(&mut self, dest: Label) {
         self.emitb(0x0f);
         self.emitb(0x85);
         self.reloc[dest.0].disp.push((4, self.counter));
         self.emitl(0);
     }
 
-    fn syscall(&mut self) {
+    pub fn syscall(&mut self) {
         self.emitb(0x0f);
         self.emitb(0x05);
     }
@@ -439,97 +439,4 @@ impl IndexMut<usize> for JitMemory {
     fn index_mut(&mut self, index: usize) -> &mut u8 {
         unsafe { &mut *self.contents.offset(index as isize) }
     }
-}
-
-fn jit() -> (fn() -> i64) {
-    let hello = "Hello World! Are you angry?\n";
-    let mut jit: JitMemory = JitMemory::new();
-
-    jit.movq(Or::Reg(Reg::Rdi), Or::Imm(1));
-    jit.movq(Or::Reg(Reg::R8), Or::Imm(jit.get_mem_addr() + 256));
-    jit.movq(Or::Reg(Reg::Rax), Or::Imm(hello.as_ptr() as u64));
-    jit.movq(Or::Ind(Reg::R8), Or::Reg(Reg::Rax));
-    jit.movq(Or::Reg(Reg::Rsi), Or::Ind(Reg::R8));
-    jit.movq(Or::Reg(Reg::Rdx), Or::Imm(hello.len() as u64));
-    jit.movq(Or::Reg(Reg::Rax), Or::Imm(1));
-    jit.syscall();
-
-    jit.movq(Or::Reg(Reg::R15), Or::Imm(jit.contents as u64 + 256));
-    jit.movq(Or::Ind(Reg::R15), Or::Imm(0x40));
-    let label = jit.label();
-    jit.reloc[label.0].loc = Some(jit.counter);
-    let putchar_addr = libc::putchar as *const u8 as u64;
-    jit.addq(Or::Ind(Reg::R15), Or::Imm(1));
-    jit.movq(Or::Reg(Reg::Rax), Or::Imm(putchar_addr));
-    jit.movq(Or::Reg(Reg::Rdi), Or::Ind(Reg::R15));
-    jit.call(Dest::Reg(Reg::Rax));
-
-    jit.cmpq(Or::Ind(Reg::R15), Or::Imm(0x60));
-    jit.jne(label);
-
-    jit.movq(Or::Reg(Reg::Rax), Or::Imm(putchar_addr));
-    jit.movq(Or::Reg(Reg::Rdi), Or::Imm('\n' as u64));
-    jit.call(Dest::Reg(Reg::Rax));
-
-    jit.ret();
-    jit.finalize()
-    //jit.p();
-}
-
-fn fac() -> (fn() -> i64) {
-    let fmt = "%d\n\0";
-    let mut jit: JitMemory = JitMemory::new();
-    let printf_addr = libc::printf as u64;
-
-    // main()
-    jit.pushq(Reg::Rbp);
-    jit.movq(Or::Reg(Reg::Rbp), Or::Reg(Reg::Rsp));
-
-    jit.movq(Or::Reg(Reg::Rdi), Or::Imm(10));
-    let fac = jit.label();
-    jit.call(Dest::Rel(fac));
-
-    jit.movq(Or::Reg(Reg::Rsi), Or::Reg(Reg::Rax));
-    jit.movq(Or::Reg(Reg::Rdi), Or::Imm(fmt.as_ptr() as u64));
-    jit.movq(Or::Reg(Reg::Rcx), Or::Imm(printf_addr));
-    jit.movq(Or::Reg(Reg::Rax), Or::Imm(0));
-    jit.call(Dest::Reg(Reg::Rcx));
-
-    jit.popq(Reg::Rbp);
-    jit.ret();
-
-    // fac()
-    jit.bind_label(fac);
-    jit.pushq(Reg::Rbp);
-    jit.movq(Or::Reg(Reg::Rbp), Or::Reg(Reg::Rsp));
-    jit.subq(Or::Reg(Reg::Rsp), Or::Imm(16));
-
-    let l2 = jit.label();
-    let l3 = jit.label();
-
-    jit.movq(Or::IndD8(Reg::Rbp, -8), Or::Reg(Reg::Rdi));
-    jit.cmpq(Or::IndD8(Reg::Rbp, -8), Or::Imm(1));
-    jit.jne(l2);
-    jit.movq(Or::Reg(Reg::Rax), Or::Imm(1));
-    jit.jmp(l3);
-
-    jit.bind_label(l2);
-    jit.movq(Or::Reg(Reg::Rax), Or::IndD8(Reg::Rbp, -8));
-    jit.subq(Or::Reg(Reg::Rax), Or::Imm(1));
-    jit.movq(Or::Reg(Reg::Rdi), Or::Reg(Reg::Rax));
-    jit.call(Dest::Rel(fac));
-    jit.imull(Or::Reg(Reg::Rax), Or::IndD8(Reg::Rbp, -8));
-
-    jit.bind_label(l3);
-    jit.movq(Or::Reg(Reg::Rsp), Or::Reg(Reg::Rbp));
-    jit.popq(Reg::Rbp);
-    jit.ret();
-
-    jit.finalize()
-}
-
-fn main() {
-    let func = fac();
-    let ret = func();
-    println!("returned value:{}", ret);
 }
