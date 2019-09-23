@@ -19,6 +19,8 @@ struct Stmts {
 
 #[derive(Clone, Debug)]
 enum Inst {
+    Label(Ident),
+
     Movq(Operand, Operand),
     Addq(Operand, Operand),
     Orq(Operand, Operand),
@@ -29,6 +31,12 @@ enum Inst {
     Xorq(Operand, Operand),
     Cmpq(Operand, Operand),
 
+    Imull(Operand, Operand),
+
+    Pushq(Operand),
+    Popq(Operand),
+
+    Jmp(Dest),
     Jne(Ident),
 
     Call(Dest),
@@ -57,10 +65,16 @@ impl std::fmt::Display for Operand {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 enum Dest {
     Reg(Reg),
-    Rel(usize),
+    Rel(Ident),
+}
+
+#[derive(Clone, PartialEq, Debug)]
+struct Addr {
+    reg: Reg,
+    offset: i32,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -84,26 +98,27 @@ enum Reg {
 }
 
 impl Reg {
-    fn from_str(string: &str) -> Reg {
-            match string {
-                "rax" => Reg::Rax,
-                "rcx" => Reg::Rcx,
-                "rdx" => Reg::Rdx,
-                "rbx" => Reg::Rbx,
-                "rsp" => Reg::Rsp,
-                "rbp" => Reg::Rbp,
-                "rsi" => Reg::Rsi,
-                "rdi" => Reg::Rdi,
-                "r8" => Reg::R8,
-                "r9" => Reg::R9,
-                "r10" => Reg::R10,
-                "r11" => Reg::R11,
-                "r12" => Reg::R12,
-                "r13" => Reg::R13,
-                "r14" => Reg::R14,
-                "r15" => Reg::R15,
-                _ => panic!("Illegal register name."),
-            }
+    fn from_str(string: &str) -> Option<Reg> {
+        let reg = match string {
+            "rax" => Reg::Rax,
+            "rcx" => Reg::Rcx,
+            "rdx" => Reg::Rdx,
+            "rbx" => Reg::Rbx,
+            "rsp" => Reg::Rsp,
+            "rbp" => Reg::Rbp,
+            "rsi" => Reg::Rsi,
+            "rdi" => Reg::Rdi,
+            "r8" => Reg::R8,
+            "r9" => Reg::R9,
+            "r10" => Reg::R10,
+            "r11" => Reg::R11,
+            "r12" => Reg::R12,
+            "r13" => Reg::R13,
+            "r14" => Reg::R14,
+            "r15" => Reg::R15,
+            _ => return None,
+        };
+        Some(reg)
     }
 }
 
@@ -120,7 +135,7 @@ impl Parse for Operand {
         let lookahead = input.lookahead1();
         if lookahead.peek(Ident) && is_single(input) {
             let op: Ident = input.parse()?;
-            let reg = Reg::from_str(op.to_string().as_str());
+            let reg = Reg::from_str(op.to_string().as_str()).unwrap();
             Ok(Operand::Reg(reg))
         } else if lookahead.peek(LitInt) && is_single(input) {
             let imm = input.parse::<LitInt>()?;
@@ -132,10 +147,12 @@ impl Parse for Operand {
                     match gr.delimiter() {
                         Delimiter::Parenthesis => Ok(Operand::Expr(gr.stream())),
                         Delimiter::Bracket => {
-                            let stream = gr.stream();
-                            let reg: Ident = syn::parse2(stream)?;
-                            let reg = Reg::from_str(reg.to_string().as_str());
-                            Ok(Operand::Ind(reg))
+                            let addr: Addr = syn::parse2(gr.stream())?;
+                            if addr.offset == 0 {
+                                Ok(Operand::Ind(addr.reg))
+                            } else {
+                                Ok(Operand::IndDisp(addr.reg, addr.offset))
+                            }
                         }
                         _ => unimplemented!("Unimplemented delimiter."),
                     }
@@ -150,17 +167,50 @@ impl Parse for Dest {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         let lookahead = input.lookahead1();
         if lookahead.peek(Ident) && is_single(input) {
-            let op: Ident = input.parse()?;
-            let reg = Reg::from_str(op.to_string().as_str());
-            Ok(Dest::Reg(reg))
+            let dest: Ident = input.parse()?;
+            let reg = Reg::from_str(dest.to_string().as_str());
+            match reg {
+                Some(reg) => Ok(Dest::Reg(reg)),
+                None => Ok(Dest::Rel(dest)),
+            }
         } else {
-            unimplemented!();
+            Err(lookahead.error())
         }
     }
 }
 
+impl Parse for Addr {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        let lookahead = input.lookahead1();
+        if !lookahead.peek(Ident) {
+            return Err(lookahead.error());
+        }
+        let ident: Ident = input.parse()?;
+        let reg = Reg::from_str(ident.to_string().as_str()).expect("Not a register.");
+        let offset = if input.is_empty() {
+            0
+        } else {
+            if input.peek(Token![-]) && input.peek2(LitInt) {
+                input.parse::<Token![-]>()?;
+                let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
+                ofs * (-1)
+            } else if input.peek(Token![+]) && input.peek2(LitInt) {
+                input.parse::<Token![+]>()?;
+                let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
+                ofs
+            } else {
+                return Err(lookahead.error());
+            }
+        };
+        Ok(Addr {
+            reg,
+            offset,
+        })
+    }
+}
+
 fn is_single(input: ParseStream) -> bool {
-    input.peek2(Token![,]) || input.peek2(Token![;])
+    input.peek2(Token![,]) || input.peek2(Token![;]) 
 }
 
 macro_rules! parse_2op {
@@ -197,22 +247,31 @@ macro_rules! parse_0op {
 impl Parse for Inst {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         let inst: Ident = input.parse()?;
+        if input.peek(Token![:]) {
+            input.parse::<Token![:]>()?;
+            Ok(Inst::Label(inst))
+        } else {
         match inst.to_string().as_str() {
             "movq" => parse_2op!(input, Movq),
-
             "addq" => parse_2op!(input, Addq),
-            "orq" => parse_2op!(input, Orq),
+            "orq"  => parse_2op!(input, Orq),
             "adcq" => parse_2op!(input, Adcq),
             "sbbq" => parse_2op!(input, Sbbq),
             "andq" => parse_2op!(input, Andq),
             "subq" => parse_2op!(input, Subq),
             "xorq" => parse_2op!(input, Xorq),
+            "imull" => parse_2op!(input, Imull),
+
+            "pushq" => parse_1op!(input, Pushq),
+            "popq" => parse_1op!(input, Popq),
             "cmpq" => parse_2op!(input, Cmpq),
             "call" => parse_1op!(input, Call),
-            "ret" => parse_0op!(input, Ret),
-            "jne" =>  parse_1op!(input, Jne),
+            "ret"  => parse_0op!(input, Ret),
+            "jmp" => parse_1op!(input, Jmp),
+            "jne"  =>  parse_1op!(input, Jne),
             "syscall" => parse_0op!(input, Syscall),
             _ => Err(Error::new(inst.span(), "unimplemented instruction.")),
+        }
         }
     }
 }
@@ -225,7 +284,7 @@ impl Parse for Stmts {
                 break;
             }
             let inst = input.parse()?;
-            println!("{:?}", &inst);
+            //println!("{:?}", &inst);
             stmts.contents.push(inst);
         }
         Ok(stmts)
@@ -248,6 +307,9 @@ pub fn monoasm(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn compile(inst: Inst) -> TokenStream {
     match inst {
+        Inst::Label(ident) => {
+            quote!( jit.bind_label(#ident); )
+        }
         Inst::Movq(op1, op2) => {
             match (op1, op2) {
                 (Operand::Imm(_), _) => panic!("Invalid op: moveq Imm, _"),
@@ -281,18 +343,22 @@ fn compile(inst: Inst) -> TokenStream {
                 (Operand::Reg(r1), Operand::Reg(r2)) => enc_mr(0x89, Mode::Reg, r2, r1, 0),
                 (Operand::Ind(r1), Operand::Reg(r2)) => enc_mr(0x89, Mode::Ind, r2, r1, 0),
                 (Operand::IndDisp(r1, disp), Operand::Reg(r2)) => {
-                    enc_mr(0x89, Mode::InD8, r2, r1, disp as i32)
-                }
-                (Operand::IndDisp(r1, disp), Operand::Reg(r2)) => {
-                    enc_mr(0x89, Mode::InD32, r2, r1, disp)
+                    enc_mr(0x89,
+                    if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 {
+                        Mode::InD8
+                    } else {
+                        Mode::InD32
+                    }, r2, r1, disp)
                 }
                 // MOV r64,m64
                 (Operand::Reg(r1), Operand::Ind(r2)) => enc_mr(0x8b, Mode::Ind, r1, r2, 0),
                 (Operand::Reg(r1), Operand::IndDisp(r2, disp)) => {
-                    enc_mr(0x8b, Mode::InD8, r1, r2, disp as i32)
-                }
-                (Operand::Reg(r1), Operand::IndDisp(r2, disp)) => {
-                    enc_mr(0x8b, Mode::InD32, r1, r2, disp)
+                    enc_mr(0x8b,
+                    if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 {
+                        Mode::InD8
+                    } else {
+                        Mode::InD32
+                    }, r1, r2, disp)
                 }
                 _ => unimplemented!(),
             }
@@ -305,6 +371,36 @@ fn compile(inst: Inst) -> TokenStream {
         Inst::Subq(op1, op2) => binary_op(0x81, 0x29, 5, op1, op2),
         Inst::Xorq(op1, op2) => binary_op(0x81, 0x31, 6, op1, op2),
         Inst::Cmpq(op1, op2) => binary_op(0x81, 0x39, 7, op1, op2),
+
+        Inst::Imull(op1, op2) => {
+            // IMUL r32, r/m32: r32 <- r32 * r/m32
+            let mut ts = TokenStream::new();
+            match (op1, op2) {
+                (Operand::Reg(r1), Operand::Ind(r2)) => {
+                    ts.extend(quote!(
+                        jit.emitb(0x0f);
+                        jit.emitb(0xaf);
+                    ));
+                    ts.extend(modrm(Mode::Ind, r1, r2));
+                }
+                (Operand::Reg(r1), Operand::IndDisp(r2, disp)) => {
+                    ts.extend(quote!(
+                        jit.emitb(0x0f);
+                        jit.emitb(0xaf);
+                    ));
+                    ts.extend(modrm(Mode::InD32, r1, r2));
+                    ts.extend(quote!(
+                        jit.emitl(#disp as u32);
+                    ));
+                }
+                _ => unimplemented!(),
+            }
+            ts
+        }
+
+        Inst::Pushq(op) => push_pop(0x50, op),
+        Inst::Popq(op) => push_pop(0x58, op),
+
         Inst::Call(dest) => {
             let mut ts = TokenStream::new();
             match dest {
@@ -316,18 +412,34 @@ fn compile(inst: Inst) -> TokenStream {
                     ts.extend(modrm_digit(Mode::Reg, 2, r));
                 }
                 Dest::Rel(dest) => {
-                    ts.extend(quote!( jit.emitb(0xe8); ));
-                    ts.extend(quote!( jit.reloc[dest.0].disp.push((4, jit.counter)) ));
-                    ts.extend(quote!( jit.emitl(0); ));
+                    ts.extend(quote!(
+                        jit.emitb(0xe8);
+                        jit.save_reloc(#dest, 4);
+                        jit.emitl(0);
+                    ));
                 }
             }
             ts
         }
         Inst::Ret => quote!( jit.emitb(0xc3); ),
+        Inst::Jmp(dest) => {
+            let mut ts = TokenStream::new();
+            match dest {
+                Dest::Rel(dest) => {
+                    ts.extend(quote!(
+                        jit.emitb(0xe9);
+                        jit.save_reloc(#dest, 4);
+                        jit.emitl(0);
+                    ));
+                }
+                _ => unimplemented!(),
+            }
+            ts
+        }
         Inst::Jne(dest) => quote!(
             jit.emitb(0x0f);
             jit.emitb(0x85);
-            jit.reloc[#dest].disp.push((4, jit.counter));
+            jit.save_reloc(#dest, 4);
             jit.emitl(0);
         ),
         Inst::Syscall => quote!(
@@ -419,6 +531,20 @@ fn binary_op(
             ts.extend(enc_mr(opcode_rm_reg, Mode::Reg, r2, r1, 0));
         }
         _ => unimplemented!(),
+    }
+    ts
+}
+
+fn push_pop(opcode: u8, op: Operand) -> TokenStream {
+    let mut ts = TokenStream::new();
+    match op {
+        Operand::Reg(r) => {
+            if (r as u8) > 7 {
+                ts.extend(rexw(Reg::Rax, r));
+            }
+            ts.extend(emitb_with_rd(opcode, r));
+        }
+         _ => unimplemented!(),
     }
     ts
 }

@@ -113,6 +113,10 @@ impl JitMemory {
     pub fn bind_label(&mut self, label: usize) {
         self.reloc[label].loc = Some(self.counter);
     }
+    
+    pub fn save_reloc(&mut self, dest: usize, size: u8){
+        self.reloc[dest].disp.push((size, self.counter));
+    }
 
     pub fn finalize(&mut self) -> (fn() -> i64) {
         let mut relocs: Vec<(usize, i32)> = vec![];
