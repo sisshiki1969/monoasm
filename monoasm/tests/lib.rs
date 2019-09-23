@@ -1,7 +1,7 @@
 #![feature(proc_macro_hygiene)]
 extern crate monoasm;
 extern crate monoasm_macro;
-use monoasm::{JitMemory, Or, Reg};
+use monoasm::{JitMemory};
 use monoasm_macro::monoasm;
 
 fn hello() -> (fn() -> i64) {
