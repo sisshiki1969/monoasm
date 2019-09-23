@@ -9,35 +9,35 @@ fn hello() -> (fn() -> i64) {
     let mut jit: JitMemory = JitMemory::new();
 
     monoasm!(
-        movq rdi, Or::Imm(1);
-        movq r8, Or::Imm(jit.get_mem_addr() + 256);
-        movq rax, Or::Imm(hello.as_ptr() as u64);
-
-        movq r8, rax;
-        movq rsi, r8;
-        movq rdx, Or::Imm(hello.len() as u64);
-        movq rax, Or::Imm(1);
+        movq rdi, 1;
+        movq r8, (jit.get_mem_addr() + 256);
+        movq rax, (hello.as_ptr() as u64);
+        movq [r8], rax;
+        movq rsi, [r8];
+        movq rdx, (hello.len() as u64);
+        movq rax, 1;
         syscall;
+        movq r15, (jit.get_mem_addr() + 256);
+        movq [r15], 0x40;
     );
 
-    jit.movq(Or::Reg(Reg::R15), Or::Imm(jit.get_mem_addr() as u64 + 256));
-    jit.movq(Or::Ind(Reg::R15), Or::Imm(0x40));
     let label = jit.label();
     jit.bind_label(label);
     let putchar_addr = libc::putchar as *const u8 as u64;
-    jit.addq(Or::Ind(Reg::R15), Or::Imm(1));
-    jit.movq(Or::Reg(Reg::Rax), Or::Imm(putchar_addr));
-    jit.movq(Or::Reg(Reg::Rdi), Or::Ind(Reg::R15));
-    jit.call(Dest::Reg(Reg::Rax));
 
-    jit.cmpq(Or::Ind(Reg::R15), Or::Imm(0x60));
-    jit.jne(label);
+    monoasm!(
+        addq [r15], 1;
+        movq rax, (putchar_addr);
+        movq rdi, [r15];
+        call rax;
+        cmpq [r15], 0x60;
+        jne label;
+        movq rax, (putchar_addr);
+        movq rdi, ('\n' as u64);
+        call rax;
+        ret;
+    );
 
-    jit.movq(Or::Reg(Reg::Rax), Or::Imm(putchar_addr));
-    jit.movq(Or::Reg(Reg::Rdi), Or::Imm('\n' as u64));
-    jit.call(Dest::Reg(Reg::Rax));
-
-    jit.ret();
     jit.finalize()
     //jit.p();
 }
@@ -55,11 +55,13 @@ fn fac() -> (fn() -> i64) {
     let fac = jit.label();
     jit.call(Dest::Rel(fac));
 
-    jit.movq(Or::Reg(Reg::Rsi), Or::Reg(Reg::Rax));
-    jit.movq(Or::Reg(Reg::Rdi), Or::Imm(fmt.as_ptr() as u64));
-    jit.movq(Or::Reg(Reg::Rcx), Or::Imm(printf_addr));
-    jit.movq(Or::Reg(Reg::Rax), Or::Imm(0));
-    jit.call(Dest::Reg(Reg::Rcx));
+    monoasm!(
+        movq rsi, rax;
+        movq rdi, (fmt.as_ptr() as u64);
+        movq rcx, (printf_addr);
+        movq rax, 0;
+        call rcx;
+    );
 
     jit.popq(Reg::Rbp);
     jit.ret();

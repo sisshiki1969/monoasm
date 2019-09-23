@@ -17,7 +17,7 @@ pub enum Or {
 #[derive(Copy, Clone, PartialEq)]
 pub enum Dest {
     Reg(Reg),
-    Rel(Label),
+    Rel(usize),
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -48,12 +48,9 @@ pub enum Mode {
     Reg = 3,   // rax
 }
 
-#[derive(Copy, Clone, PartialEq)]
-pub struct Label(usize);
-
-struct Reloc {
-    loc: Option<usize>,
-    disp: Vec<(u8, usize)>, //(size_in_bytes, pos_in_contents)
+pub struct Reloc {
+    pub loc: Option<usize>,
+    pub disp: Vec<(u8, usize)>, //(size_in_bytes, pos_in_contents)
 }
 
 impl Reloc {
@@ -67,10 +64,10 @@ impl Reloc {
 
 /// http://www.jonathanturner.org/2015/12/building-a-simple-jit-in-rust.html
 pub struct JitMemory {
-    contents: *mut u8,
-    counter: usize,
-    label_count: usize,
-    reloc: Vec<Reloc>,
+    pub contents: *mut u8,
+    pub counter: usize,
+    pub label_count: usize,
+    pub reloc: Vec<Reloc>,
 }
 
 impl JitMemory {
@@ -106,15 +103,15 @@ impl JitMemory {
         self.contents as u64
     }
 
-    pub fn label(&mut self) -> Label {
-        let label = Label(self.label_count);
+    pub fn label(&mut self) -> usize {
+        let label = self.label_count;
         self.label_count += 1;
         self.reloc.push(Reloc::new());
         label
     }
 
-    pub fn bind_label(&mut self, label: Label) {
-        self.reloc[label.0].loc = Some(self.counter);
+    pub fn bind_label(&mut self, label: usize) {
+        self.reloc[label].loc = Some(self.counter);
     }
 
     pub fn finalize(&mut self) -> (fn() -> i64) {
@@ -132,7 +129,7 @@ impl JitMemory {
         unsafe { mem::transmute(self.contents) }
     }
 
-    fn emitb(&mut self, val: u8) {
+    pub fn emitb(&mut self, val: u8) {
         let c = self.counter;
         self[c] = val;
         self.counter = c + 1;
@@ -144,14 +141,14 @@ impl JitMemory {
         self.counter = c + 1;
     }
 
-    fn emitw(&mut self, val: u16) {
+    pub fn emitw(&mut self, val: u16) {
         let c = self.counter;
         self[c] = val as u8;
         self[c + 1] = (val >> 8) as u8;
         self.counter = c + 2;
     }
 
-    fn emitl(&mut self, val: u32) {
+    pub fn emitl(&mut self, val: u32) {
         let c = self.counter;
         self[c] = val as u8;
         self[c + 1] = (val >> 8) as u8;
@@ -168,7 +165,7 @@ impl JitMemory {
         self[loc + 3] = (val >> 24) as u8;
     }
 
-    fn emitq(&mut self, val: u64) {
+    pub fn emitq(&mut self, val: u64) {
         self.emitl(val as u32);
         self.emitl((val >> 32) as u32);
     }
@@ -275,7 +272,7 @@ impl JitMemory {
             }
             Dest::Rel(dest) => {
                 self.emitb(0xe8);
-                self.reloc[dest.0].disp.push((4, self.counter));
+                self.reloc[dest].disp.push((4, self.counter));
                 self.emitl(0);
             }
         }
@@ -408,16 +405,16 @@ impl JitMemory {
         }
     }
 
-    pub fn jmp(&mut self, dest: Label) {
+    pub fn jmp(&mut self, dest: usize) {
         self.emitb(0xe9);
-        self.reloc[dest.0].disp.push((4, self.counter));
+        self.reloc[dest].disp.push((4, self.counter));
         self.emitl(0);
     }
 
-    pub fn jne(&mut self, dest: Label) {
+    pub fn jne(&mut self, dest: usize) {
         self.emitb(0x0f);
         self.emitb(0x85);
-        self.reloc[dest.0].disp.push((4, self.counter));
+        self.reloc[dest].disp.push((4, self.counter));
         self.emitl(0);
     }
 
