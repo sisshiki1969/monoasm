@@ -10,7 +10,7 @@ use proc_macro2::{TokenStream, TokenTree, Delimiter};
 use quote::quote;
 use quote::TokenStreamExt;
 use syn::parse::{Parse, ParseStream};
-use syn::{parse_macro_input, Error, Ident, LitInt, Token};
+use syn::{parse_macro_input, Error, Ident, LitInt, Token, token};
 
 #[derive(Clone, Debug)]
 struct Stmts {
@@ -135,30 +135,30 @@ impl Parse for Operand {
         let lookahead = input.lookahead1();
         if lookahead.peek(Ident) && is_single(input) {
             let op: Ident = input.parse()?;
-            let reg = Reg::from_str(op.to_string().as_str()).unwrap();
+            let reg = Reg::from_str(op.to_string().as_str()).ok_or(lookahead.error())?;
             Ok(Operand::Reg(reg))
         } else if lookahead.peek(LitInt) && is_single(input) {
             let imm = input.parse::<LitInt>()?;
             Ok(Operand::Imm(imm.base10_parse()?))
-        } else {
-            let tok = input.parse::<TokenTree>()?;
-            match tok {
-                TokenTree::Group(gr) => {
-                    match gr.delimiter() {
-                        Delimiter::Parenthesis => Ok(Operand::Expr(gr.stream())),
-                        Delimiter::Bracket => {
-                            let addr: Addr = syn::parse2(gr.stream())?;
-                            if addr.offset == 0 {
-                                Ok(Operand::Ind(addr.reg))
-                            } else {
-                                Ok(Operand::IndDisp(addr.reg, addr.offset))
-                            }
-                        }
-                        _ => unimplemented!("Unimplemented delimiter."),
-                    }
-                }   
-                _ => unreachable!(),
+        } else if lookahead.peek(token::Bracket) {
+            if let TokenTree::Group(gr) = input.parse::<TokenTree>()? {
+                let addr: Addr = syn::parse2(gr.stream())?;
+                if addr.offset == 0 {
+                    Ok(Operand::Ind(addr.reg))
+                } else {
+                    Ok(Operand::IndDisp(addr.reg, addr.offset))
+                }
+            } else {
+                return Err(lookahead.error());
             }
+        } else if lookahead.peek(token::Bracket) || lookahead.peek(token::Paren){
+            if let TokenTree::Group(gr) = input.parse::<TokenTree>()? {
+                Ok(Operand::Expr(gr.stream()))
+            } else {
+                return Err(lookahead.error());
+            }
+        } else {
+            return Err(lookahead.error());
         }
     }
 }
@@ -186,7 +186,10 @@ impl Parse for Addr {
             return Err(lookahead.error());
         }
         let ident: Ident = input.parse()?;
-        let reg = Reg::from_str(ident.to_string().as_str()).expect("Not a register.");
+        let reg = match Reg::from_str(ident.to_string().as_str()) {
+            None => return Err(lookahead.error()),
+            Some(reg) => reg,
+        };
         let offset = if input.is_empty() {
             0
         } else {

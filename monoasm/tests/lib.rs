@@ -5,27 +5,14 @@ use monoasm::{JitMemory};
 use monoasm_macro::monoasm;
 
 fn hello() -> (fn() -> i64) {
-    let hello = "Hello World! Are you angry?\n";
+    let hello = "Hello World! Are you angry?\n\0";
     let mut jit: JitMemory = JitMemory::new();
     let label = jit.label();
     let putchar_addr = libc::putchar as *const u8 as u64;
 
     monoasm!(
         movq rdi, 1;
-        movq r8, (jit.get_mem_addr() + 256);
-        movq rax, (hello.as_ptr() as u64);
-        movq [r8], rax;
-        movq rsi, [r8];
-        movq rdx, (hello.len() as u64);
-        movq rax, 1;
-        syscall;
-        movq r15, (jit.get_mem_addr() + 256);
-        movq [r15], 0x40;
-        movq rdi, 1;
-        movq r8, (jit.get_mem_addr() + 256);
-        movq rax, (hello.as_ptr() as u64);
-        movq [r8], rax;
-        movq rsi, [r8];
+        movq rsi, (hello.as_ptr() as u64);
         movq rdx, (hello.len() as u64);
         movq rax, 1;
         syscall;
