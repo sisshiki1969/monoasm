@@ -6,11 +6,11 @@
 extern crate proc_macro;
 extern crate quote;
 extern crate syn;
-use proc_macro2::{TokenStream, TokenTree, Delimiter};
+use proc_macro2::{Delimiter, Group, Punct, TokenStream, TokenTree};
 use quote::quote;
 use quote::TokenStreamExt;
 use syn::parse::{Parse, ParseStream};
-use syn::{parse_macro_input, Error, Ident, LitInt, Token, token};
+use syn::{parse_macro_input, token, Error, Ident, LitInt, Token};
 
 #[derive(Clone, Debug)]
 struct Stmts {
@@ -50,7 +50,7 @@ enum Operand {
     Expr(TokenStream),
     Reg(Reg),
     Ind(Reg),
-    IndDisp(Reg, i32),
+    IndDisp(Reg, Offset),
 }
 
 impl std::fmt::Display for Operand {
@@ -60,7 +60,7 @@ impl std::fmt::Display for Operand {
             Operand::Expr(ts) => write!(f, "Expr({})", ts),
             Operand::Reg(r) => write!(f, "Reg({:?})", r),
             Operand::Ind(r) => write!(f, "Ind({:?})", r),
-            Operand::IndDisp(r, i) => write!(f, "IndDisp({:?}, {})", r, i),
+            Operand::IndDisp(r, d) => write!(f, "IndDisp({:?}, {})", r, d),
         }
     }
 }
@@ -71,10 +71,25 @@ enum Dest {
     Rel(Ident),
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 struct Addr {
     reg: Reg,
-    offset: i32,
+    offset: Offset,
+}
+
+#[derive(Clone, Debug)]
+enum Offset {
+    Imm(i32),
+    Expr(TokenStream),
+}
+
+impl std::fmt::Display for Offset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Offset::Imm(i) => write!(f, "Imm({})", i),
+            Offset::Expr(ts) => write!(f, "Expr({})", ts),
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -130,6 +145,21 @@ enum Mode {
     Reg = 3,   // rax
 }
 
+impl Mode {
+    fn from_disp(offset: Offset) -> Self {
+        match offset {
+            Offset::Imm(i) => {
+                if std::i8::MIN as i32 <= i && i <= std::i8::MAX as i32 {
+                    Mode::InD8
+                } else {
+                    Mode::InD32
+                }
+            }
+            Offset::Expr(_) => Mode::InD32,
+        }
+    }
+}
+
 impl Parse for Operand {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         let lookahead = input.lookahead1();
@@ -141,22 +171,15 @@ impl Parse for Operand {
             let imm = input.parse::<LitInt>()?;
             Ok(Operand::Imm(imm.base10_parse()?))
         } else if lookahead.peek(token::Bracket) {
-            if let TokenTree::Group(gr) = input.parse::<TokenTree>()? {
-                let addr: Addr = syn::parse2(gr.stream())?;
-                if addr.offset == 0 {
-                    Ok(Operand::Ind(addr.reg))
-                } else {
-                    Ok(Operand::IndDisp(addr.reg, addr.offset))
-                }
-            } else {
-                return Err(lookahead.error());
+            let gr = input.parse::<Group>()?;
+            let addr: Addr = syn::parse2(gr.stream())?;
+            match addr.offset {
+                Offset::Imm(i) if i == 0 => Ok(Operand::Ind(addr.reg)),
+                _ => Ok(Operand::IndDisp(addr.reg, addr.offset)),
             }
-        } else if lookahead.peek(token::Bracket) || lookahead.peek(token::Paren){
-            if let TokenTree::Group(gr) = input.parse::<TokenTree>()? {
-                Ok(Operand::Expr(gr.stream()))
-            } else {
-                return Err(lookahead.error());
-            }
+        } else if lookahead.peek(token::Paren) {
+            let gr = input.parse::<Group>()?;
+            Ok(Operand::Expr(gr.stream()))
         } else {
             return Err(lookahead.error());
         }
@@ -181,39 +204,45 @@ impl Parse for Dest {
 
 impl Parse for Addr {
     fn parse(input: ParseStream) -> Result<Self, Error> {
-        let lookahead = input.lookahead1();
-        if !lookahead.peek(Ident) {
-            return Err(lookahead.error());
-        }
         let ident: Ident = input.parse()?;
         let reg = match Reg::from_str(ident.to_string().as_str()) {
-            None => return Err(lookahead.error()),
+            None => return Err(input.error("expected register name.")),
             Some(reg) => reg,
         };
+        let lookahead = input.lookahead1();
         let offset = if input.is_empty() {
-            0
+            Offset::Imm(0)
         } else {
-            if input.peek(Token![-]) && input.peek2(LitInt) {
-                input.parse::<Token![-]>()?;
-                let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
-                ofs * (-1)
-            } else if input.peek(Token![+]) && input.peek2(LitInt) {
-                input.parse::<Token![+]>()?;
-                let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
-                ofs
+            if input.peek(Token![-]) || input.peek(Token![+]) {
+                let sign = match input.parse::<Punct>()?.as_char() {
+                    '-' => -1,
+                    '+' => 1,
+                    _ => return Err(lookahead.error()),
+                };
+                let lookahead = input.lookahead1();
+                if lookahead.peek(token::Paren) {
+                    let gr = input.parse::<Group>()?;
+                    Offset::Expr(if sign == 1 {
+                        quote!( #gr )
+                    } else {
+                        quote!( -(#gr) )
+                    })
+                } else if lookahead.peek(LitInt) {
+                    let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
+                    Offset::Imm(ofs * sign)
+                } else {
+                    return Err(lookahead.error());
+                }
             } else {
                 return Err(lookahead.error());
             }
         };
-        Ok(Addr {
-            reg,
-            offset,
-        })
+        Ok(Addr { reg, offset })
     }
 }
 
 fn is_single(input: ParseStream) -> bool {
-    input.peek2(Token![,]) || input.peek2(Token![;]) 
+    input.peek2(Token![,]) || input.peek2(Token![;])
 }
 
 macro_rules! parse_2op {
@@ -254,27 +283,27 @@ impl Parse for Inst {
             input.parse::<Token![:]>()?;
             Ok(Inst::Label(inst))
         } else {
-        match inst.to_string().as_str() {
-            "movq" => parse_2op!(input, Movq),
-            "addq" => parse_2op!(input, Addq),
-            "orq"  => parse_2op!(input, Orq),
-            "adcq" => parse_2op!(input, Adcq),
-            "sbbq" => parse_2op!(input, Sbbq),
-            "andq" => parse_2op!(input, Andq),
-            "subq" => parse_2op!(input, Subq),
-            "xorq" => parse_2op!(input, Xorq),
-            "imull" => parse_2op!(input, Imull),
+            match inst.to_string().as_str() {
+                "movq" => parse_2op!(input, Movq),
+                "addq" => parse_2op!(input, Addq),
+                "orq" => parse_2op!(input, Orq),
+                "adcq" => parse_2op!(input, Adcq),
+                "sbbq" => parse_2op!(input, Sbbq),
+                "andq" => parse_2op!(input, Andq),
+                "subq" => parse_2op!(input, Subq),
+                "xorq" => parse_2op!(input, Xorq),
+                "imull" => parse_2op!(input, Imull),
 
-            "pushq" => parse_1op!(input, Pushq),
-            "popq" => parse_1op!(input, Popq),
-            "cmpq" => parse_2op!(input, Cmpq),
-            "call" => parse_1op!(input, Call),
-            "ret"  => parse_0op!(input, Ret),
-            "jmp" => parse_1op!(input, Jmp),
-            "jne"  =>  parse_1op!(input, Jne),
-            "syscall" => parse_0op!(input, Syscall),
-            _ => Err(Error::new(inst.span(), "unimplemented instruction.")),
-        }
+                "pushq" => parse_1op!(input, Pushq),
+                "popq" => parse_1op!(input, Popq),
+                "cmpq" => parse_2op!(input, Cmpq),
+                "call" => parse_1op!(input, Call),
+                "ret" => parse_0op!(input, Ret),
+                "jmp" => parse_1op!(input, Jmp),
+                "jne" => parse_1op!(input, Jne),
+                "syscall" => parse_0op!(input, Syscall),
+                _ => Err(Error::new(inst.span(), "unimplemented instruction.")),
+            }
         }
     }
 }
@@ -310,9 +339,7 @@ pub fn monoasm(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn compile(inst: Inst) -> TokenStream {
     match inst {
-        Inst::Label(ident) => {
-            quote!( jit.bind_label(#ident); )
-        }
+        Inst::Label(ident) => quote!( jit.bind_label(#ident); ),
         Inst::Movq(op1, op2) => {
             match (op1, op2) {
                 (Operand::Imm(_), _) => panic!("Invalid op: moveq Imm, _"),
@@ -343,25 +370,15 @@ fn compile(inst: Inst) -> TokenStream {
                     ts
                 }
                 // MOV r/m64,r64
-                (Operand::Reg(r1), Operand::Reg(r2)) => enc_mr(0x89, Mode::Reg, r2, r1, 0),
-                (Operand::Ind(r1), Operand::Reg(r2)) => enc_mr(0x89, Mode::Ind, r2, r1, 0),
+                (Operand::Reg(r1), Operand::Reg(r2)) => enc_mr(0x89, Mode::Reg, r2, r1),
+                (Operand::Ind(r1), Operand::Reg(r2)) => enc_mr(0x89, Mode::Ind, r2, r1),
                 (Operand::IndDisp(r1, disp), Operand::Reg(r2)) => {
-                    enc_mr(0x89,
-                    if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 {
-                        Mode::InD8
-                    } else {
-                        Mode::InD32
-                    }, r2, r1, disp)
+                    enc_mr_disp(0x89, Mode::from_disp(disp.clone()), r2, r1, disp)
                 }
                 // MOV r64,m64
-                (Operand::Reg(r1), Operand::Ind(r2)) => enc_mr(0x8b, Mode::Ind, r1, r2, 0),
+                (Operand::Reg(r1), Operand::Ind(r2)) => enc_mr(0x8b, Mode::Ind, r1, r2),
                 (Operand::Reg(r1), Operand::IndDisp(r2, disp)) => {
-                    enc_mr(0x8b,
-                    if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 {
-                        Mode::InD8
-                    } else {
-                        Mode::InD32
-                    }, r1, r2, disp)
+                    enc_mr_disp(0x8b, Mode::from_disp(disp.clone()), r1, r2, disp)
                 }
                 _ => unimplemented!(),
             }
@@ -386,15 +403,20 @@ fn compile(inst: Inst) -> TokenStream {
                     ));
                     ts.extend(modrm(Mode::Ind, r1, r2));
                 }
-                (Operand::Reg(r1), Operand::IndDisp(r2, disp)) => {
+                (Operand::Reg(r1), Operand::IndDisp(r2, offset)) => {
                     ts.extend(quote!(
                         jit.emitb(0x0f);
                         jit.emitb(0xaf);
                     ));
                     ts.extend(modrm(Mode::InD32, r1, r2));
-                    ts.extend(quote!(
-                        jit.emitl(#disp as u32);
-                    ));
+                    match offset {
+                        Offset::Imm(i) => ts.extend(quote!(
+                            jit.emitl(#i as u32);
+                        )),
+                        Offset::Expr(expr) => ts.extend(quote!(
+                            jit.emitl((#expr) as u32);
+                        )),
+                    }
                 }
                 _ => unimplemented!(),
             }
@@ -462,21 +484,39 @@ fn enc_o(op: u8, reg: Reg) -> TokenStream {
 
 /// Encoding: M
 fn enc_m(op: u8, mode: Mode, reg_rm: Reg) -> TokenStream {
-    enc_mr(op, mode, Reg::Rax, reg_rm, 0)
+    enc_mr(op, mode, Reg::Rax, reg_rm)
 }
 
 /// Encoding: MR or RM
-fn enc_mr(op: u8, mode: Mode, reg: Reg, reg_rm: Reg, disp: i32) -> TokenStream {
+fn enc_mr(op: u8, mode: Mode, reg: Reg, reg_rm: Reg) -> TokenStream {
     // TODO: If mode != Reg and r/m == 4(rsp/r12), use SIB.
     // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
     let mut ts = TokenStream::new();
     ts.extend(rexw(reg, reg_rm));
     ts.extend(quote!( jit.emitb(#op); ));
     ts.extend(modrm(mode, reg, reg_rm));
-    if mode == Mode::InD8 {
-        ts.extend(quote!( jit.emitb(#disp as i8 as u8); ));
-    } else if mode == Mode::InD32 {
-        ts.extend(quote!( jit.emitl(#disp as u32); ));
+    ts
+}
+
+/// Encoding: MR or RM
+fn enc_mr_disp(op: u8, mode: Mode, reg: Reg, reg_rm: Reg, disp: Offset) -> TokenStream {
+    // TODO: If mode != Reg and r/m == 4(rsp/r12), use SIB.
+    // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
+    let mut ts = TokenStream::new();
+    ts.extend(rexw(reg, reg_rm));
+    ts.extend(quote!( jit.emitb(#op); ));
+    ts.extend(modrm(mode, reg, reg_rm));
+    match disp {
+        Offset::Imm(i) => {
+            if mode == Mode::InD8 {
+                ts.extend(quote!( jit.emitb(#i as i8 as u8); ));
+            } else if mode == Mode::InD32 {
+                ts.extend(quote!( jit.emitl(#i as u32); ));
+            }
+        }
+        Offset::Expr(expr) => ts.extend(quote!(
+            jit.emitl((#expr) as u32);
+        )),
     }
     ts
 }
@@ -524,14 +564,21 @@ fn binary_op(
                 Operand::Ind(r) => ts.extend(modrm_digit(Mode::Ind, digit, r)),
                 Operand::IndDisp(r, disp) => {
                     ts.extend(modrm_digit(Mode::InD32, digit, r));
-                    ts.extend(quote!( jit.emitl(#disp as u32); ));
+                    match disp {
+                        Offset::Imm(i) => {
+                            ts.extend(quote!( jit.emitl(#i as u32); ));
+                        }
+                        Offset::Expr(expr) => {
+                            ts.extend(quote!( jit.emitl((#expr) as u32); ));
+                        }
+                    }
                 }
                 _ => unreachable!(),
             }
             ts.extend(quote!( jit.emitl(#i as u32); ));
         }
         (Operand::Reg(r1), Operand::Reg(r2)) => {
-            ts.extend(enc_mr(opcode_rm_reg, Mode::Reg, r2, r1, 0));
+            ts.extend(enc_mr(opcode_rm_reg, Mode::Reg, r2, r1));
         }
         _ => unimplemented!(),
     }
@@ -547,7 +594,7 @@ fn push_pop(opcode: u8, op: Operand) -> TokenStream {
             }
             ts.extend(emitb_with_rd(opcode, r));
         }
-         _ => unimplemented!(),
+        _ => unimplemented!(),
     }
     ts
 }

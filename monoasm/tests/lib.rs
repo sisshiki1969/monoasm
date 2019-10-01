@@ -1,7 +1,7 @@
 #![feature(proc_macro_hygiene)]
 extern crate monoasm;
 extern crate monoasm_macro;
-use monoasm::{JitMemory};
+use monoasm::JitMemory;
 use monoasm_macro::monoasm;
 
 fn hello() -> (fn() -> i64) {
@@ -42,6 +42,7 @@ fn fac() -> (fn() -> i64) {
     let fac = jit.label();
     let l2 = jit.label();
     let l3 = jit.label();
+    let i: i32 = 8;
 
     // main()
     monoasm!(
@@ -62,13 +63,13 @@ fn fac() -> (fn() -> i64) {
         pushq rbp;
         movq rbp, rsp;
         subq rsp, 16;
-        movq [rbp-8], rdi;
-        cmpq [rbp-8], 1;
+        movq [rbp-(i)], rdi;
+        cmpq [rbp-(i)], 1;
         jne l2;
         movq rax, 1;
         jmp l3;
     l2:
-        movq rax, [rbp-8];
+        movq rax, [rbp-(i)];
         subq rax, 1;
         movq rdi, rax;
         call fac;
