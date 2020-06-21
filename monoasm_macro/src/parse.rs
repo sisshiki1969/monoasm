@@ -101,63 +101,63 @@ fn is_single(input: ParseStream) -> bool {
     input.peek2(Token![,]) || input.peek2(Token![;])
 }
 
-macro_rules! parse_2op {
-    ($input:ident, $inst: ident) => (
-        {
-            let op1 = $input.parse()?;
-            $input.parse::<Token![,]>()?;
-            let op2 = $input.parse()?;
-            $input.parse::<Token![;]>()?;
-            Ok(Inst::$inst(op1, op2))
-        }
-    )
-}
-
-macro_rules! parse_1op {
-    ($input:ident, $inst: ident) => (
-        {
-            let op = $input.parse()?;
-            $input.parse::<Token![;]>()?;
-            Ok(Inst::$inst(op))
-        }
-    )
-}
-
-macro_rules! parse_0op {
-    ($input:ident, $inst: ident) => (
-        {
-            $input.parse::<Token![;]>()?;
-            Ok(Inst::$inst)
-        }
-    )
-}
-
 impl Parse for Inst {
     fn parse(input: ParseStream) -> Result<Self, Error> {
+        macro_rules! parse_2op {
+            ($inst: ident) => (
+                {
+                    let op1 = input.parse()?;
+                    input.parse::<Token![,]>()?;
+                    let op2 = input.parse()?;
+                    input.parse::<Token![;]>()?;
+                    Ok(Inst::$inst(op1, op2))
+                }
+            )
+        }
+
+        macro_rules! parse_1op {
+            ($inst: ident) => (
+                {
+                    let op = input.parse()?;
+                    input.parse::<Token![;]>()?;
+                    Ok(Inst::$inst(op))
+                }
+            )
+        }
+
+        macro_rules! parse_0op {
+            ($inst: ident) => (
+                {
+                    input.parse::<Token![;]>()?;
+                    Ok(Inst::$inst)
+                }
+            )
+        }
+
         let inst: Ident = input.parse()?;
         if input.peek(Token![:]) {
             input.parse::<Token![:]>()?;
             Ok(Inst::Label(inst))
         } else {
             match inst.to_string().as_str() {
-                "movq" => parse_2op!(input, Movq),
-                "addq" => parse_2op!(input, Addq),
-                "orq" => parse_2op!(input, Orq),
-                "adcq" => parse_2op!(input, Adcq),
-                "sbbq" => parse_2op!(input, Sbbq),
-                "andq" => parse_2op!(input, Andq),
-                "subq" => parse_2op!(input, Subq),
-                "xorq" => parse_2op!(input, Xorq),
-                "imull" => parse_2op!(input, Imull),
+                "movq" => parse_2op!(Movq),
+                "addq" => parse_2op!(Addq),
+                "orq" => parse_2op!(Orq),
+                "adcq" => parse_2op!(Adcq),
+                "sbbq" => parse_2op!(Sbbq),
+                "andq" => parse_2op!(Andq),
+                "subq" => parse_2op!(Subq),
+                "xorq" => parse_2op!(Xorq),
+                "imull" => parse_2op!(Imull),
 
-                "pushq" => parse_1op!(input, Pushq),
-                "popq" => parse_1op!(input, Popq),
-                "cmpq" => parse_2op!(input, Cmpq),
-                "call" => parse_1op!(input, Call),
-                "ret" => parse_0op!(input, Ret),
-                "jmp" => parse_1op!(input, Jmp),
-                "jne" => parse_1op!(input, Jne),
-                "syscall" => parse_0op!(input, Syscall),
+                "pushq" => parse_1op!(Pushq),
+                "popq" => parse_1op!(Popq),
+                "cmpq" => parse_2op!(Cmpq),
+                "call" => parse_1op!(Call),
+                "ret" => parse_0op!(Ret),
+                "jmp" => parse_1op!(Jmp),
+                "jne" => parse_1op!(Jne),
+                "syscall" => parse_0op!(Syscall),
                 _ => Err(Error::new(inst.span(), "unimplemented instruction.")),
             }
         }
