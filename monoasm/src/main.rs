@@ -4,7 +4,7 @@ extern crate monoasm_macro;
 use monoasm::JitMemory;
 use monoasm_macro::monoasm;
 
-fn fac() -> (fn() -> i64) {
+fn fac() -> fn() -> i64 {
     let fmt = "%d\n\0";
     let mut jit: JitMemory = JitMemory::new();
     let printf_addr = libc::printf as u64;

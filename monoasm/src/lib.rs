@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 extern crate libc;
 use std::mem;
-use std::ops::{Index, IndexMut};
+use std::ops::{Index, IndexMut, Add};
 
 const PAGE_SIZE: usize = 4096;
 
@@ -48,9 +48,26 @@ pub enum Mode {
     Reg = 3,   // rax
 }
 
+/// position in JitMemory.
+#[derive(Copy, Clone, PartialEq)]
+pub struct Pos(usize);
+
+impl Add<i32> for Pos {
+    type Output = Pos;
+
+    fn add(self, other: i32) -> Self {
+        Pos((self.0 as i64 + other as i64) as usize)
+    }
+}
+
+/// id for destination label.
+#[derive(Copy, Clone, PartialEq)]
+pub struct DestLabel(usize);
+
+#[derive(Clone, PartialEq)]
 pub struct Reloc {
-    pub loc: Option<usize>,
-    pub disp: Vec<(u8, usize)>, //(size_in_bytes, pos_in_contents)
+    pub loc: Option<Pos>,
+    pub disp: Vec<(u8, Pos)>, //(size_in_bytes, pos_in_contents)
 }
 
 impl Reloc {
@@ -62,12 +79,57 @@ impl Reloc {
     }
 }
 
+pub struct Relocations(Vec<Reloc>);
+
+impl Relocations {
+    fn new() -> Self {
+        Relocations(vec![])
+    }
+
+    fn push(&mut self, reloc: Reloc) {
+        self.0.push(reloc)
+    }
+}
+
+impl Index<DestLabel> for Relocations {
+    type Output = Reloc;
+
+    fn index(&self, dest: DestLabel) -> &Self::Output {
+        &self.0[dest.0]
+    }
+}
+
+impl IndexMut<DestLabel> for Relocations {
+    fn index_mut(&mut self, dest: DestLabel) -> &mut Self::Output {
+        &mut self.0[dest.0]
+    }
+}
+
+impl IntoIterator for Relocations {
+    type Item = Reloc;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl Relocations {
+    fn iter(&self) -> std::slice::Iter<Reloc> {
+        self.0.iter()
+    }
+
+    fn iter_mut(&mut self) -> std::slice::IterMut<Reloc> {
+        self.0.iter_mut()
+    }
+}
+
 /// http://www.jonathanturner.org/2015/12/building-a-simple-jit-in-rust.html
 pub struct JitMemory {
     pub contents: *mut u8,
-    pub counter: usize,
+    pub counter: Pos,
     pub label_count: usize,
-    pub reloc: Vec<Reloc>,
+    pub reloc: Relocations,
 }
 
 impl JitMemory {
@@ -86,15 +148,15 @@ impl JitMemory {
         }
         JitMemory {
             contents,
-            counter: 0,
+            counter: Pos(0),
             label_count: 0,
-            reloc: vec![],
+            reloc: Relocations::new(),
         }
     }
 
     fn p(&self) {
-        for i in 0..self.counter {
-            print!("{:>02x} ", self[i]);
+        for i in 0..self.counter.0 {
+            print!("{:>02x} ", self[Pos(i)]);
         }
         print!("\n");
     }
@@ -103,28 +165,31 @@ impl JitMemory {
         self.contents as u64
     }
 
-    pub fn label(&mut self) -> usize {
+    pub fn label(&mut self) -> DestLabel {
         let label = self.label_count;
         self.label_count += 1;
         self.reloc.push(Reloc::new());
-        label
+        DestLabel(label)
     }
 
-    pub fn bind_label(&mut self, label: usize) {
+    pub fn bind_label(&mut self, label: DestLabel) {
         self.reloc[label].loc = Some(self.counter);
     }
 
-    pub fn save_reloc(&mut self, dest: usize, size: u8) {
+    pub fn save_reloc(&mut self, dest: DestLabel, size: u8) {
         self.reloc[dest].disp.push((size, self.counter));
     }
 
-    pub fn finalize(&mut self) -> (fn() -> i64) {
-        let mut relocs: Vec<(usize, i32)> = vec![];
-        for rel in &mut self.reloc {
+    pub fn finalize(&mut self) -> fn() -> i64 {
+        let mut relocs: Vec<(Pos, i32)> = vec![];
+        for rel in &mut self.reloc.iter_mut() {
             let pos = rel.loc.unwrap();
             for (size, dest) in &mut rel.disp {
-                let disp = pos as i32 - *dest as i32 - *size as i32;
-                relocs.push((*dest, disp));
+                let disp = pos.0 as i64 - dest.0 as i64 - *size as i64;
+                if i32::min_value() as i64 > disp || disp > i32::max_value() as i64 {
+                    panic!("Relocation overflow");
+                }
+                relocs.push((*dest, disp as i32));
             }
         }
         for (dest, disp) in relocs {
@@ -161,7 +226,7 @@ impl JitMemory {
         self.counter = c + 4;
     }
 
-    fn write32(&mut self, loc: usize, val: i32) {
+    fn write32(&mut self, loc: Pos, val: i32) {
         let val = val as u32;
         self[loc] = val as u8;
         self[loc + 1] = (val >> 8) as u8;
@@ -175,16 +240,16 @@ impl JitMemory {
     }
 }
 
-impl Index<usize> for JitMemory {
+impl Index<Pos> for JitMemory {
     type Output = u8;
 
-    fn index(&self, index: usize) -> &u8 {
-        unsafe { &*self.contents.offset(index as isize) }
+    fn index(&self, index: Pos) -> &u8 {
+        unsafe { &*self.contents.offset(index.0 as isize) }
     }
 }
 
-impl IndexMut<usize> for JitMemory {
-    fn index_mut(&mut self, index: usize) -> &mut u8 {
-        unsafe { &mut *self.contents.offset(index as isize) }
+impl IndexMut<Pos> for JitMemory {
+    fn index_mut(&mut self, index: Pos) -> &mut u8 {
+        unsafe { &mut *self.contents.offset(index.0 as isize) }
     }
 }
