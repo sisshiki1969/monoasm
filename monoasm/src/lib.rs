@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 extern crate libc;
 use std::mem;
-use std::ops::{Add, Index, IndexMut};
+use std::ops::{Add, Deref, DerefMut, Index, IndexMut};
 mod jit_memory;
 pub use jit_memory::*;
 
@@ -124,6 +124,19 @@ impl IndexMut<DestLabel> for Relocations {
     }
 }
 
+impl Deref for Relocations {
+    type Target = Vec<Reloc>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Relocations {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+/*
 impl IntoIterator for Relocations {
     type Item = Reloc;
     type IntoIter = std::vec::IntoIter<Self::Item>;
@@ -132,13 +145,4 @@ impl IntoIterator for Relocations {
         self.0.into_iter()
     }
 }
-
-impl Relocations {
-    fn iter(&self) -> std::slice::Iter<Reloc> {
-        self.0.iter()
-    }
-
-    fn iter_mut(&mut self) -> std::slice::IterMut<Reloc> {
-        self.0.iter_mut()
-    }
-}
+*/
