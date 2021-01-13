@@ -8,6 +8,5 @@ edition = "2018"
 
 [dependencies]
 libc = "0.2.62"
+region = "2.2.0"
 monoasm_macro = { path = "../monoasm_macro" }
-
-

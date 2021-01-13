@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![feature(asm)]
 extern crate libc;
 use std::mem;
 use std::ops::{Add, Deref, DerefMut, Index, IndexMut};

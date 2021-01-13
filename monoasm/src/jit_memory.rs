@@ -1,4 +1,7 @@
 use crate::*;
+use region::{protect, Protection};
+use std::alloc::{alloc, Layout};
+
 /// Memory manager.
 pub struct JitMemory {
     /// Pointer to the heap.
@@ -13,17 +16,12 @@ pub struct JitMemory {
 
 impl JitMemory {
     pub fn new() -> JitMemory {
-        let contents: *mut u8;
         let size = 4096;
+        let layout = Layout::from_size_align(size, PAGE_SIZE).expect("Bad Layout.");
+        let contents = unsafe { alloc(layout) };
+
         unsafe {
-            let mut page = mem::MaybeUninit::uninit().assume_init();
-            libc::posix_memalign(&mut page, PAGE_SIZE, size);
-            libc::mprotect(
-                page,
-                size,
-                libc::PROT_EXEC | libc::PROT_READ | libc::PROT_WRITE,
-            );
-            contents = page as *mut u8;
+            protect(contents, size, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
         }
         JitMemory {
             contents,
@@ -33,11 +31,11 @@ impl JitMemory {
         }
     }
 
-    fn p(&self) {
+    fn _p(&self) {
         for i in 0..self.counter.0 {
             print!("{:>02x} ", self[Pos(i)]);
         }
-        print!("\n");
+        println!();
     }
 
     pub fn get_mem_addr(&self) -> u64 {
@@ -59,10 +57,10 @@ impl JitMemory {
         self.reloc[dest].disp.push((size, self.counter));
     }
 
-    pub fn finalize(&mut self) -> fn() -> i64 {
+    pub fn finalize<T>(&mut self) -> fn() -> T {
         let mut relocs: Vec<(Pos, i32)> = vec![];
-        for rel in &mut self.reloc.iter_mut() {
-            let pos = rel.loc.unwrap();
+        for rel in self.reloc.iter_mut() {
+            let pos = rel.loc.expect("Reloc bit determined.");
             for (size, dest) in &mut rel.disp {
                 let disp = pos.0 as i64 - dest.0 as i64 - *size as i64;
                 if i32::min_value() as i64 > disp || disp > i32::max_value() as i64 {
@@ -83,7 +81,7 @@ impl JitMemory {
         self.counter = c + 1;
     }
 
-    fn emitb_with_rd(&mut self, val: u8, r: Reg) {
+    fn _emitb_with_rd(&mut self, val: u8, r: Reg) {
         let c = self.counter;
         self[c] = val | ((r as u8) & 0b0111);
         self.counter = c + 1;
