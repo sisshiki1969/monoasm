@@ -5,7 +5,69 @@ extern crate monoasm_macro;
 use monoasm::JitMemory;
 use monoasm_macro::monoasm;
 
-fn syscall() -> fn() -> i64 {
+// Utility functions
+pub extern "C" fn putc(ch: u8) {
+    eprint!("{}", ch as char);
+}
+
+pub extern "C" fn putint(i: u64) {
+    eprintln!("{:?}", i);
+}
+
+pub extern "C" fn dump() {
+    #[allow(unused_assignments)]
+    let (mut rax, mut rdi, mut rsi, mut rdx, mut rcx, mut r8) =
+        (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+    macro_rules! reg_save {
+        ($reg:ident) => {
+            unsafe {
+                asm!(
+                    concat!("mov {}, ", stringify!($reg)),
+                    out(reg) $reg,
+                );
+            }
+        };
+    }
+    macro_rules! reg_restore {
+        ($reg:ident) => {
+            unsafe {
+                asm!(
+                    concat!("mov ", stringify!($reg),", {}"),
+                    in(reg) $reg,
+                );
+            }
+        };
+    }
+    macro_rules! reg_print {
+        ($reg:ident) => {
+            eprint!(" {:3}: {:016x}", stringify!($reg), $reg);
+        };
+    }
+    reg_save!(rax);
+    reg_save!(rdi);
+    reg_save!(rsi);
+    reg_save!(rdx);
+    reg_save!(rcx);
+    reg_save!(r8);
+
+    reg_print!(rax);
+    reg_print!(rdi);
+    reg_print!(rsi);
+    reg_print!(rdx);
+    reg_print!(rcx);
+    eprintln!();
+    reg_print!(r8);
+    eprintln!();
+
+    reg_restore!(rax);
+    reg_restore!(rdi);
+    reg_restore!(rsi);
+    reg_restore!(rdx);
+    reg_restore!(rcx);
+    reg_restore!(r8);
+}
+
+fn syscall() -> fn(()) -> u64 {
     let hello = "Hello World! Are you angry?\n\0";
     let mut jit: JitMemory = JitMemory::new();
     monoasm!(
@@ -20,7 +82,7 @@ fn syscall() -> fn() -> i64 {
     jit.finalize()
 }
 
-fn hello() -> fn() -> u64 {
+fn hello() -> fn(()) -> () {
     let hello = "Hello World! Are you angry?\n\0";
     let mut jit: JitMemory = JitMemory::new();
     let label = jit.label();
@@ -61,56 +123,77 @@ fn hello() -> fn() -> u64 {
     //jit.p();
 }
 
-pub extern "C" fn putc(ch: u8) {
-    eprint!("{}", ch as char);
+fn fibo() -> fn(u64) -> u64 {
+    let mut jit: JitMemory = JitMemory::new();
+    let putint_addr = putint as *const fn() as u64;
+    let fibo = jit.label();
+    let fibo_ep = jit.label();
+    let l0 = jit.label();
+    let l1 = jit.label();
+
+    // main()
+    monoasm!(
+        // prologue
+        pushq rbp;
+        movq rbp, rsp;
+        // local variables
+        // 0:result
+        subq rsp, 16;
+
+        //movq rdi, 30;
+        // fibo(rdi) -> rax
+        call fibo;
+
+        movq rdi, rax;
+        movq [rsp], rax;
+        movq rax, (putint_addr);
+        call rax;
+        movq rax, [rsp];
+
+        // epilogue
+        movq rsp, rbp;
+        popq rbp;
+        ret;
+
+    // fibo(rdi:i64) -> rax
+    fibo:
+        // prologue
+        pushq rbp;
+        movq rbp, rsp;
+        // local variables
+        subq rsp, 8;
+        // if arg == 0 { return 0 }
+        cmpq rdi, 0;
+        jne l0;
+        movq rax, rdi;
+        jmp fibo_ep;
+        // else if arg == 1 { return 1 }
+    l0:
+        cmpq rdi, 1;
+        jne l1;
+        movq rax, rdi;
+        jmp fibo_ep;
+        // else { return f(arg - 1) + f(arg - 2) }
+    l1:
+        movq [rsp], rdi;
+        subq rdi, 1;
+        call fibo;
+        movq rdi, [rsp];
+        movq [rsp], rax;
+        subq rdi, 2;
+        call fibo;
+        addq rax, [rsp];
+        // epilogue
+    fibo_ep:
+        movq rsp, rbp;
+        popq rbp;
+        ret;
+    );
+
+    jit.finalize()
 }
 
-pub extern "C" fn dump() {
-    #[allow(unused_assignments)]
-    let mut data: u64 = 0;
-    macro_rules! reg_move {
-        ($reg:expr, $i:expr) => {
-            unsafe {
-                asm!(
-                    concat!("mov {}, ", $i, "[rsp]"),
-                    out(reg) data,
-                );
-            }
-            eprintln!("{}: {:016x}", $reg, data);
-        };
-    }
-    unsafe {
-        asm!(
-            "push rax",
-            "push rdi",
-            "push rsi",
-            "push rdx",
-            "push rcx",
-            "push r8",
-            "sub rsp, 16"
-        );
-    }
-    // data := (rsp)
-    reg_move!("rax", 56);
-    reg_move!("rdi", 48);
-    reg_move!("rsi", 40);
-    reg_move!("rdx", 32);
-    reg_move!("rcx", 24);
-    reg_move!("r8 ", 16);
-    unsafe {
-        asm!(
-            "add rsp, 16",
-            "pop r8",
-            "pop rcx",
-            "pop rdx",
-            "pop rsi",
-            "pop rdi",
-            "pop rax",
-        );
-    }
-}
-
-fn fac() -> fn() -> i64 {
+fn fac() -> fn(u64) -> u64 {
     let fmt = "%d\n\0";
     let mut jit: JitMemory = JitMemory::new();
     let printf_addr = libc::printf as u64;
@@ -125,7 +208,7 @@ fn fac() -> fn() -> i64 {
         pushq rbp;
         movq rbp, rsp;
 
-        movq rdi, 10;
+        //movq rdi, 10;
         // fac(rdi) -> rax
         call fac;
 
@@ -153,18 +236,17 @@ fn fac() -> fn() -> i64 {
 
         movq [rbp-(i)], rdi;
         cmpq [rbp-(i)], 1;
-        // if arg == 1 then goto l2
+        // if arg != 1 then goto l2
         jne l2;
         // else return 1
         movq rax, 1;
         jmp l3;
     l2:
         // fac(arg - 1) * [rbp - 8]->
-        movq rax, [rbp-(i)];
-        subq rax, 1;
-        movq rdi, rax;
+        movq rdi, [rbp-(i)];
+        subq rdi, 1;
         call fac;
-        imull rax, [rbp-8];
+        imull rax, [rbp-(i)];
     l3:
         // epilogue
         movq rsp, rbp;
@@ -178,20 +260,26 @@ fn fac() -> fn() -> i64 {
 #[test]
 fn hungry() {
     let func = syscall();
-    let ret = func();
+    let ret = func(());
     assert_eq!(29, ret);
 }
 
 #[test]
 fn hello_world() {
     let func = hello();
-    let ret = func();
-    println!("returned value:{:x}", ret);
+    func(());
+}
+
+#[test]
+fn fibonacci() {
+    let func = fibo();
+    let ret = func(35);
+    assert_eq!(9227465, ret);
 }
 
 #[test]
 fn factorial() {
     let func = fac();
-    let ret = func();
+    let ret = func(10);
     assert_eq!(3628800, ret);
 }

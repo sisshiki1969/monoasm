@@ -28,65 +28,15 @@ impl Mode {
 pub fn compile(inst: Inst) -> TokenStream {
     match inst {
         Inst::Label(ident) => quote!( jit.bind_label(#ident); ),
-        Inst::Movq(op1, op2) => {
-            match (op1, op2) {
-                (Operand::Imm(_), _) => panic!("Invalid op: moveq Imm, _"),
-                // MOV r/m64, imm32
-                // REX.W + C7 /0 id
-                // MI
-                (Operand::Reg(r), Operand::Imm(i)) if i <= 0xffff_ffff => {
-                    let op = enc_m(0xc7, Mode::Reg, r);
-                    quote! {
-                        #op
-                        jit.emitl(#i as u32);
-                    }
-                }
-                (Operand::Ind(r), Operand::Imm(i)) if i <= 0xffff_ffff => {
-                    let op = enc_m(0xc7, Mode::Ind, r);
-                    quote! {
-                        #op
-                        jit.emitl(#i as u32);
-                    }
-                }
-                // MOV r64, imm64
-                // REX.W + B8+ rd io
-                // OI
-                (Operand::Reg(r), Operand::Imm(i)) => {
-                    let op = enc_o(0xb8, r);
-                    quote! {
-                        #op
-                        jit.emitq(#i);
-                    }
-                }
-                (Operand::Reg(r), Operand::Expr(expr)) => {
-                    let op = enc_o(0xb8, r);
-                    quote! {
-                        #op
-                        jit.emitq(#expr);
-                    }
-                }
-                // MOV r/m64,r64
-                // REX.W + 89 /r
-                // MR
-                (Operand::Reg(r1), Operand::Reg(r2)) => enc_mr(0x89, r2, Mode::Reg, r1),
-                (Operand::Ind(r1), Operand::Reg(r2)) => enc_mr(0x89, r2, Mode::Ind, r1),
-                (Operand::IndDisp(r1, disp), Operand::Reg(r2)) => enc_mr_disp(0x89, r2, r1, disp),
-                // MOV r64,m64
-                // REX.W + 8B /r
-                // RM
-                (Operand::Reg(r1), Operand::Ind(r2)) => enc_mr(0x8b, r1, Mode::Ind, r2),
-                (Operand::Reg(r1), Operand::IndDisp(r2, disp)) => enc_mr_disp(0x8b, r1, r2, disp),
-                _ => unimplemented!(),
-            }
-        }
-        Inst::Addq(op1, op2) => binary_op(0x81, 0x01, 0, op1, op2),
-        Inst::Orq(op1, op2) => binary_op(0x81, 0x09, 1, op1, op2),
-        Inst::Adcq(op1, op2) => binary_op(0x81, 0x11, 2, op1, op2),
-        Inst::Sbbq(op1, op2) => binary_op(0x81, 0x19, 3, op1, op2),
-        Inst::Andq(op1, op2) => binary_op(0x81, 0x21, 4, op1, op2),
-        Inst::Subq(op1, op2) => binary_op(0x81, 0x29, 5, op1, op2),
-        Inst::Xorq(op1, op2) => binary_op(0x81, 0x31, 6, op1, op2),
-        Inst::Cmpq(op1, op2) => binary_op(0x81, 0x39, 7, op1, op2),
+        Inst::Movq(op1, op2) => movq(op1, op2),
+        Inst::Addq(op1, op2) => binary_op(0x81, 0x01, 0x03, 0, op1, op2),
+        Inst::Orq(op1, op2) => binary_op(0x81, 0x09, 0x0b, 1, op1, op2),
+        Inst::Adcq(op1, op2) => binary_op(0x81, 0x11, 0x13, 2, op1, op2),
+        Inst::Sbbq(op1, op2) => binary_op(0x81, 0x19, 0x1b, 3, op1, op2),
+        Inst::Andq(op1, op2) => binary_op(0x81, 0x21, 0x23, 4, op1, op2),
+        Inst::Subq(op1, op2) => binary_op(0x81, 0x29, 0x2b, 5, op1, op2),
+        Inst::Xorq(op1, op2) => binary_op(0x81, 0x31, 0x33, 6, op1, op2),
+        Inst::Cmpq(op1, op2) => binary_op(0x81, 0x39, 0x3b, 7, op1, op2),
 
         Inst::Imull(op1, op2) => {
             // IMUL r32, r/m32: r32 <- r32 * r/m32
@@ -155,7 +105,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                     jit.emitl(0);
                 }
             }
-            _ => unimplemented!(),
+            dest => unimplemented!("jmp {:?}", dest),
         },
         Inst::Jne(dest) => quote!(
             jit.emitb(0x0f);
@@ -174,7 +124,7 @@ pub fn compile(inst: Inst) -> TokenStream {
 /// REX.W Op+ rd
 fn enc_o(op: u8, reg: Reg) -> TokenStream {
     let mut ts = TokenStream::new();
-    ts.extend(rexw(Reg::Rax, reg));
+    ts.extend(rexw(Reg::Rax, reg, Reg::Rax));
     ts.extend(op_with_rd(op, reg));
     ts
 }
@@ -189,14 +139,31 @@ fn enc_m(op: u8, mode: Mode, rm: Reg) -> TokenStream {
 /// MR-> ModRM:r/m(w) ModRM:reg(r)
 /// RM-> ModRM:reg(r) ModRM:r/m(w)
 fn enc_mr(op: u8, reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
-    // TODO: If mode != Reg and r/m == 4(rsp/r12), use SIB.
     // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
-    let rex = rexw(reg, rm);
-    let modrm = modrm(mode, reg, rm);
-    quote! {
-        #rex
-        jit.emitb(#op);
-        #modrm
+    if mode != Mode::Reg && (rm == Reg::Rsp || rm == Reg::R12) {
+        // TODO: If mode != Reg and r/m == 4 (rsp/r12), use SIB.
+        // Currently, only Mode::Ind is supported.
+        assert!(mode == Mode::Ind);
+        // set index to 4 when [rm] is to be used.
+        let index = Reg::Rsp; // magic number
+        let scale = 0;
+        let rex = rexw(reg, rm, index);
+        let modrm = modrm(mode, reg, rm);
+        let sib = sib(scale, index, rm as u8);
+        quote! {
+            #rex
+            jit.emitb(#op);
+            #modrm
+            #sib
+        }
+    } else {
+        let rex = rexw(reg, rm, Reg::Rax);
+        let modrm = modrm(mode, reg, rm);
+        quote! {
+            #rex
+            jit.emitb(#op);
+            #modrm
+        }
     }
 }
 
@@ -216,7 +183,7 @@ fn enc_mr_disp(op: u8, reg: Reg, rm: Reg, disp: Imm) -> TokenStream {
             quote!( jit.emitl(#i as u32); )
         }
         Imm::Expr(expr) => quote!( jit.emitl((#expr) as u32); ),
-        _ => unimplemented!(),
+        disp => unimplemented!("Unsupported displacement {:?}", disp),
     };
     quote! {
         #enc_mr
@@ -234,13 +201,28 @@ fn modrm(mode: Mode, reg: Reg, rm: Reg) -> TokenStream {
     quote!( jit.emitb(#modrm); )
 }
 
-fn rexw(rex_r: Reg, rex_b: Reg) -> TokenStream {
-    let rex_prefix = 0x48 | ((rex_r as u8) & 0b0000_1000) >> 1 | ((rex_b as u8) & 0b0000_1000) >> 3;
+/// REX.W
+///      bit
+/// +---+---+----------------------------------------------------+
+/// | W | 3 | 1 = 64 bit operand size                            |
+/// +---+---+----------------------------------------------------+
+/// | R | 2 | rex_r = ext of reg field of ModRM                  |
+/// +---+---+----------------------------------------------------+
+/// | X | 1 | rex_i = ext of index field of SIB                  |
+/// +---+---+----------------------------------------------------+
+/// | B | 0 | rex_b = ext of r/m(ModRM) or base(SIB)             |
+/// |   |   |   or reg field of Op.                              |
+/// +---+---+----------------------------------------------------+
+fn rexw(reg: Reg, base: Reg, index: Reg) -> TokenStream {
+    let rex_prefix = 0x48
+        | ((reg as u8) & 0b0000_1000) >> 1
+        | ((index as u8) & 0b0000_1000) >> 2
+        | ((base as u8) & 0b0000_1000) >> 3;
     quote!( jit.emitb(#rex_prefix); )
 }
 
-fn rex(rex_r: Reg, rex_b: Reg) -> TokenStream {
-    let rex_prefix = 0x40 | ((rex_r as u8) & 0b0000_1000) >> 1 | ((rex_b as u8) & 0b0000_1000) >> 3;
+fn rex(reg: Reg, base: Reg) -> TokenStream {
+    let rex_prefix = 0x40 | ((reg as u8) & 0b0000_1000) >> 1 | ((base as u8) & 0b0000_1000) >> 3;
     quote!( jit.emitb(#rex_prefix); )
 }
 
@@ -249,9 +231,88 @@ fn op_with_rd(op: u8, r: Reg) -> TokenStream {
     quote!( jit.emitb(#val); )
 }
 
+/// Emit SIB
+/// +-------+---+---+--+-+--+-+-+--+
+/// |  bit  | 7 | 6 | 5|4|3 |2|1|0 |
+/// +-------+---+---+--+-+--+-+-+--+
+/// | field | scale | index | base |
+/// +-------+-------+-------+------+
+/// |  rex  |       |   x   |  b   |
+/// +-------+-------+-------+------+
+///
+/// scale: 00|01|10|11
+///  mul : na| 2| 4| 8
+///
+/// index: register number (with rex.x)
+///
+/// base: register number (with rex.b)
+///     rex.b:0 base:101 => use RBP  mode:00/disp32 01/RBP+disp8 10/RBP+disp32
+///     rex.b:1 base:101 => use R13  mode:00/disp32 01/R13+disp8 10/R13+disp32
+///
+fn sib(scale: u8, index: Reg, base: u8) -> TokenStream {
+    assert!(scale < 4);
+    assert!((index as u8) < 8);
+    assert!(base < 8);
+    let sib = scale << 6 | (index as u8) << 3 | base;
+    quote!( jit.emitb(#sib); )
+}
+
+fn movq(op1: Operand, op2: Operand) -> TokenStream {
+    match (op1, op2) {
+        (Operand::Imm(_), _) => panic!("Invalid op: moveq Imm, _"),
+        // MOV r/m64, imm32
+        // REX.W + C7 /0 id
+        // MI
+        (Operand::Reg(r), Operand::Imm(i)) if i <= 0xffff_ffff => {
+            let op = enc_m(0xc7, Mode::Reg, r);
+            quote! {
+                #op
+                jit.emitl(#i as u32);
+            }
+        }
+        (Operand::Ind(r), Operand::Imm(i)) if i <= 0xffff_ffff => {
+            let op = enc_m(0xc7, Mode::Ind, r);
+            quote! {
+                #op
+                jit.emitl(#i as u32);
+            }
+        }
+        // MOV r64, imm64
+        // REX.W + B8+ rd io
+        // OI
+        (Operand::Reg(r), Operand::Imm(i)) => {
+            let op = enc_o(0xb8, r);
+            quote! {
+                #op
+                jit.emitq(#i);
+            }
+        }
+        (Operand::Reg(r), Operand::Expr(expr)) => {
+            let op = enc_o(0xb8, r);
+            quote! {
+                #op
+                jit.emitq(#expr);
+            }
+        }
+        // MOV r/m64,r64
+        // REX.W + 89 /r
+        // MR
+        (Operand::Reg(r1), Operand::Reg(r2)) => enc_mr(0x89, r2, Mode::Reg, r1),
+        (Operand::Ind(r1), Operand::Reg(r2)) => enc_mr(0x89, r2, Mode::Ind, r1),
+        (Operand::IndDisp(r1, disp), Operand::Reg(r2)) => enc_mr_disp(0x89, r2, r1, disp),
+        // MOV r64,m64
+        // REX.W + 8B /r
+        // RM
+        (Operand::Reg(r1), Operand::Ind(r2)) => enc_mr(0x8b, r1, Mode::Ind, r2),
+        (Operand::Reg(r1), Operand::IndDisp(r2, disp)) => enc_mr_disp(0x8b, r1, r2, disp),
+        (op1, op2) => unimplemented!("movq {:?}, {:?}", op1, op2),
+    }
+}
+
 fn binary_op(
-    opcode_imm: u8,
-    opcode_rm_reg: u8,
+    op_imm: u8,
+    op_mr: u8,
+    op_rm: u8,
     digit: u8,
     op1: Operand,
     op2: Operand,
@@ -264,11 +325,11 @@ fn binary_op(
             if i > 0xffff_ffff {
                 panic!("'XXX r/m64, imm64' does not exists.");
             }
-            let rex = rexw(Reg::Rax, r);
+            let rex = rexw(Reg::Rax, r, Reg::Rax);
             let modrm = modrm_digit(Mode::Reg, digit, r);
             quote! {
                 #rex
-                jit.emitb(#opcode_imm);
+                jit.emitb(#op_imm);
                 #modrm
                 jit.emitl(#i as u32);
             }
@@ -279,11 +340,11 @@ fn binary_op(
             if i > 0xffff_ffff {
                 panic!("'XXX r/m64, imm64' does not exists.");
             }
-            let rex = rexw(Reg::Rax, r);
+            let rex = rexw(Reg::Rax, r, Reg::Rax);
             let modrm = modrm_digit(Mode::Ind, digit, r);
             quote! {
                 #rex
-                jit.emitb(#opcode_imm);
+                jit.emitb(#op_imm);
                 #modrm
                 jit.emitl(#i as u32);
             }
@@ -293,7 +354,7 @@ fn binary_op(
             if i > 0xffff_ffff {
                 panic!("'XXX r/m64, imm64' does not exists.");
             }
-            let rex = rexw(Reg::Rax, r);
+            let rex = rexw(Reg::Rax, r, Reg::Rax);
             let modrm = {
                 let mut ts = modrm_digit(Mode::InD32, digit, r);
                 match disp {
@@ -308,13 +369,18 @@ fn binary_op(
             };
             quote! {
                 #rex
-                jit.emitb(#opcode_imm);
+                jit.emitb(#op_imm);
                 #modrm
                 jit.emitl(#i as u32);
             }
         }
-        (Operand::Reg(r1), Operand::Reg(r2)) => enc_mr(opcode_rm_reg, r2, Mode::Reg, r1),
-        _ => unimplemented!(),
+        // OP r64, r64
+        (Operand::Reg(r1), Operand::Reg(r2)) => enc_mr(op_mr, r2, Mode::Reg, r1),
+        // OP r64, m64
+        // REX.W op /r
+        // RM
+        (Operand::Reg(r1), Operand::Ind(r2)) => enc_mr(op_rm, r1, Mode::Ind, r2),
+        (op1, op2) => unimplemented!("XXX {:?}, {:?}", op1, op2),
     }
 }
 
@@ -330,7 +396,7 @@ fn push_pop(opcode: u8, op: Operand) -> TokenStream {
             }
             ts.extend(op_with_rd(opcode, r));
         }
-        _ => unimplemented!(),
+        op => unimplemented!("PUSH/POP {:?}", op),
     }
     ts
 }

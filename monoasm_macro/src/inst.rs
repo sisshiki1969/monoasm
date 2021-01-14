@@ -1,5 +1,5 @@
-use proc_macro2::{TokenStream};
-use syn::{Ident};
+use proc_macro2::TokenStream;
+use syn::Ident;
 
 #[derive(Clone, Debug)]
 pub struct Stmts {
@@ -119,5 +119,3 @@ impl Reg {
         Some(reg)
     }
 }
-
-

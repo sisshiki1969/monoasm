@@ -57,10 +57,10 @@ impl JitMemory {
         self.reloc[dest].disp.push((size, self.counter));
     }
 
-    pub fn finalize<T>(&mut self) -> fn() -> T {
+    pub fn finalize<T, U>(&mut self) -> fn(T) -> U {
         let mut relocs: Vec<(Pos, i32)> = vec![];
         for rel in self.reloc.iter_mut() {
-            let pos = rel.loc.expect("Reloc bit determined.");
+            let pos = rel.loc.expect("Reloc not determined.");
             for (size, dest) in &mut rel.disp {
                 let disp = pos.0 as i64 - dest.0 as i64 - *size as i64;
                 if i32::min_value() as i64 > disp || disp > i32::max_value() as i64 {
