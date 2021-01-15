@@ -145,10 +145,10 @@ fn fibo() -> fn(u64) -> u64 {
         call fibo;
 
         movq rdi, rax;
-        movq [rsp], rax;
+        movq [rbp-8], rax;
         movq rax, (putint_addr);
         call rax;
-        movq rax, [rsp];
+        movq rax, [rbp-8];
 
         // epilogue
         movq rsp, rbp;
@@ -161,7 +161,7 @@ fn fibo() -> fn(u64) -> u64 {
         pushq rbp;
         movq rbp, rsp;
         // local variables
-        subq rsp, 8;
+        subq rsp, 16;
         // if arg == 0 { return 0 }
         cmpq rdi, 0;
         jne l0;
@@ -175,14 +175,14 @@ fn fibo() -> fn(u64) -> u64 {
         jmp fibo_ep;
         // else { return f(arg - 1) + f(arg - 2) }
     l1:
-        movq [rsp], rdi;
+        movq [rbp-8], rdi;
         subq rdi, 1;
         call fibo;
-        movq rdi, [rsp];
-        movq [rsp], rax;
+        movq rdi, [rbp-8];
+        movq [rbp-8], rax;
         subq rdi, 2;
         call fibo;
-        addq rax, [rsp];
+        addq rax, [rbp-8];
         // epilogue
     fibo_ep:
         movq rsp, rbp;

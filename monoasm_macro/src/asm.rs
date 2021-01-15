@@ -120,6 +120,44 @@ pub fn compile(inst: Inst) -> TokenStream {
     }
 }
 
+fn op_to_rm(op: Operand) -> (Mode, Reg, Option<Imm>) {
+    match op {
+        Operand::Reg(r) => (Mode::Reg, r, None),
+        Operand::Ind(r) => (Mode::Ind, r, None),
+        Operand::IndDisp(r, d) => (
+            match d {
+                Imm::Imm(i) => {
+                    if std::i8::MIN as i32 <= i && i <= std::i8::MAX as i32 {
+                        Mode::InD8
+                    } else {
+                        Mode::InD32
+                    }
+                }
+                Imm::Expr(_) => Mode::InD32,
+            },
+            r,
+            Some(d),
+        ),
+        rm_op => unreachable!("as_rm():{:?}", rm_op),
+    }
+}
+
+fn imm_to_ts(imm: Option<Imm>, mode: Mode) -> TokenStream {
+    match imm {
+        Some(imm) => match imm {
+            Imm::Imm(i) => match mode {
+                Mode::InD8 => quote!( jit.emitb(#i as i8 as u8); ),
+                Mode::InD32 => quote!( jit.emitl(#i as u32); ),
+                _ => unreachable!(),
+            },
+            Imm::Expr(expr) => {
+                quote!( jit.emitl((#expr) as u32); )
+            }
+        },
+        None => quote!(),
+    }
+}
+
 /// Encoding: Opcode + rd  
 /// REX.W Op+ rd
 fn enc_o(op: u8, reg: Reg) -> TokenStream {
@@ -129,17 +167,27 @@ fn enc_o(op: u8, reg: Reg) -> TokenStream {
     ts
 }
 
-/// Encoding: M  
+/// Encoding: MI  
 /// ModRM:r/m
-fn enc_m(op: u8, mode: Mode, rm: Reg) -> TokenStream {
-    enc_mr(op, Reg::Rax, mode, rm)
+fn enc_mi(op: u8, rm_op: Operand) -> TokenStream {
+    enc_mr(op, Reg::Rax, rm_op)
 }
 
 /// Encoding: MR or RM
 /// MR-> ModRM:r/m(w) ModRM:reg(r)
 /// RM-> ModRM:reg(r) ModRM:r/m(w)
-fn enc_mr(op: u8, reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
+fn enc_mr(op: u8, reg: Reg, rm_op: Operand) -> TokenStream {
+    let (mode, rm, disp) = op_to_rm(rm_op);
+    let enc_mr = enc_mr_main(op, reg, mode, rm);
     // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
+    let disp = imm_to_ts(disp, mode);
+    quote! {
+        #enc_mr
+        #disp
+    }
+}
+
+fn enc_mr_main(op: u8, reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
     if mode != Mode::Reg && (rm == Reg::Rsp || rm == Reg::R12) {
         // TODO: If mode != Reg and r/m == 4 (rsp/r12), use SIB.
         // Currently, only Mode::Ind is supported.
@@ -167,30 +215,14 @@ fn enc_mr(op: u8, reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
     }
 }
 
-/// Encoding: MR or RM
-/// MR-> ModRM:r/m(w) ModRM:reg(r)
-/// RM-> ModRM:reg(r) ModRM:r/m(w)
-fn enc_mr_disp(op: u8, reg: Reg, rm: Reg, disp: Imm) -> TokenStream {
-    // TODO: If mode != Reg and r/m == 4(rsp/r12), use SIB.
-    // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
-    let mode = Mode::from_disp(disp.clone());
-    let enc_mr = enc_mr(op, reg, mode, rm);
-    let disp = match disp {
-        Imm::Imm(i) if mode == Mode::InD8 => {
-            quote!( jit.emitb(#i as i8 as u8); )
-        }
-        Imm::Imm(i) if mode == Mode::InD32 => {
-            quote!( jit.emitl(#i as u32); )
-        }
-        Imm::Expr(expr) => quote!( jit.emitl((#expr) as u32); ),
-        disp => unimplemented!("Unsupported displacement {:?}", disp),
-    };
-    quote! {
-        #enc_mr
-        #disp
-    }
-}
-
+/// ModRM
+/// +-------+---+---+---+---+---+---+---+---+
+/// |  bit  | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
+/// +-------+---+---+---+---+---+---+---+---+
+/// | field |  mod  |    reg    |    r/m    |
+/// +-------+-------+-----------+-----------+
+/// |  rex  |       |     r     |     b     |
+/// +-------+-------+-----------+-----------+
 fn modrm_digit(mode: Mode, digit: u8, rm: Reg) -> TokenStream {
     let modrm = (mode as u8) << 6 | (digit & 0b111) << 3 | (rm as u8) & 0b111;
     quote!( jit.emitb(#modrm); )
@@ -203,16 +235,16 @@ fn modrm(mode: Mode, reg: Reg, rm: Reg) -> TokenStream {
 
 /// REX.W
 ///      bit
-/// +---+---+----------------------------------------------------+
-/// | W | 3 | 1 = 64 bit operand size                            |
-/// +---+---+----------------------------------------------------+
-/// | R | 2 | rex_r = ext of reg field of ModRM                  |
-/// +---+---+----------------------------------------------------+
-/// | X | 1 | rex_i = ext of index field of SIB                  |
-/// +---+---+----------------------------------------------------+
-/// | B | 0 | rex_b = ext of r/m(ModRM) or base(SIB)             |
-/// |   |   |   or reg field of Op.                              |
-/// +---+---+----------------------------------------------------+
+/// +---+---+------------------------------------------------+
+/// | W | 3 | 1 = 64 bit operand size                        |
+/// +---+---+------------------------------------------------+
+/// | R | 2 | rex_r = ext of reg field of ModRM              |
+/// +---+---+------------------------------------------------+
+/// | X | 1 | rex_i = ext of index field of SIB              |
+/// +---+---+------------------------------------------------+
+/// | B | 0 | rex_b = ext of r/m(ModRM) or base(SIB)         |
+/// |   |   |           or reg field of Op.                  |
+/// +---+---+------------------------------------------------+
 fn rexw(reg: Reg, base: Reg, index: Reg) -> TokenStream {
     let rex_prefix = 0x48
         | ((reg as u8) & 0b0000_1000) >> 1
@@ -232,13 +264,13 @@ fn op_with_rd(op: u8, r: Reg) -> TokenStream {
 }
 
 /// Emit SIB
-/// +-------+---+---+--+-+--+-+-+--+
-/// |  bit  | 7 | 6 | 5|4|3 |2|1|0 |
-/// +-------+---+---+--+-+--+-+-+--+
-/// | field | scale | index | base |
-/// +-------+-------+-------+------+
-/// |  rex  |       |   x   |  b   |
-/// +-------+-------+-------+------+
+/// +-------+---+---+---+---+---+---+---+---+
+/// |  bit  | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
+/// +-------+---+---+---+---+---+---+---+---+
+/// | field | scale |   index   |    base   |
+/// +-------+-------+-----------+-----------+
+/// |  rex  |       |     x     |     b     |
+/// +-------+-------+-----------+-----------+
 ///
 /// scale: 00|01|10|11
 ///  mul : na| 2| 4| 8
@@ -259,52 +291,49 @@ fn sib(scale: u8, index: Reg, base: u8) -> TokenStream {
 
 fn movq(op1: Operand, op2: Operand) -> TokenStream {
     match (op1, op2) {
-        (Operand::Imm(_), _) => panic!("Invalid op: moveq Imm, _"),
+        (Operand::Imm(_), op2) => panic!("'MOV Imm, {}' doen not exists.", op2),
         // MOV r/m64, imm32
         // REX.W + C7 /0 id
         // MI
-        (Operand::Reg(r), Operand::Imm(i)) if i <= 0xffff_ffff => {
-            let op = enc_m(0xc7, Mode::Reg, r);
-            quote! {
-                #op
-                jit.emitl(#i as u32);
-            }
-        }
-        (Operand::Ind(r), Operand::Imm(i)) if i <= 0xffff_ffff => {
-            let op = enc_m(0xc7, Mode::Ind, r);
-            quote! {
-                #op
-                jit.emitl(#i as u32);
-            }
-        }
+        //
         // MOV r64, imm64
         // REX.W + B8+ rd io
         // OI
         (Operand::Reg(r), Operand::Imm(i)) => {
-            let op = enc_o(0xb8, r);
+            let op_0 = enc_o(0xb8, r); // MOV r64, imm64
+            let op_1 = enc_mi(0xc7, Operand::Reg(r)); // MOV r/m64, imm32
             quote! {
-                #op
-                jit.emitq(#i);
+                let imm = (#i) as u64;
+                if  imm <= 0xffff_ffff {
+                    #op_1
+                    jit.emitl(imm as u32);
+                } else {
+                    #op_0
+                    jit.emitq(imm);
+                }
             }
         }
-        (Operand::Reg(r), Operand::Expr(expr)) => {
-            let op = enc_o(0xb8, r);
+        (Operand::Ind(r), Operand::Imm(i)) => {
+            let op_1 = enc_mi(0xc7, Operand::Ind(r));
+            let op1 = format!("{:?}", Operand::Ind(r));
             quote! {
-                #op
-                jit.emitq(#expr);
+                let imm = (#i) as u64;
+                if  imm <= 0xffff_ffff {
+                    #op_1
+                    jit.emitl(imm as u32);
+                } else {
+                    panic!("'MOV {}, imm64' does not exists.", #op1);
+                }
             }
         }
         // MOV r/m64,r64
         // REX.W + 89 /r
         // MR
-        (Operand::Reg(r1), Operand::Reg(r2)) => enc_mr(0x89, r2, Mode::Reg, r1),
-        (Operand::Ind(r1), Operand::Reg(r2)) => enc_mr(0x89, r2, Mode::Ind, r1),
-        (Operand::IndDisp(r1, disp), Operand::Reg(r2)) => enc_mr_disp(0x89, r2, r1, disp),
+        (op1, Operand::Reg(r2)) => enc_mr(0x89, r2, op1),
         // MOV r64,m64
         // REX.W + 8B /r
         // RM
-        (Operand::Reg(r1), Operand::Ind(r2)) => enc_mr(0x8b, r1, Mode::Ind, r2),
-        (Operand::Reg(r1), Operand::IndDisp(r2, disp)) => enc_mr_disp(0x8b, r1, r2, disp),
+        (Operand::Reg(r1), op2) => enc_mr(0x8b, r1, op2),
         (op1, op2) => unimplemented!("movq {:?}, {:?}", op1, op2),
     }
 }
@@ -318,68 +347,36 @@ fn binary_op(
     op2: Operand,
 ) -> TokenStream {
     match (op1, op2) {
-        // OP r64, imm32
+        (Operand::Imm(_), op2) => panic!("'XXX imm, {}' does not exists.", op2),
+        // OP r/m64, imm32
         // REX.W op /0 id
         // MI
-        (Operand::Reg(r), Operand::Imm(i)) => {
-            if i > 0xffff_ffff {
-                panic!("'XXX r/m64, imm64' does not exists.");
-            }
-            let rex = rexw(Reg::Rax, r, Reg::Rax);
-            let modrm = modrm_digit(Mode::Reg, digit, r);
+        (op1, Operand::Imm(i)) => {
+            let op1_str = format!("{}", op1);
+            let (mode, reg, disp) = op_to_rm(op1);
+            let rex = rexw(Reg::Rax, reg, Reg::Rax);
+            let modrm = modrm_digit(mode, digit, reg);
+            let disp = imm_to_ts(disp, mode);
             quote! {
-                #rex
-                jit.emitb(#op_imm);
-                #modrm
-                jit.emitl(#i as u32);
-            }
-        }
-        // OP m64, imm32
-        // REX.W op /0 id
-        (Operand::Ind(r), Operand::Imm(i)) => {
-            if i > 0xffff_ffff {
-                panic!("'XXX r/m64, imm64' does not exists.");
-            }
-            let rex = rexw(Reg::Rax, r, Reg::Rax);
-            let modrm = modrm_digit(Mode::Ind, digit, r);
-            quote! {
-                #rex
-                jit.emitb(#op_imm);
-                #modrm
-                jit.emitl(#i as u32);
-            }
-        }
-        // OP m64, imm32
-        (Operand::IndDisp(r, disp), Operand::Imm(i)) => {
-            if i > 0xffff_ffff {
-                panic!("'XXX r/m64, imm64' does not exists.");
-            }
-            let rex = rexw(Reg::Rax, r, Reg::Rax);
-            let modrm = {
-                let mut ts = modrm_digit(Mode::InD32, digit, r);
-                match disp {
-                    Imm::Imm(i) => {
-                        ts.extend(quote!( jit.emitl(#i as u32); ));
-                    }
-                    Imm::Expr(expr) => {
-                        ts.extend(quote!( jit.emitl((#expr) as u32); ));
-                    }
+                let imm = (#i) as u64;
+                if imm > 0xffff_ffff {
+                    panic!("'XXX {}, imm64' does not exists.", #op1_str);
                 }
-                ts
-            };
-            quote! {
                 #rex
                 jit.emitb(#op_imm);
                 #modrm
-                jit.emitl(#i as u32);
+                #disp
+                jit.emitl(imm as u32);
             }
         }
-        // OP r64, r64
-        (Operand::Reg(r1), Operand::Reg(r2)) => enc_mr(op_mr, r2, Mode::Reg, r1),
+        // OP r/m64, r64
+        // REX.W op_mr /r
+        // MR
+        (op1, Operand::Reg(r2)) => enc_mr(op_mr, r2, op1),
         // OP r64, m64
-        // REX.W op /r
+        // REX.W op_rm /r
         // RM
-        (Operand::Reg(r1), Operand::Ind(r2)) => enc_mr(op_rm, r1, Mode::Ind, r2),
+        (Operand::Reg(r1), op2) => enc_mr(op_rm, r1, op2),
         (op1, op2) => unimplemented!("XXX {:?}, {:?}", op1, op2),
     }
 }

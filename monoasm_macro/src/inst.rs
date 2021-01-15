@@ -35,8 +35,7 @@ pub enum Inst {
 
 #[derive(Clone, Debug)]
 pub enum Operand {
-    Imm(u64),
-    Expr(TokenStream),
+    Imm(TokenStream),
     Reg(Reg),
     Ind(Reg),
     IndDisp(Reg, Imm),
@@ -46,10 +45,9 @@ impl std::fmt::Display for Operand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Operand::Imm(i) => write!(f, "Imm({})", i),
-            Operand::Expr(ts) => write!(f, "Expr({})", ts),
-            Operand::Reg(r) => write!(f, "Reg({:?})", r),
-            Operand::Ind(r) => write!(f, "Ind({:?})", r),
-            Operand::IndDisp(r, d) => write!(f, "IndDisp({:?}, {})", r, d),
+            Operand::Reg(r) => write!(f, "{:?}", r),
+            Operand::Ind(r) => write!(f, "[{:?}]", r),
+            Operand::IndDisp(r, d) => write!(f, "{}[{:?}]", d, r),
         }
     }
 }

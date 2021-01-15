@@ -1,8 +1,8 @@
-use syn::parse::{Parse, ParseStream};
-use syn::{token, Error, Ident, LitInt, Token};
+use super::inst::*;
 use proc_macro2::{Group, Punct};
 use quote::quote;
-use super::inst::*;
+use syn::parse::{Parse, ParseStream};
+use syn::{token, Error, Ident, LitInt, Token};
 
 #[derive(Clone, Debug)]
 struct Addr {
@@ -19,7 +19,7 @@ impl Parse for Operand {
             Ok(Operand::Reg(reg))
         } else if lookahead.peek(LitInt) && is_single(input) {
             let imm = input.parse::<LitInt>()?;
-            Ok(Operand::Imm(imm.base10_parse()?))
+            Ok(Operand::Imm(quote! { #imm }))
         } else if lookahead.peek(token::Bracket) {
             let gr = input.parse::<Group>()?;
             let addr: Addr = syn::parse2(gr.stream())?;
@@ -29,7 +29,7 @@ impl Parse for Operand {
             }
         } else if lookahead.peek(token::Paren) {
             let gr = input.parse::<Group>()?;
-            Ok(Operand::Expr(gr.stream()))
+            Ok(Operand::Imm(gr.stream()))
         } else {
             return Err(lookahead.error());
         }
