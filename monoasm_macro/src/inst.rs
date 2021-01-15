@@ -95,7 +95,9 @@ pub enum Reg {
 
 impl Reg {
     pub fn from_str(string: &str) -> Option<Reg> {
-        let reg = match string {
+        let mut string = string.to_owned();
+        string.make_ascii_lowercase();
+        let reg = match string.as_str() {
             "rax" => Reg::Rax,
             "rcx" => Reg::Rcx,
             "rdx" => Reg::Rdx,
