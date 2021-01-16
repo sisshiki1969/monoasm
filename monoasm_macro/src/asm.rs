@@ -73,11 +73,17 @@ pub fn compile(inst: Inst) -> TokenStream {
         },
         Inst::Ret => quote!( jit.emitb(0xc3); ),
         Inst::Jmp(dest) => match dest {
-            Dest::Reg(_) => {
+            Dest::Reg(r) => {
                 // JMP r/m64
                 // FF /4
                 // M
-                unimplemented!()
+                let rex = rex(Reg::Rax, r, Reg::Rax);
+                let modrm = modrm_digit(4, Mode::Reg, r);
+                quote! (
+                    #rex
+                    jit.emitb(0xff);
+                    #modrm
+                )
             }
             Dest::Rel(dest) => {
                 // JMP rel32
@@ -92,8 +98,20 @@ pub fn compile(inst: Inst) -> TokenStream {
             dest => unimplemented!("jmp {:?}", dest),
         },
         Inst::Jne(dest) => quote!(
+            // JNE rel32
+            // 0F 85 cd
+            // TODO: support rel8
             jit.emitb(0x0f);
             jit.emitb(0x85);
+            jit.save_reloc(#dest, 4);
+            jit.emitl(0);
+        ),
+        Inst::Je(dest) => quote!(
+            // JE rel32
+            // 0F 84 cd
+            // TODO: support rel8
+            jit.emitb(0x0f);
+            jit.emitb(0x84);
             jit.save_reloc(#dest, 4);
             jit.emitl(0);
         ),

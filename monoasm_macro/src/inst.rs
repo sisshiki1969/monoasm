@@ -27,6 +27,7 @@ pub enum Inst {
 
     Jmp(Dest),
     Jne(Ident),
+    Je(Ident),
 
     Call(Dest),
     Ret,

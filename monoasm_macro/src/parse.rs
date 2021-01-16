@@ -157,6 +157,7 @@ impl Parse for Inst {
                 "ret" => parse_0op!(Ret),
                 "jmp" => parse_1op!(Jmp),
                 "jne" => parse_1op!(Jne),
+                "je" => parse_1op!(Je),
                 "syscall" => parse_0op!(Syscall),
                 _ => Err(Error::new(inst.span(), "unimplemented instruction.")),
             }
