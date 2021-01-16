@@ -27,32 +27,17 @@ pub fn compile(inst: Inst) -> TokenStream {
             // IMUL r32, r/m32: r32 <- r32 * r/m32
             match (op1, op2) {
                 // IMUL r32, r/m32
+                // 0F AF /r
                 // RM
-                (Operand::Reg(r1), Operand::Ind(r2, None)) => {
-                    let modrm = modrm(Mode::Ind, r1, r2);
+                (Operand::Reg(r1), op2) => {
+                    let (mode, reg, disp) = op_to_rm(op2);
+                    let modrm = modrm(r1, mode, reg);
+                    let disp = imm_to_ts(disp, mode);
                     quote! {
                         jit.emitb(0x0f);
                         jit.emitb(0xaf);
                         #modrm
-                    }
-                }
-                // IMUL r32, r/m32
-                // RM
-                (Operand::Reg(r1), Operand::Ind(r2, Some(offset))) => {
-                    let modrm = modrm(Mode::InD32, r1, r2);
-                    let offset = match offset {
-                        Imm::Imm(i) => quote!(
-                            jit.emitl(#i as u32);
-                        ),
-                        Imm::Expr(expr) => quote!(
-                            jit.emitl((#expr) as u32);
-                        ),
-                    };
-                    quote! {
-                        jit.emitb(0x0f);
-                        jit.emitb(0xaf);
-                        #modrm
-                        #offset
+                        #disp
                     }
                 }
                 _ => unimplemented!(),
@@ -64,26 +49,40 @@ pub fn compile(inst: Inst) -> TokenStream {
 
         Inst::Call(dest) => match dest {
             Dest::Reg(r) => {
+                // CALL r/m64
+                // FF /2
                 if r as u8 > 7 {
                     panic!("Can not CALL R8-R15");
                 }
-                let modrm = modrm_digit(Mode::Reg, 2, r);
+                let modrm = modrm_digit(2, Mode::Reg, r);
                 quote! {
                     jit.emitb(0xff);
                     #modrm
                 }
             }
             Dest::Rel(dest) => {
+                // CALL rel32
+                // E8 cd
                 quote! {
                     jit.emitb(0xe8);
                     jit.save_reloc(#dest, 4);
                     jit.emitl(0);
                 }
             }
+            dest => unimplemented!("call {:?}", dest),
         },
         Inst::Ret => quote!( jit.emitb(0xc3); ),
         Inst::Jmp(dest) => match dest {
+            Dest::Reg(_) => {
+                // JMP r/m64
+                // FF /4
+                // M
+                unimplemented!()
+            }
             Dest::Rel(dest) => {
+                // JMP rel32
+                // E9 cd
+                // D
                 quote! {
                     jit.emitb(0xe9);
                     jit.save_reloc(#dest, 4);
@@ -181,7 +180,7 @@ fn enc_mr_main(op: u8, reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
         let index = Reg::Rsp; // magic number
         let scale = 0;
         let rex = rexw(reg, rm, index);
-        let modrm = modrm(mode, reg, rm);
+        let modrm = modrm(reg, mode, rm);
         let sib = sib(scale, index, rm as u8);
         quote! {
             #rex
@@ -191,7 +190,7 @@ fn enc_mr_main(op: u8, reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
         }
     } else {
         let rex = rexw(reg, rm, Reg::Rax);
-        let modrm = modrm(mode, reg, rm);
+        let modrm = modrm(reg, mode, rm);
         quote! {
             #rex
             jit.emitb(#op);
@@ -208,12 +207,12 @@ fn enc_mr_main(op: u8, reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
 /// +-------+-------+-----------+-----------+
 /// |  rex  |       |     r     |     b     |
 /// +-------+-------+-----------+-----------+
-fn modrm_digit(mode: Mode, digit: u8, rm: Reg) -> TokenStream {
+fn modrm_digit(digit: u8, mode: Mode, rm: Reg) -> TokenStream {
     let modrm = (mode as u8) << 6 | (digit & 0b111) << 3 | (rm as u8) & 0b111;
     quote!( jit.emitb(#modrm); )
 }
 
-fn modrm(mode: Mode, reg: Reg, rm: Reg) -> TokenStream {
+fn modrm(reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
     let modrm = (mode as u8) << 6 | ((reg as u8) & 0b111) << 3 | (rm as u8) & 0b111;
     quote!( jit.emitb(#modrm); )
 }
@@ -239,11 +238,15 @@ fn rexw(reg: Reg, base: Reg, index: Reg) -> TokenStream {
 }
 
 fn rex(reg: Reg, base: Reg, index: Reg) -> TokenStream {
-    let rex_prefix = 0x40
-        | ((reg as u8) & 0b0000_1000) >> 1
-        | ((index as u8) & 0b0000_1000) >> 2
-        | ((base as u8) & 0b0000_1000) >> 3;
-    quote!( jit.emitb(#rex_prefix); )
+    if base as u8 > 7 {
+        let rex_prefix = 0x40
+            | ((reg as u8) & 0b0000_1000) >> 1
+            | ((index as u8) & 0b0000_1000) >> 2
+            | ((base as u8) & 0b0000_1000) >> 3;
+        quote!( jit.emitb(#rex_prefix); )
+    } else {
+        quote!()
+    }
 }
 
 fn op_with_rd(op: u8, r: Reg) -> TokenStream {
@@ -337,13 +340,18 @@ fn binary_op(
     match (op1, op2) {
         (Operand::Imm(_), op2) => panic!("'XXX imm, {}' does not exists.", op2),
         // OP r/m64, imm32
-        // REX.W op /0 id
+        // OP=ADD REX.W 81 /0 id
+        // OP=OR  REX.W 81 /1 id
+        // OP=ADC REX.W 81 /2 id
+        // OP=SBB REX.W 81 /3 id
+        // OP=AND REX.W 81 /4 id
+        // OP=SUB REX.W 81 /5 id
         // MI
         (op1, Operand::Imm(i)) => {
             let op1_str = format!("{}", op1);
             let (mode, reg, disp) = op_to_rm(op1);
             let rex = rexw(Reg::Rax, reg, Reg::Rax);
-            let modrm = modrm_digit(mode, digit, reg);
+            let modrm = modrm_digit(digit, mode, reg);
             let disp = imm_to_ts(disp, mode);
             quote! {
                 let imm = (#i) as u64;
@@ -370,18 +378,18 @@ fn binary_op(
 }
 
 fn push_pop(opcode: u8, op: Operand) -> TokenStream {
-    let mut ts = TokenStream::new();
     match op {
         // PUSH r64     POP 64
         // 50 +rd       58 +rd
         // O            O
         Operand::Reg(r) => {
-            if (r as u8) > 7 {
-                ts.extend(rex(Reg::Rax, r, Reg::Rax));
-            }
-            ts.extend(op_with_rd(opcode, r));
+            let rex = rex(Reg::Rax, r, Reg::Rax);
+            let op = op_with_rd(opcode, r);
+            quote! (
+                #rex
+                #op
+            )
         }
         op => unimplemented!("PUSH/POP {:?}", op),
     }
-    ts
 }
