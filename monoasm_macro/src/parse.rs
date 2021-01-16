@@ -24,8 +24,8 @@ impl Parse for Operand {
             let gr = input.parse::<Group>()?;
             let addr: Addr = syn::parse2(gr.stream())?;
             match addr.offset {
-                Imm::Imm(i) if i == 0 => Ok(Operand::Ind(addr.reg)),
-                _ => Ok(Operand::IndDisp(addr.reg, addr.offset)),
+                Imm::Imm(i) if i == 0 => Ok(Operand::Ind(addr.reg, None)),
+                _ => Ok(Operand::Ind(addr.reg, Some(addr.offset))),
             }
         } else if lookahead.peek(token::Paren) {
             let gr = input.parse::<Group>()?;

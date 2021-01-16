@@ -1,8 +1,10 @@
 #![feature(asm)]
+#![feature(const_raw_ptr_to_usize_cast)]
 extern crate libc;
 use std::mem;
 use std::ops::{Add, Deref, DerefMut, Index, IndexMut};
 mod jit_memory;
+pub mod test;
 pub use jit_memory::*;
 
 const PAGE_SIZE: usize = 4096;

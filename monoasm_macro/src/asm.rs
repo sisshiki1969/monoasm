@@ -10,21 +10,6 @@ enum Mode {
     Reg = 3,   // rax
 }
 
-impl Mode {
-    fn from_disp(offset: Imm) -> Self {
-        match offset {
-            Imm::Imm(i) => {
-                if std::i8::MIN as i32 <= i && i <= std::i8::MAX as i32 {
-                    Mode::InD8
-                } else {
-                    Mode::InD32
-                }
-            }
-            Imm::Expr(_) => Mode::InD32,
-        }
-    }
-}
-
 pub fn compile(inst: Inst) -> TokenStream {
     match inst {
         Inst::Label(ident) => quote!( jit.bind_label(#ident); ),
@@ -43,7 +28,7 @@ pub fn compile(inst: Inst) -> TokenStream {
             match (op1, op2) {
                 // IMUL r32, r/m32
                 // RM
-                (Operand::Reg(r1), Operand::Ind(r2)) => {
+                (Operand::Reg(r1), Operand::Ind(r2, None)) => {
                     let modrm = modrm(Mode::Ind, r1, r2);
                     quote! {
                         jit.emitb(0x0f);
@@ -53,7 +38,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                 }
                 // IMUL r32, r/m32
                 // RM
-                (Operand::Reg(r1), Operand::IndDisp(r2, offset)) => {
+                (Operand::Reg(r1), Operand::Ind(r2, Some(offset))) => {
                     let modrm = modrm(Mode::InD32, r1, r2);
                     let offset = match offset {
                         Imm::Imm(i) => quote!(
@@ -123,8 +108,8 @@ pub fn compile(inst: Inst) -> TokenStream {
 fn op_to_rm(op: Operand) -> (Mode, Reg, Option<Imm>) {
     match op {
         Operand::Reg(r) => (Mode::Reg, r, None),
-        Operand::Ind(r) => (Mode::Ind, r, None),
-        Operand::IndDisp(r, d) => (
+        Operand::Ind(r, None) => (Mode::Ind, r, None),
+        Operand::Ind(r, Some(d)) => (
             match d {
                 Imm::Imm(i) => {
                     if std::i8::MIN as i32 <= i && i <= std::i8::MAX as i32 {
@@ -253,8 +238,11 @@ fn rexw(reg: Reg, base: Reg, index: Reg) -> TokenStream {
     quote!( jit.emitb(#rex_prefix); )
 }
 
-fn rex(reg: Reg, base: Reg) -> TokenStream {
-    let rex_prefix = 0x40 | ((reg as u8) & 0b0000_1000) >> 1 | ((base as u8) & 0b0000_1000) >> 3;
+fn rex(reg: Reg, base: Reg, index: Reg) -> TokenStream {
+    let rex_prefix = 0x40
+        | ((reg as u8) & 0b0000_1000) >> 1
+        | ((index as u8) & 0b0000_1000) >> 2
+        | ((base as u8) & 0b0000_1000) >> 3;
     quote!( jit.emitb(#rex_prefix); )
 }
 
@@ -313,9 +301,9 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
                 }
             }
         }
-        (Operand::Ind(r), Operand::Imm(i)) => {
-            let op_1 = enc_mi(0xc7, Operand::Ind(r));
-            let op1 = format!("{:?}", Operand::Ind(r));
+        (Operand::Ind(r, None), Operand::Imm(i)) => {
+            let op_1 = enc_mi(0xc7, Operand::Ind(r, None));
+            let op1 = format!("{:?}", Operand::Ind(r, None));
             quote! {
                 let imm = (#i) as u64;
                 if  imm <= 0xffff_ffff {
@@ -389,7 +377,7 @@ fn push_pop(opcode: u8, op: Operand) -> TokenStream {
         // O            O
         Operand::Reg(r) => {
             if (r as u8) > 7 {
-                ts.extend(rex(Reg::Rax, r));
+                ts.extend(rex(Reg::Rax, r, Reg::Rax));
             }
             ts.extend(op_with_rd(opcode, r));
         }

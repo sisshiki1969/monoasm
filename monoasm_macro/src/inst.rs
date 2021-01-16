@@ -37,8 +37,7 @@ pub enum Inst {
 pub enum Operand {
     Imm(TokenStream),
     Reg(Reg),
-    Ind(Reg),
-    IndDisp(Reg, Imm),
+    Ind(Reg, Option<Imm>),
 }
 
 impl std::fmt::Display for Operand {
@@ -46,8 +45,10 @@ impl std::fmt::Display for Operand {
         match self {
             Operand::Imm(i) => write!(f, "Imm({})", i),
             Operand::Reg(r) => write!(f, "{:?}", r),
-            Operand::Ind(r) => write!(f, "[{:?}]", r),
-            Operand::IndDisp(r, d) => write!(f, "{}[{:?}]", d, r),
+            Operand::Ind(r, d) => match d {
+                Some(d) => write!(f, "{}[{:?}]", d, r),
+                None => write!(f, "[{:?}]", r),
+            },
         }
     }
 }
