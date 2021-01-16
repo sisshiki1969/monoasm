@@ -51,11 +51,10 @@ pub fn compile(inst: Inst) -> TokenStream {
             Dest::Reg(r) => {
                 // CALL r/m64
                 // FF /2
-                if r as u8 > 7 {
-                    panic!("Can not CALL R8-R15");
-                }
+                let rex = rex(Reg::none(), r, Reg::none());
                 let modrm = modrm_digit(2, Mode::Reg, r);
                 quote! {
+                    #rex
                     jit.emitb(0xff);
                     #modrm
                 }
@@ -77,7 +76,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // JMP r/m64
                 // FF /4
                 // M
-                let rex = rex(Reg::Rax, r, Reg::Rax);
+                let rex = rex(Reg::none(), r, Reg::none());
                 let modrm = modrm_digit(4, Mode::Reg, r);
                 quote! (
                     #rex
@@ -140,7 +139,7 @@ fn op_to_rm(op: Operand) -> (Mode, Reg, Option<Imm>) {
             r,
             Some(d),
         ),
-        rm_op => unreachable!("as_rm():{:?}", rm_op),
+        rm_op => unreachable!("as_rm():{}", rm_op),
     }
 }
 
@@ -164,7 +163,7 @@ fn imm_to_ts(imm: Option<Imm>, mode: Mode) -> TokenStream {
 /// REX.W Op+ rd
 fn enc_o(op: u8, reg: Reg) -> TokenStream {
     let mut ts = TokenStream::new();
-    ts.extend(rexw(Reg::Rax, reg, Reg::Rax));
+    ts.extend(rexw(Reg::none(), reg, Reg::none()));
     ts.extend(op_with_rd(op, reg));
     ts
 }
@@ -172,7 +171,7 @@ fn enc_o(op: u8, reg: Reg) -> TokenStream {
 /// Encoding: MI  
 /// ModRM:r/m
 fn enc_mi(op: u8, rm_op: Operand) -> TokenStream {
-    enc_mr(op, Reg::Rax, rm_op)
+    enc_mr(op, Reg::none(), rm_op)
 }
 
 /// Encoding: MR or RM
@@ -207,7 +206,7 @@ fn enc_mr_main(op: u8, reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
             #sib
         }
     } else {
-        let rex = rexw(reg, rm, Reg::Rax);
+        let rex = rexw(reg, rm, Reg::none());
         let modrm = modrm(reg, mode, rm);
         quote! {
             #rex
@@ -372,7 +371,7 @@ fn binary_op(
         (op1, Operand::Imm(i)) => {
             let op1_str = format!("{}", op1);
             let (mode, reg, disp) = op_to_rm(op1);
-            let rex = rexw(Reg::Rax, reg, Reg::Rax);
+            let rex = rexw(Reg::none(), reg, Reg::none());
             let modrm = modrm_digit(digit, mode, reg);
             let disp = imm_to_ts(disp, mode);
             quote! {
@@ -405,7 +404,7 @@ fn push_pop(opcode: u8, op: Operand) -> TokenStream {
         // 50 +rd       58 +rd
         // O            O
         Operand::Reg(r) => {
-            let rex = rex(Reg::Rax, r, Reg::Rax);
+            let rex = rex(Reg::none(), r, Reg::none());
             let op = op_with_rd(opcode, r);
             quote! (
                 #rex

@@ -1,7 +1,10 @@
 use super::inst::*;
 use proc_macro2::{Group, Punct};
 use quote::quote;
-use syn::parse::{Parse, ParseStream};
+use syn::{
+    parse::{Parse, ParseStream},
+    Expr,
+};
 use syn::{token, Error, Ident, LitInt, Token};
 
 #[derive(Clone, Debug)]
@@ -12,26 +15,31 @@ struct Addr {
 
 impl Parse for Operand {
     fn parse(input: ParseStream) -> Result<Self, Error> {
-        let lookahead = input.lookahead1();
-        if lookahead.peek(Ident) && is_single(input) {
-            let op: Ident = input.parse()?;
-            let reg = Reg::from_str(op.to_string().as_str()).ok_or(lookahead.error())?;
-            Ok(Operand::Reg(reg))
-        } else if lookahead.peek(LitInt) && is_single(input) {
+        if input.peek(Ident) {
+            let op = input.parse::<Ident>()?.to_string();
+            if op == "R" {
+                assert!(input.peek(token::Paren), "Expected '('.");
+                let s = input.parse::<Group>()?.stream();
+                Ok(Operand::RegExpr(s))
+            } else {
+                let reg = Reg::from_str(&op).ok_or(input.error("Expected register name."))?;
+                Ok(Operand::Reg(reg))
+            }
+        } else if input.peek(LitInt) && is_single(input) {
             let imm = input.parse::<LitInt>()?;
             Ok(Operand::Imm(quote! { #imm }))
-        } else if lookahead.peek(token::Bracket) {
+        } else if input.peek(token::Bracket) {
             let gr = input.parse::<Group>()?;
             let addr: Addr = syn::parse2(gr.stream())?;
             match addr.offset {
                 Imm::Imm(i) if i == 0 => Ok(Operand::Ind(addr.reg, None)),
                 _ => Ok(Operand::Ind(addr.reg, Some(addr.offset))),
             }
-        } else if lookahead.peek(token::Paren) {
+        } else if input.peek(token::Paren) {
             let gr = input.parse::<Group>()?;
             Ok(Operand::Imm(gr.stream()))
         } else {
-            return Err(lookahead.error());
+            return Err(input.error("Expected register name, integer literal, memory reference, or Rust expression with parenthesis."));
         }
     }
 }
@@ -41,7 +49,7 @@ impl Parse for Dest {
         let lookahead = input.lookahead1();
         if lookahead.peek(Ident) && is_single(input) {
             let dest: Ident = input.parse()?;
-            let reg = Reg::from_str(dest.to_string().as_str());
+            let reg = Reg::from_str(&dest.to_string());
             match reg {
                 Some(reg) => Ok(Dest::Reg(reg)),
                 None => Ok(Dest::Rel(dest)),
@@ -88,7 +96,7 @@ impl Parse for Imm {
 impl Parse for Addr {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         let ident: Ident = input.parse()?;
-        let reg = match Reg::from_str(ident.to_string().as_str()) {
+        let reg = match Reg::from_str(&ident.to_string()) {
             None => return Err(input.error("expected register name.")),
             Some(reg) => reg,
         };
@@ -167,7 +175,7 @@ impl Parse for Inst {
 
 impl Parse for Stmts {
     fn parse(input: ParseStream) -> Result<Self, Error> {
-        let base = input.parse::<syn::Expr>()?;
+        let base: Expr = input.parse()?;
         input.parse::<Token![,]>()?;
         let mut stmts = Stmts {
             base,

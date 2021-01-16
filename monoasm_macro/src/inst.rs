@@ -39,6 +39,7 @@ pub enum Inst {
 pub enum Operand {
     Imm(TokenStream),
     Reg(Reg),
+    RegExpr(TokenStream),
     Ind(Reg, Option<Imm>),
 }
 
@@ -47,6 +48,7 @@ impl std::fmt::Display for Operand {
         match self {
             Operand::Imm(i) => write!(f, "Imm({})", i),
             Operand::Reg(r) => write!(f, "{:?}", r),
+            Operand::RegExpr(s) => write!(f, "R({})", s),
             Operand::Ind(r, d) => match d {
                 Some(d) => write!(f, "{}[{:?}]", d, r),
                 None => write!(f, "[{:?}]", r),
@@ -97,6 +99,10 @@ pub enum Reg {
 }
 
 impl Reg {
+    pub fn none() -> Self {
+        Reg::Rax
+    }
+
     pub fn from_str(string: &str) -> Option<Reg> {
         let mut string = string.to_owned();
         string.make_ascii_lowercase();
