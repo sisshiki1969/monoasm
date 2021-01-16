@@ -20,7 +20,7 @@ fn fac() -> fn(u64) -> u64 {
     let i: i32 = 8;
 
     // main()
-    monoasm!(
+    monoasm!(jit,
         // prologue
         pushq rbp;
         movq rbp, rsp;

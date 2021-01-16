@@ -11,7 +11,7 @@ mod fibo;
 fn syscall() -> fn(()) -> u64 {
     let hello = "こんにちは世界\n\0";
     let mut jit: JitMemory = JitMemory::new();
-    monoasm!(
+    monoasm!(jit,
         movq rdi, 1;
         movq rsi, (hello.as_ptr() as u64);
         movq rdx, (hello.len() as u64);
@@ -29,7 +29,7 @@ fn hello() -> fn(()) -> () {
     let label = jit.label();
     let dump_addr: u64 = test::DUMP as u64;
 
-    monoasm!(
+    monoasm!(jit,
         // prologue
         pushq rbp;
         movq rbp, rsp;

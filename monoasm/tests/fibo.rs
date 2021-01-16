@@ -20,7 +20,7 @@ fn fibo() -> fn(u64) -> u64 {
     let l1 = jit.label();
 
     // main()
-    monoasm!(
+    monoasm!(jit,
         // prologue
         pushq rbp;
         movq rbp, rsp;

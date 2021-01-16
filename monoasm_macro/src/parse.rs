@@ -167,7 +167,12 @@ impl Parse for Inst {
 
 impl Parse for Stmts {
     fn parse(input: ParseStream) -> Result<Self, Error> {
-        let mut stmts = Stmts { contents: vec![] };
+        let base = input.parse::<syn::Expr>()?;
+        input.parse::<Token![,]>()?;
+        let mut stmts = Stmts {
+            base,
+            contents: vec![],
+        };
         loop {
             if input.is_empty() {
                 break;

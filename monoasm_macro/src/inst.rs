@@ -1,8 +1,9 @@
 use proc_macro2::TokenStream;
 use syn::Ident;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Stmts {
+    pub base: syn::Expr,
     pub contents: Vec<Inst>,
 }
 

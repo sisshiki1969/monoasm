@@ -35,12 +35,15 @@ impl JitMemory {
         unsafe {
             protect(contents, size, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
         }
-        JitMemory {
+        let mut res = JitMemory {
             contents,
             counter: Pos(0),
             label_count: 0,
             reloc: Relocations::new(),
-        }
+        };
+        res.emitb(0xc3);
+        res.counter = Pos(0);
+        res
     }
 
     fn _p(&self) {

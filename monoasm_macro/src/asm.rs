@@ -14,14 +14,14 @@ pub fn compile(inst: Inst) -> TokenStream {
     match inst {
         Inst::Label(ident) => quote!( jit.bind_label(#ident); ),
         Inst::Movq(op1, op2) => movq(op1, op2),
-        Inst::Addq(op1, op2) => binary_op(0x81, 0x01, 0x03, 0, op1, op2),
-        Inst::Orq(op1, op2) => binary_op(0x81, 0x09, 0x0b, 1, op1, op2),
-        Inst::Adcq(op1, op2) => binary_op(0x81, 0x11, 0x13, 2, op1, op2),
-        Inst::Sbbq(op1, op2) => binary_op(0x81, 0x19, 0x1b, 3, op1, op2),
-        Inst::Andq(op1, op2) => binary_op(0x81, 0x21, 0x23, 4, op1, op2),
-        Inst::Subq(op1, op2) => binary_op(0x81, 0x29, 0x2b, 5, op1, op2),
-        Inst::Xorq(op1, op2) => binary_op(0x81, 0x31, 0x33, 6, op1, op2),
-        Inst::Cmpq(op1, op2) => binary_op(0x81, 0x39, 0x3b, 7, op1, op2),
+        Inst::Addq(op1, op2) => binary_op("ADD", 0x81, 0x01, 0x03, 0, op1, op2),
+        Inst::Orq(op1, op2) => binary_op("OR", 0x81, 0x09, 0x0b, 1, op1, op2),
+        Inst::Adcq(op1, op2) => binary_op("ADC", 0x81, 0x11, 0x13, 2, op1, op2),
+        Inst::Sbbq(op1, op2) => binary_op("SBB", 0x81, 0x19, 0x1b, 3, op1, op2),
+        Inst::Andq(op1, op2) => binary_op("AND", 0x81, 0x21, 0x23, 4, op1, op2),
+        Inst::Subq(op1, op2) => binary_op("SUB", 0x81, 0x29, 0x2b, 5, op1, op2),
+        Inst::Xorq(op1, op2) => binary_op("XOR", 0x81, 0x31, 0x33, 6, op1, op2),
+        Inst::Cmpq(op1, op2) => binary_op("CMP", 0x81, 0x39, 0x3b, 7, op1, op2),
 
         Inst::Imull(op1, op2) => {
             // IMUL r32, r/m32: r32 <- r32 * r/m32
@@ -322,16 +322,19 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
                 }
             }
         }
-        (Operand::Ind(r, None), Operand::Imm(i)) => {
-            let op_1 = enc_mi(0xc7, Operand::Ind(r, None));
-            let op1 = format!("{:?}", Operand::Ind(r, None));
+        // MOV r/m64, imm32
+        // REX.W + C7 /0 id
+        // MI
+        (op1, Operand::Imm(i)) => {
+            let op1_str = format!("{:?}", op1);
+            let op_1 = enc_mi(0xc7, op1);
             quote! {
                 let imm = (#i) as u64;
                 if  imm <= 0xffff_ffff {
                     #op_1
                     jit.emitl(imm as u32);
                 } else {
-                    panic!("'MOV {}, imm64' does not exists.", #op1);
+                    panic!("'MOV {}, imm64' does not exists.", #op1_str);
                 }
             }
         }
@@ -348,6 +351,7 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
 }
 
 fn binary_op(
+    op_name: &str,
     op_imm: u8,
     op_mr: u8,
     op_rm: u8,
@@ -356,7 +360,7 @@ fn binary_op(
     op2: Operand,
 ) -> TokenStream {
     match (op1, op2) {
-        (Operand::Imm(_), op2) => panic!("'XXX imm, {}' does not exists.", op2),
+        (Operand::Imm(_), op2) => panic!("'{} imm, {}' does not exists.", op_name, op2),
         // OP r/m64, imm32
         // OP=ADD REX.W 81 /0 id
         // OP=OR  REX.W 81 /1 id
@@ -374,7 +378,7 @@ fn binary_op(
             quote! {
                 let imm = (#i) as u64;
                 if imm > 0xffff_ffff {
-                    panic!("'XXX {}, imm64' does not exists.", #op1_str);
+                    panic!("'{} {}, imm64' does not exists.", #op_name, #op1_str);
                 }
                 #rex
                 jit.emitb(#op_imm);
