@@ -3,7 +3,7 @@ use proc_macro2::{Group, Punct};
 use quote::quote;
 use syn::{
     parse::{Parse, ParseStream},
-    Expr,
+    Expr, ExprLit, Lit,
 };
 use syn::{token, Error, Ident, LitInt, Token};
 
@@ -18,9 +18,18 @@ impl Parse for Operand {
         if input.peek(Ident) {
             let op = input.parse::<Ident>()?.to_string();
             if op == "R" {
-                assert!(input.peek(token::Paren), "Expected '('.");
-                let s = input.parse::<Group>()?.stream();
-                Ok(Operand::RegExpr(s))
+                let content;
+                syn::parenthesized!(content in input);
+                let s = content.parse::<Expr>()?;
+                match &s {
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Int(i), ..
+                    }) => {
+                        let i = i.base10_parse::<u64>()?;
+                        Ok(Operand::Reg(Reg::from(i)))
+                    }
+                    _ => Ok(Operand::RegExpr(quote!(#s))),
+                }
             } else {
                 let reg = Reg::from_str(&op).ok_or(input.error("Expected register name."))?;
                 Ok(Operand::Reg(reg))
@@ -29,8 +38,7 @@ impl Parse for Operand {
             let imm = input.parse::<LitInt>()?;
             Ok(Operand::Imm(quote! { #imm }))
         } else if input.peek(token::Bracket) {
-            let gr = input.parse::<Group>()?;
-            let addr: Addr = syn::parse2(gr.stream())?;
+            let addr: Addr = input.parse()?;
             match addr.offset {
                 Imm::Imm(i) if i == 0 => Ok(Operand::Ind(addr.reg, None)),
                 _ => Ok(Operand::Ind(addr.reg, Some(addr.offset))),
@@ -73,11 +81,13 @@ impl Parse for Imm {
             };
             let lookahead = input.lookahead1();
             if lookahead.peek(token::Paren) {
-                let gr = input.parse::<Group>()?;
+                let content;
+                syn::parenthesized!(content in input);
+                let expr: Expr = content.parse()?;
                 let expr = if sign == 1 {
-                    quote!( #gr )
+                    quote!(expr)
                 } else {
-                    quote!( -(#gr) )
+                    quote!(-(#expr))
                 };
                 Imm::Expr(expr)
             } else if lookahead.peek(LitInt) {
@@ -95,12 +105,14 @@ impl Parse for Imm {
 
 impl Parse for Addr {
     fn parse(input: ParseStream) -> Result<Self, Error> {
-        let ident: Ident = input.parse()?;
+        let content;
+        syn::bracketed!(content in input);
+        let ident: Ident = content.parse()?;
         let reg = match Reg::from_str(&ident.to_string()) {
-            None => return Err(input.error("expected register name.")),
+            None => return Err(content.error("expected register name.")),
             Some(reg) => reg,
         };
-        let offset: Imm = input.parse()?;
+        let offset: Imm = content.parse()?;
         Ok(Addr { reg, offset })
     }
 }

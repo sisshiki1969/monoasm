@@ -10,7 +10,7 @@ pub use jit_memory::*;
 const PAGE_SIZE: usize = 4096;
 
 /// Operands.
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Or {
     /// Immediate
     Imm(u64),
@@ -25,7 +25,7 @@ pub enum Or {
 }
 
 /// Destination.
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Dest {
     /// Register
     Reg(Reg),
@@ -33,7 +33,7 @@ pub enum Dest {
     Rel(usize),
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Reg {
     Rax = 0,
     Rcx = 1,
@@ -51,6 +51,35 @@ pub enum Reg {
     R13 = 13,
     R14 = 14,
     R15 = 15,
+}
+
+#[allow(dead_code)]
+impl Reg {
+    pub fn none() -> Self {
+        Self::Rax
+    }
+
+    pub fn from(num: u64) -> Self {
+        match num {
+            0 => Reg::Rax,
+            1 => Reg::Rcx,
+            2 => Reg::Rdx,
+            3 => Reg::Rbx,
+            4 => Reg::Rsp,
+            5 => Reg::Rbp,
+            6 => Reg::Rsi,
+            7 => Reg::Rdi,
+            8 => Reg::R8,
+            9 => Reg::R9,
+            10 => Reg::R10,
+            11 => Reg::R11,
+            12 => Reg::R12,
+            13 => Reg::R13,
+            14 => Reg::R14,
+            15 => Reg::R15,
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq)]

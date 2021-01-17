@@ -1,4 +1,9 @@
+extern crate proc_macro2;
+extern crate quote;
+extern crate syn;
 use proc_macro2::TokenStream;
+use quote::{quote, ToTokens};
+use std::u64;
 use syn::Ident;
 
 #[derive(Clone)]
@@ -57,6 +62,32 @@ impl std::fmt::Display for Operand {
     }
 }
 
+impl ToTokens for Operand {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let ts = match self {
+            Operand::Imm(_) => unreachable!(),
+            Operand::Reg(r) => {
+                quote!(Or::Reg(#r))
+            }
+            Operand::RegExpr(ts) => {
+                quote!(Or::Reg(Reg::from((#ts) as u64)))
+            }
+            Operand::Ind(r, imm) => match imm {
+                Some(Imm::Imm(i)) => {
+                    quote!(Or::IndD32(#r, #i))
+                }
+                Some(Imm::Expr(ts)) => {
+                    quote!(Or::IndD32(#r, (#ts) as i32))
+                }
+                None => {
+                    quote!(Or::Ind(#r))
+                }
+            },
+        };
+        tokens.extend(ts);
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum Dest {
     Reg(Reg),
@@ -103,6 +134,28 @@ impl Reg {
         Reg::Rax
     }
 
+    pub fn from(num: u64) -> Self {
+        match num {
+            0 => Reg::Rax,
+            1 => Reg::Rcx,
+            2 => Reg::Rdx,
+            3 => Reg::Rbx,
+            4 => Reg::Rsp,
+            5 => Reg::Rbp,
+            6 => Reg::Rsi,
+            7 => Reg::Rdi,
+            8 => Reg::R8,
+            9 => Reg::R9,
+            10 => Reg::R10,
+            11 => Reg::R11,
+            12 => Reg::R12,
+            13 => Reg::R13,
+            14 => Reg::R14,
+            15 => Reg::R15,
+            _ => unreachable!(),
+        }
+    }
+
     pub fn from_str(string: &str) -> Option<Reg> {
         let mut string = string.to_owned();
         string.make_ascii_lowercase();
@@ -126,5 +179,13 @@ impl Reg {
             _ => return None,
         };
         Some(reg)
+    }
+}
+
+impl ToTokens for Reg {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let r = *self as u64;
+        let ts = quote!(Reg::from(#r));
+        tokens.extend(ts);
     }
 }
