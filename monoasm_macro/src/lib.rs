@@ -22,7 +22,7 @@ pub fn monoasm(tokens: TokenStream) -> TokenStream {
     let mut ts = quote!(let mut jit = &mut #base;);
     for stmt in stmts.contents {
         let item = compile(stmt);
-        #[cfg(debug)]
+        #[cfg(debug_assertions)]
         println!("{}", item);
         ts.extend(item);
     }
