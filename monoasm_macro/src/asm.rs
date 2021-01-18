@@ -1,14 +1,7 @@
 use super::inst::*;
+use monoasm_inst::{util, Mode, Reg};
 use proc_macro2::TokenStream;
 use quote::quote;
-
-#[derive(Copy, Clone, PartialEq, Debug)]
-enum Mode {
-    Ind = 0,   // (rax)
-    InD8 = 1,  // (rax + disp8)
-    InD32 = 2, // (rax + disp32)
-    Reg = 3,   // rax
-}
 
 pub fn compile(inst: Inst) -> TokenStream {
     match inst {
@@ -225,84 +218,35 @@ fn enc_mr_main(op: u8, reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
     }
 }
 
-/// ModRM
-/// +-------+---+---+---+---+---+---+---+---+
-/// |  bit  | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
-/// +-------+---+---+---+---+---+---+---+---+
-/// | field |  mod  |    reg    |    r/m    |
-/// +-------+-------+-----------+-----------+
-/// |  rex  |       |     r     |     b     |
-/// +-------+-------+-----------+-----------+
+fn op_with_rd(op: u8, r: Reg) -> TokenStream {
+    let val = util::op_with_rd(op, r);
+    quote!( jit.emitb(#val); )
+}
+
 fn modrm_digit(digit: u8, mode: Mode, rm: Reg) -> TokenStream {
-    let modrm = (mode as u8) << 6 | (digit & 0b111) << 3 | (rm as u8) & 0b111;
+    let modrm = util::modrm_digit(digit, mode, rm);
     quote!( jit.emitb(#modrm); )
 }
 
 fn modrm(reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
-    let modrm = (mode as u8) << 6 | ((reg as u8) & 0b111) << 3 | (rm as u8) & 0b111;
+    let modrm = util::modrm(reg, mode, rm);
     quote!( jit.emitb(#modrm); )
 }
 
-/// REX.W
-///      bit
-/// +---+---+------------------------------------------------+
-/// | W | 3 | 1 = 64 bit operand size                        |
-/// +---+---+------------------------------------------------+
-/// | R | 2 | rex_r = ext of reg field of ModRM              |
-/// +---+---+------------------------------------------------+
-/// | X | 1 | rex_i = ext of index field of SIB              |
-/// +---+---+------------------------------------------------+
-/// | B | 0 | rex_b = ext of r/m(ModRM) or base(SIB)         |
-/// |   |   |           or reg field of Op.                  |
-/// +---+---+------------------------------------------------+
 fn rexw(reg: Reg, base: Reg, index: Reg) -> TokenStream {
-    let rex_prefix = 0x48
-        | ((reg as u8) & 0b0000_1000) >> 1
-        | ((index as u8) & 0b0000_1000) >> 2
-        | ((base as u8) & 0b0000_1000) >> 3;
+    let rex_prefix = util::rexw(reg, base, index);
     quote!( jit.emitb(#rex_prefix); )
 }
 
 fn rex(reg: Reg, base: Reg, index: Reg) -> TokenStream {
-    if base as u8 > 7 {
-        let rex_prefix = 0x40
-            | ((reg as u8) & 0b0000_1000) >> 1
-            | ((index as u8) & 0b0000_1000) >> 2
-            | ((base as u8) & 0b0000_1000) >> 3;
-        quote!( jit.emitb(#rex_prefix); )
-    } else {
-        quote!()
+    match util::rex(reg, base, index) {
+        Some(rex) => quote!(jit.emitb(#rex);),
+        None => quote!(),
     }
 }
 
-fn op_with_rd(op: u8, r: Reg) -> TokenStream {
-    let val = op | ((r as u8) & 0b0111);
-    quote!( jit.emitb(#val); )
-}
-
-/// Emit SIB
-/// +-------+---+---+---+---+---+---+---+---+
-/// |  bit  | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
-/// +-------+---+---+---+---+---+---+---+---+
-/// | field | scale |   index   |    base   |
-/// +-------+-------+-----------+-----------+
-/// |  rex  |       |     x     |     b     |
-/// +-------+-------+-----------+-----------+
-///
-/// scale: 00|01|10|11
-///  mul : na| 2| 4| 8
-///
-/// index: register number (with rex.x)
-///
-/// base: register number (with rex.b)
-///     rex.b:0 base:101 => use RBP  mode:00/disp32 01/RBP+disp8 10/RBP+disp32
-///     rex.b:1 base:101 => use R13  mode:00/disp32 01/R13+disp8 10/R13+disp32
-///
 fn sib(scale: u8, index: Reg, base: u8) -> TokenStream {
-    assert!(scale < 4);
-    assert!((index as u8) < 8);
-    assert!(base < 8);
-    let sib = scale << 6 | (index as u8) << 3 | base;
+    let sib = util::sib(scale, index, base);
     quote!( jit.emitb(#sib); )
 }
 

@@ -2,6 +2,7 @@
 extern crate monoasm;
 extern crate monoasm_macro;
 use monoasm::*;
+use monoasm_inst::Reg;
 use monoasm_macro::monoasm;
 
 fn jit() -> fn(u64) -> u64 {

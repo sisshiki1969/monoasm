@@ -4,8 +4,8 @@
 //
 //--------------------
 
-extern crate monoasm_macro;
 use crate::*;
+use monoasm_inst::{util, Mode, Reg};
 use region::{protect, Protection};
 use std::alloc::{alloc, Layout};
 
@@ -19,6 +19,26 @@ pub struct JitMemory {
     label_count: usize,
     /// Relocation information.
     reloc: Relocations,
+}
+
+impl Index<Pos> for JitMemory {
+    type Output = u8;
+
+    fn index(&self, index: Pos) -> &u8 {
+        if index.0 >= PAGE_SIZE {
+            panic!("Page size overflow")
+        }
+        unsafe { &*self.contents.offset(index.0 as isize) }
+    }
+}
+
+impl IndexMut<Pos> for JitMemory {
+    fn index_mut(&mut self, index: Pos) -> &mut u8 {
+        if index.0 >= PAGE_SIZE {
+            panic!("Page size overflow")
+        }
+        unsafe { &mut *self.contents.offset(index.0 as isize) }
+    }
 }
 
 impl JitMemory {
@@ -181,83 +201,30 @@ impl JitMemory {
         }
     }
 
-    /// ModRM
-    /// +-------+---+---+---+---+---+---+---+---+
-    /// |  bit  | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
-    /// +-------+---+---+---+---+---+---+---+---+
-    /// | field |  mod  |    reg    |    r/m    |
-    /// +-------+-------+-----------+-----------+
-    /// |  rex  |       |     r     |     b     |
-    /// +-------+-------+-----------+-----------+
     fn modrm_digit(&mut self, digit: u8, mode: Mode, rm: Reg) {
-        let modrm = (mode as u8) << 6 | (digit & 0b111) << 3 | (rm as u8) & 0b111;
-        self.emitb(modrm);
+        self.emitb(util::modrm_digit(digit, mode, rm));
     }
 
     fn modrm(&mut self, reg: Reg, mode: Mode, rm: Reg) {
-        let modrm = (mode as u8) << 6 | ((reg as u8) & 0b111) << 3 | (rm as u8) & 0b111;
-        self.emitb(modrm);
+        self.emitb(util::modrm(reg, mode, rm));
     }
 
-    /// REX.W
-    ///      bit
-    /// +---+---+------------------------------------------------+
-    /// | W | 3 | 1 = 64 bit operand size                        |
-    /// +---+---+------------------------------------------------+
-    /// | R | 2 | rex_r = ext of reg field of ModRM              |
-    /// +---+---+------------------------------------------------+
-    /// | X | 1 | rex_i = ext of index field of SIB              |
-    /// +---+---+------------------------------------------------+
-    /// | B | 0 | rex_b = ext of r/m(ModRM) or base(SIB)         |
-    /// |   |   |           or reg field of Op.                  |
-    /// +---+---+------------------------------------------------+
     fn rexw(&mut self, reg: Reg, base: Reg, index: Reg) {
-        let rex_prefix = 0x48
-            | ((reg as u8) & 0b0000_1000) >> 1
-            | ((index as u8) & 0b0000_1000) >> 2
-            | ((base as u8) & 0b0000_1000) >> 3;
-        self.emitb(rex_prefix);
+        self.emitb(util::rexw(reg, base, index));
     }
 
     fn rex(&mut self, reg: Reg, base: Reg, index: Reg) {
-        if base as u8 > 7 {
-            let rex_prefix = 0x40
-                | ((reg as u8) & 0b0000_1000) >> 1
-                | ((index as u8) & 0b0000_1000) >> 2
-                | ((base as u8) & 0b0000_1000) >> 3;
+        if let Some(rex_prefix) = util::rex(reg, base, index) {
             self.emitb(rex_prefix);
         }
     }
 
     fn op_with_rd(&mut self, op: u8, r: Reg) {
-        let val = op | ((r as u8) & 0b0111);
-        self.emitb(val);
+        self.emitb(util::op_with_rd(op, r));
     }
 
-    /// Emit SIB
-    /// +-------+---+---+---+---+---+---+---+---+
-    /// |  bit  | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
-    /// +-------+---+---+---+---+---+---+---+---+
-    /// | field | scale |   index   |    base   |
-    /// +-------+-------+-----------+-----------+
-    /// |  rex  |       |     x     |     b     |
-    /// +-------+-------+-----------+-----------+
-    ///
-    /// scale: 00|01|10|11
-    ///  mul : na| 2| 4| 8
-    ///
-    /// index: register number (with rex.x)
-    ///
-    /// base: register number (with rex.b)
-    ///     rex.b:0 base:101 => use RBP  mode:00/disp32 01/RBP+disp8 10/RBP+disp32
-    ///     rex.b:1 base:101 => use R13  mode:00/disp32 01/R13+disp8 10/R13+disp32
-    ///
     fn sib(&mut self, scale: u8, index: Reg, base: u8) {
-        assert!(scale < 4);
-        assert!((index as u8) < 8);
-        assert!(base < 8);
-        let sib = scale << 6 | (index as u8) << 3 | base;
-        self.emitb(sib);
+        self.emitb(util::sib(scale, index, base));
     }
 
     fn imm_to_ts(&mut self, imm: Option<i32>, mode: Mode) {
@@ -272,7 +239,6 @@ impl JitMemory {
     }
 }
 
-#[allow(dead_code)]
 fn op_to_rm(op: Or) -> (Mode, Reg, Option<i32>) {
     match op {
         Or::Reg(r) => (Mode::Reg, r, None),
@@ -280,25 +246,5 @@ fn op_to_rm(op: Or) -> (Mode, Reg, Option<i32>) {
         Or::IndD8(r, d) => (Mode::InD8, r, Some(d as i32)),
         Or::IndD32(r, d) => (Mode::InD32, r, Some(d)),
         rm_op => unreachable!("as_rm():{:?}", rm_op),
-    }
-}
-
-impl Index<Pos> for JitMemory {
-    type Output = u8;
-
-    fn index(&self, index: Pos) -> &u8 {
-        if index.0 >= PAGE_SIZE {
-            panic!("Page size overflow")
-        }
-        unsafe { &*self.contents.offset(index.0 as isize) }
-    }
-}
-
-impl IndexMut<Pos> for JitMemory {
-    fn index_mut(&mut self, index: Pos) -> &mut u8 {
-        if index.0 >= PAGE_SIZE {
-            panic!("Page size overflow")
-        }
-        unsafe { &mut *self.contents.offset(index.0 as isize) }
     }
 }

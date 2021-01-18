@@ -6,6 +6,7 @@ use std::ops::{Add, Deref, DerefMut, Index, IndexMut};
 mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
+use monoasm_inst::Reg;
 
 const PAGE_SIZE: usize = 4096;
 
@@ -33,7 +34,7 @@ pub enum Dest {
     Rel(usize),
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+/*#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Reg {
     Rax = 0,
     Rcx = 1,
@@ -80,15 +81,7 @@ impl Reg {
             _ => unreachable!(),
         }
     }
-}
-
-#[derive(Copy, Clone, PartialEq)]
-pub enum Mode {
-    Ind = 0,   // (rax)
-    InD8 = 1,  // (rax + disp8)
-    InD32 = 2, // (rax + disp32)
-    Reg = 3,   // rax
-}
+}*/
 
 /// Position in JitMemory.
 #[derive(Copy, Clone, PartialEq)]

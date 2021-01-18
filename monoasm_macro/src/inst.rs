@@ -1,9 +1,9 @@
 extern crate proc_macro2;
 extern crate quote;
 extern crate syn;
+use monoasm_inst::Reg;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use std::u64;
 use syn::Ident;
 
 #[derive(Clone)]
@@ -106,86 +106,5 @@ impl std::fmt::Display for Imm {
             Imm::Imm(i) => write!(f, "Imm({})", i),
             Imm::Expr(ts) => write!(f, "Expr({})", ts),
         }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum Reg {
-    Rax = 0,
-    Rcx = 1,
-    Rdx = 2,
-    Rbx = 3,
-    Rsp = 4,
-    Rbp = 5,
-    Rsi = 6,
-    Rdi = 7,
-    R8 = 8,
-    R9 = 9,
-    R10 = 10,
-    R11 = 11,
-    R12 = 12,
-    R13 = 13,
-    R14 = 14,
-    R15 = 15,
-}
-
-impl Reg {
-    pub fn none() -> Self {
-        Reg::Rax
-    }
-
-    pub fn from(num: u64) -> Self {
-        match num {
-            0 => Reg::Rax,
-            1 => Reg::Rcx,
-            2 => Reg::Rdx,
-            3 => Reg::Rbx,
-            4 => Reg::Rsp,
-            5 => Reg::Rbp,
-            6 => Reg::Rsi,
-            7 => Reg::Rdi,
-            8 => Reg::R8,
-            9 => Reg::R9,
-            10 => Reg::R10,
-            11 => Reg::R11,
-            12 => Reg::R12,
-            13 => Reg::R13,
-            14 => Reg::R14,
-            15 => Reg::R15,
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn from_str(string: &str) -> Option<Reg> {
-        let mut string = string.to_owned();
-        string.make_ascii_lowercase();
-        let reg = match string.as_str() {
-            "rax" => Reg::Rax,
-            "rcx" => Reg::Rcx,
-            "rdx" => Reg::Rdx,
-            "rbx" => Reg::Rbx,
-            "rsp" => Reg::Rsp,
-            "rbp" => Reg::Rbp,
-            "rsi" => Reg::Rsi,
-            "rdi" => Reg::Rdi,
-            "r8" => Reg::R8,
-            "r9" => Reg::R9,
-            "r10" => Reg::R10,
-            "r11" => Reg::R11,
-            "r12" => Reg::R12,
-            "r13" => Reg::R13,
-            "r14" => Reg::R14,
-            "r15" => Reg::R15,
-            _ => return None,
-        };
-        Some(reg)
-    }
-}
-
-impl ToTokens for Reg {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let r = *self as u64;
-        let ts = quote!(Reg::from(#r));
-        tokens.extend(ts);
     }
 }

@@ -1,4 +1,5 @@
 use super::inst::*;
+use monoasm_inst::Reg;
 use proc_macro2::{Group, Punct};
 use quote::quote;
 use syn::{
