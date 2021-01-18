@@ -45,7 +45,15 @@ pub enum Operand {
     Imm(TokenStream),
     Reg(Reg),
     RegExpr(TokenStream),
-    Ind(Reg, Option<Imm>),
+    Ind(Reg, Disp),
+}
+
+#[derive(Clone, Debug)]
+pub enum Disp {
+    None,
+    D8(i8),
+    D32(i32),
+    Expr(TokenStream),
 }
 
 impl std::fmt::Display for Operand {
@@ -55,8 +63,10 @@ impl std::fmt::Display for Operand {
             Operand::Reg(r) => write!(f, "{:?}", r),
             Operand::RegExpr(s) => write!(f, "R({})", s),
             Operand::Ind(r, d) => match d {
-                Some(d) => write!(f, "{}[{:?}]", d, r),
-                None => write!(f, "[{:?}]", r),
+                Disp::D8(d) => write!(f, "{}[{:?}]", d, r),
+                Disp::D32(d) => write!(f, "{}[{:?}]", d, r),
+                Disp::Expr(ts) => write!(f, "({})[{:?}]", ts, r),
+                Disp::None => write!(f, "[{:?}]", r),
             },
         }
     }
@@ -72,15 +82,22 @@ impl ToTokens for Operand {
             Operand::RegExpr(ts) => {
                 quote!(Or::Reg(Reg::from((#ts) as u64)))
             }
-            Operand::Ind(r, imm) => match imm {
-                Some(Imm::Imm(i)) => {
-                    quote!(Or::IndD32(#r, #i))
+            Operand::Ind(r, disp) => match disp {
+                Disp::D8(i) => {
+                    quote!(Or::Ind(#r, Disp::D8(#i)))
                 }
-                Some(Imm::Expr(ts)) => {
-                    quote!(Or::IndD32(#r, (#ts) as i32))
+                Disp::D32(i) => {
+                    if std::i8::MIN as i32 <= *i && *i <= std::i8::MAX as i32 {
+                        quote!(Or::Ind(#r, Disp::D8(#i as i8)))
+                    } else {
+                        quote!(Or::Ind(#r, Disp::D32(#i)))
+                    }
                 }
-                None => {
-                    quote!(Or::Ind(#r))
+                Disp::Expr(ts) => {
+                    quote!(Or::Ind(#r, Disp::D32((#ts) as i32)))
+                }
+                Disp::None => {
+                    quote!(Or::Ind(#r, Disp::None))
                 }
             },
         };

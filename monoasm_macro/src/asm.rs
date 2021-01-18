@@ -25,7 +25,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                 (Operand::Reg(r1), op2) => {
                     let (mode, reg, disp) = op_to_rm(op2);
                     let modrm = modrm(r1, mode, reg);
-                    let disp = imm_to_ts(disp, mode);
+                    let disp = imm_to_ts(disp);
                     quote! {
                         jit.emitb(0x0f);
                         jit.emitb(0xaf);
@@ -114,41 +114,25 @@ pub fn compile(inst: Inst) -> TokenStream {
     }
 }
 
-fn op_to_rm(op: Operand) -> (Mode, Reg, Option<Imm>) {
+fn op_to_rm(op: Operand) -> (Mode, Reg, Disp) {
     match op {
-        Operand::Reg(r) => (Mode::Reg, r, None),
-        Operand::Ind(r, None) => (Mode::Ind, r, None),
-        Operand::Ind(r, Some(d)) => (
-            match d {
-                Imm::Imm(i) => {
-                    if std::i8::MIN as i32 <= i && i <= std::i8::MAX as i32 {
-                        Mode::InD8
-                    } else {
-                        Mode::InD32
-                    }
-                }
-                Imm::Expr(_) => Mode::InD32,
-            },
-            r,
-            Some(d),
-        ),
+        Operand::Reg(r) => (Mode::Reg, r, Disp::None),
+        Operand::Ind(r, disp) => match disp {
+            Disp::None => (Mode::Ind, r, Disp::None),
+            Disp::D8(i) => (Mode::InD8, r, Disp::D8(i)),
+            Disp::D32(i) => (Mode::InD32, r, Disp::D32(i)),
+            Disp::Expr(expr) => (Mode::InD32, r, Disp::Expr(expr)),
+        },
         _ => unreachable!(),
     }
 }
 
-fn imm_to_ts(imm: Option<Imm>, mode: Mode) -> TokenStream {
-    match imm {
-        Some(imm) => match imm {
-            Imm::Imm(i) => match mode {
-                Mode::InD8 => quote!( jit.emitb(#i as i8 as u8); ),
-                Mode::InD32 => quote!( jit.emitl(#i as u32); ),
-                _ => unreachable!(),
-            },
-            Imm::Expr(expr) => {
-                quote!( jit.emitl((#expr) as u32); )
-            }
-        },
-        None => quote!(),
+fn imm_to_ts(disp: Disp) -> TokenStream {
+    match disp {
+        Disp::None => quote!(),
+        Disp::D8(i) => quote!( jit.emitb(#i as u8); ),
+        Disp::D32(i) => quote!( jit.emitl(#i as u32); ),
+        Disp::Expr(expr) => quote!( jit.emitl((#expr) as u32); ),
     }
 }
 
@@ -176,7 +160,7 @@ fn enc_mr(op: u8, reg: Reg, rm_op: Operand) -> TokenStream {
     let (mode, rm, disp) = op_to_rm(rm_op);
     let enc_mr = enc_mr_main(op, reg, mode, rm);
     // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
-    let disp = imm_to_ts(disp, mode);
+    let disp = imm_to_ts(disp);
     quote! {
         #enc_mr
         #disp
@@ -350,7 +334,7 @@ fn binary_op(
             let (mode, reg, disp) = op_to_rm(op1);
             let rex = rexw(Reg::none(), reg, Reg::none());
             let modrm = modrm_digit(digit, mode, reg);
-            let disp = imm_to_ts(disp, mode);
+            let disp = imm_to_ts(disp);
             quote! {
                 let imm = (#i) as u64;
                 if imm > 0xffff_ffff {

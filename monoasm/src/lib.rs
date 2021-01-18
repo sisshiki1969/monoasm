@@ -18,26 +18,23 @@ pub enum Or {
     /// Register
     Reg(Reg),
     /// Indirect
-    Ind(Reg),
-    /// Indirect + 8bit displacement
-    IndD8(Reg, i8),
-    /// Indirect + 32nit displacement
-    IndD32(Reg, i32),
+    Ind(Reg, Disp),
 }
 
-pub enum IndKind {
-    Ind(Reg),
-    IndD8(Reg, i8),
-    IndD32(Reg, i32),
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Disp {
+    None,
+    D8(i8),
+    D32(i32),
 }
 
 impl Or {
-    fn op_to_rm(self) -> (Mode, Reg, Option<i32>) {
+    fn op_to_rm(self) -> (Mode, Reg, Disp) {
         match self {
-            Or::Reg(r) => (Mode::Reg, r, None),
-            Or::Ind(r) => (Mode::Ind, r, None),
-            Or::IndD8(r, d) => (Mode::InD8, r, Some(d as i32)),
-            Or::IndD32(r, d) => (Mode::InD32, r, Some(d)),
+            Or::Reg(r) => (Mode::Reg, r, Disp::None),
+            Or::Ind(r, Disp::None) => (Mode::Ind, r, Disp::None),
+            Or::Ind(r, Disp::D8(d)) => (Mode::InD8, r, Disp::D8(d)),
+            Or::Ind(r, Disp::D32(d)) => (Mode::InD32, r, Disp::D32(d)),
             rm_op => unreachable!("as_rm():{:?}", rm_op),
         }
     }

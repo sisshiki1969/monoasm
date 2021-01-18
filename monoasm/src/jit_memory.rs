@@ -179,7 +179,7 @@ impl JitMemory {
         let (mode, rm, disp) = rm_op.op_to_rm();
         self.enc_mr_main(op, reg, mode, rm);
         // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
-        self.imm_to_ts(disp, mode);
+        self.emit_disp(disp);
     }
 
     fn enc_mr_main(&mut self, op: u8, reg: Reg, mode: Mode, rm: Reg) {
@@ -227,14 +227,11 @@ impl JitMemory {
         self.emitb(util::sib(scale, index, base));
     }
 
-    fn imm_to_ts(&mut self, imm: Option<i32>, mode: Mode) {
-        match imm {
-            Some(imm) => match mode {
-                Mode::InD8 => self.emitb(imm as i8 as u8),
-                Mode::InD32 => self.emitl(imm as u32),
-                _ => unreachable!(),
-            },
-            None => {}
+    fn emit_disp(&mut self, disp: Disp) {
+        match disp {
+            Disp::D8(d) => self.emitb(d as u8),
+            Disp::D32(d) => self.emitl(d as u32),
+            Disp::None => {}
         }
     }
 }

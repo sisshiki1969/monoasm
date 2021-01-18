@@ -41,8 +41,17 @@ impl Parse for Operand {
         } else if input.peek(token::Bracket) {
             let addr: Addr = input.parse()?;
             match addr.offset {
-                Imm::Imm(i) if i == 0 => Ok(Operand::Ind(addr.reg, None)),
-                _ => Ok(Operand::Ind(addr.reg, Some(addr.offset))),
+                Imm::Imm(i) => {
+                    let disp = if i == 0 {
+                        Disp::None
+                    } else if std::i8::MIN as i32 <= i && i <= std::i8::MAX as i32 {
+                        Disp::D8(i as i8)
+                    } else {
+                        Disp::D32(i)
+                    };
+                    Ok(Operand::Ind(addr.reg, disp))
+                }
+                Imm::Expr(e) => Ok(Operand::Ind(addr.reg, Disp::Expr(e))),
             }
         } else if input.peek(token::Paren) {
             let gr = input.parse::<Group>()?;
