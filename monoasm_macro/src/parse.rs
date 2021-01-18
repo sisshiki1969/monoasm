@@ -9,9 +9,9 @@ use syn::{
 use syn::{token, Error, Ident, LitInt, Token};
 
 #[derive(Clone, Debug)]
-struct Addr {
+struct IndAddr {
     reg: Reg,
-    offset: Imm,
+    offset: Displacement,
 }
 
 impl Parse for Operand {
@@ -39,9 +39,9 @@ impl Parse for Operand {
             let imm = input.parse::<LitInt>()?;
             Ok(Operand::Imm(quote! { #imm }))
         } else if input.peek(token::Bracket) {
-            let addr: Addr = input.parse()?;
+            let addr: IndAddr = input.parse()?;
             match addr.offset {
-                Imm::Imm(i) => {
+                Displacement::Const(i) => {
                     let disp = if i == 0 {
                         Disp::None
                     } else if std::i8::MIN as i32 <= i && i <= std::i8::MAX as i32 {
@@ -51,7 +51,7 @@ impl Parse for Operand {
                     };
                     Ok(Operand::Ind(addr.reg, disp))
                 }
-                Imm::Expr(e) => Ok(Operand::Ind(addr.reg, Disp::Expr(e))),
+                Displacement::Expr(e) => Ok(Operand::Ind(addr.reg, Disp::Expr(e))),
             }
         } else if input.peek(token::Paren) {
             let gr = input.parse::<Group>()?;
@@ -78,11 +78,11 @@ impl Parse for Dest {
     }
 }
 
-impl Parse for Imm {
+impl Parse for Displacement {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         let lookahead = input.lookahead1();
         let offset = if input.is_empty() {
-            Imm::Imm(0)
+            Displacement::Const(0)
         } else if lookahead.peek(Token![-]) || lookahead.peek(Token![+]) {
             let sign = match input.parse::<Punct>()?.as_char() {
                 '-' => -1,
@@ -99,10 +99,10 @@ impl Parse for Imm {
                 } else {
                     quote!(-(#expr))
                 };
-                Imm::Expr(expr)
+                Displacement::Expr(expr)
             } else if lookahead.peek(LitInt) {
                 let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
-                Imm::Imm(ofs * sign)
+                Displacement::Const(ofs * sign)
             } else {
                 return Err(lookahead.error());
             }
@@ -113,7 +113,7 @@ impl Parse for Imm {
     }
 }
 
-impl Parse for Addr {
+impl Parse for IndAddr {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         let content;
         syn::bracketed!(content in input);
@@ -122,8 +122,8 @@ impl Parse for Addr {
             None => return Err(content.error("expected register name.")),
             Some(reg) => reg,
         };
-        let offset: Imm = content.parse()?;
-        Ok(Addr { reg, offset })
+        let offset: Displacement = content.parse()?;
+        Ok(IndAddr { reg, offset })
     }
 }
 

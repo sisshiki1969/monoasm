@@ -59,7 +59,7 @@ pub enum Disp {
 impl std::fmt::Display for Operand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Operand::Imm(i) => write!(f, "Imm({})", i),
+            Operand::Imm(i) => write!(f, "{}", i),
             Operand::Reg(r) => write!(f, "{:?}", r),
             Operand::RegExpr(s) => write!(f, "R({})", s),
             Operand::Ind(r, d) => match d {
@@ -76,29 +76,13 @@ impl ToTokens for Operand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
             Operand::Imm(_) => unreachable!(),
-            Operand::Reg(r) => {
-                quote!(Or::Reg(#r))
-            }
-            Operand::RegExpr(ts) => {
-                quote!(Or::Reg(Reg::from((#ts) as u64)))
-            }
+            Operand::Reg(r) => quote!(Or::Reg(#r)),
+            Operand::RegExpr(ts) => quote!(Or::Reg(Reg::from((#ts) as u64))),
             Operand::Ind(r, disp) => match disp {
-                Disp::D8(i) => {
-                    quote!(Or::Ind(#r, Disp::D8(#i)))
-                }
-                Disp::D32(i) => {
-                    if std::i8::MIN as i32 <= *i && *i <= std::i8::MAX as i32 {
-                        quote!(Or::Ind(#r, Disp::D8(#i as i8)))
-                    } else {
-                        quote!(Or::Ind(#r, Disp::D32(#i)))
-                    }
-                }
-                Disp::Expr(ts) => {
-                    quote!(Or::Ind(#r, Disp::D32((#ts) as i32)))
-                }
-                Disp::None => {
-                    quote!(Or::Ind(#r, Disp::None))
-                }
+                Disp::D8(i) => quote!(Or::Ind(#r, Disp::D8(#i))),
+                Disp::D32(i) => quote!(Or::Ind(#r, Disp::D32(#i))),
+                Disp::Expr(ts) => quote!(Or::Ind(#r, Disp::D32((#ts) as i32))),
+                Disp::None => quote!(Or::Ind(#r, Disp::None)),
             },
         };
         tokens.extend(ts);
@@ -112,16 +96,16 @@ pub enum Dest {
 }
 
 #[derive(Clone, Debug)]
-pub enum Imm {
-    Imm(i32),
+pub enum Displacement {
+    Const(i32),
     Expr(TokenStream),
 }
 
-impl std::fmt::Display for Imm {
+impl std::fmt::Display for Displacement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Imm::Imm(i) => write!(f, "Imm({})", i),
-            Imm::Expr(ts) => write!(f, "Expr({})", ts),
+            Displacement::Const(i) => write!(f, "{}", i),
+            Displacement::Expr(ts) => write!(f, "({})", ts),
         }
     }
 }

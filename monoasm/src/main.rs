@@ -5,6 +5,15 @@ use monoasm::*;
 use monoasm_inst::Reg;
 use monoasm_macro::monoasm;
 
+fn main() {
+    let _ = construct_ast();
+    let func = jit();
+    let x = 35;
+    let ret = func(x);
+    println!("fib( {} ) = {}", x, ret);
+    assert_eq!(9227465, ret)
+}
+
 fn jit() -> fn(u64) -> u64 {
     let mut vm = VM::new();
     // Jump labels must be declared as local variable in advance.
@@ -18,7 +27,6 @@ fn jit() -> fn(u64) -> u64 {
     // working registers: %0:r12 %1:r13 %2:r14
     vm.prologue(1);
     monoasm!(vm.jit,
-        pushq r12; pushq r13; pushq r14; pushq r15;
         // load argument to x.
         movq [rbp-(x_ofs)], rdi;
     );
@@ -27,21 +35,25 @@ fn jit() -> fn(u64) -> u64 {
     // %1 <- 0
     vm.set_int(1, 0);
     // cmp %0, %1
-    vm.cmp(0, 1);
-    vm.jne(label0);
+    vm.jne(label0, 0, 1);
+    // %0 <- 0
+    vm.set_int(0, 0);
+    // return %0
+    vm.leave(end, 0);
     monoasm!(vm.jit,
-        movq rax, 0;
-        jmp end;
     label0:
     );
+    // %0 <- x
+    vm.get_local(0, x_ofs);
     // %1 <- 1
     vm.set_int(1, 1);
     // cmp %0, %1
-    vm.cmp(0, 1);
-    vm.jne(label1);
+    vm.jne(label1, 0, 1);
+    // %0 <- 1
+    vm.set_int(0, 1);
+    // return %0
+    vm.leave(end, 0);
     monoasm!(vm.jit,
-        movq rax, 1;
-        jmp end;
     label1:
     );
     // %0 <- x
@@ -62,13 +74,11 @@ fn jit() -> fn(u64) -> u64 {
     vm.call_arg1(fibo, 1, 1);
     // %0 <- %0 + %1
     vm.add(0, 1);
-    monoasm!(vm.jit,
-        movq rax, R(12);
-    );
+    // return %0
+    vm.leave(end, 0);
 
     monoasm!(vm.jit,
     end:
-        popq r15; popq r14; popq r13; popq r12;
     );
     vm.epilogue();
     vm.jit.finalize()
@@ -91,11 +101,13 @@ impl VM {
             pushq rbp;
             movq rbp, rsp;
             subq rsp, ((locals + locals % 2)*8);
+            pushq r12; pushq r13; pushq r14; pushq r15;
         );
     }
 
     fn epilogue(&mut self) {
         monoasm!(self.jit,
+            popq r15; popq r14; popq r13; popq r12;
             movq rsp, rbp;
             popq rbp;
             ret;
@@ -122,12 +134,11 @@ impl VM {
         monoasm!(self.jit, addq R(dest_reg + 12), R(src_reg + 12););
     }
 
-    fn cmp(&mut self, dest_reg: u64, src_reg: u64) {
-        monoasm!(self.jit, cmpq R(dest_reg + 12), R(src_reg + 12););
-    }
-
-    fn jne(&mut self, dest: DestLabel) {
-        monoasm!(self.jit, jne dest;);
+    fn jne(&mut self, dest: DestLabel, dest_reg: u64, src_reg: u64) {
+        monoasm!(self.jit,
+            cmpq R(dest_reg + 12), R(src_reg + 12);
+            jne dest;
+        );
     }
 
     fn call_arg1(&mut self, dest: DestLabel, arg0_reg: u64, ret_reg: u64) {
@@ -135,6 +146,13 @@ impl VM {
             movq rdi, R(arg0_reg + 12);
             call dest;
             movq R(ret_reg + 12), rax;
+        );
+    }
+
+    fn leave(&mut self, end: DestLabel, reg: u64) {
+        monoasm!(self.jit,
+            movq rax, R(reg + 12);
+            jmp end;
         );
     }
 
@@ -147,10 +165,86 @@ impl VM {
     }
 }
 
-fn main() {
-    let func = jit();
-    let x = 35;
-    let ret = func(x);
-    println!("fib( {} ) = {}", x, ret);
-    assert_eq!(9227465, ret)
+enum Node {
+    Integer(i64), // push 1
+    LocalVar(u8), // push 1
+    If(If),       // pop2
+    Return(Box<Node>),
+    Add(Box<Node>, Box<Node>), // pop2, push1
+    Sub(Box<Node>, Box<Node>), // pop2, push1
+    Call(String, Vec<Node>),   // popn, push1
+}
+
+impl Node {
+    fn add(lhs: Node, rhs: Node) -> Self {
+        Node::Add(Box::new(lhs), Box::new(rhs))
+    }
+
+    fn sub(lhs: Node, rhs: Node) -> Self {
+        Node::Sub(Box::new(lhs), Box::new(rhs))
+    }
+
+    fn if_(cond: Cmp, then: Node) -> Self {
+        Node::If(If::new(cond, then))
+    }
+
+    fn call(func: &str, args: Vec<Node>) -> Self {
+        Node::Call(func.to_string(), args)
+    }
+
+    fn ret(val: Node) -> Self {
+        Node::Return(Box::new(val))
+    }
+}
+
+struct If {
+    cond: Cmp,
+    then: Box<Node>,
+}
+
+impl If {
+    fn new(cond: Cmp, then: Node) -> Self {
+        Self {
+            cond,
+            then: Box::new(then),
+        }
+    }
+}
+
+struct Cmp {
+    kind: CmpKind,
+    lhs: Box<Node>,
+    rhs: Box<Node>,
+}
+
+impl Cmp {
+    fn new(kind: CmpKind, lhs: Node, rhs: Node) -> Self {
+        Self {
+            kind,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
+    }
+}
+
+enum CmpKind {
+    Eq,
+    Ne,
+}
+
+fn construct_ast() -> Vec<Node> {
+    vec![
+        Node::if_(
+            Cmp::new(CmpKind::Eq, Node::LocalVar(0), Node::Integer(0)),
+            Node::ret(Node::Integer(0)),
+        ),
+        Node::if_(
+            Cmp::new(CmpKind::Eq, Node::LocalVar(0), Node::Integer(1)),
+            Node::ret(Node::Integer(1)),
+        ),
+        Node::ret(Node::add(
+            Node::call("fibo", vec![Node::sub(Node::LocalVar(0), Node::Integer(1))]),
+            Node::call("fibo", vec![Node::sub(Node::LocalVar(0), Node::Integer(2))]),
+        )),
+    ]
 }
