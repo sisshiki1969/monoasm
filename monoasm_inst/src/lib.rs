@@ -53,8 +53,8 @@ impl Reg {
         }
     }
 
-    pub fn from_str(string: &str) -> Option<Reg> {
-        let mut string = string.to_owned();
+    pub fn from_str(string: impl Into<String>) -> Option<Reg> {
+        let mut string = string.into();
         string.make_ascii_lowercase();
         let reg = match string.as_str() {
             "rax" => Reg::Rax,

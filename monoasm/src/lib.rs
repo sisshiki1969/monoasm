@@ -6,7 +6,7 @@ use std::ops::{Add, Deref, DerefMut, Index, IndexMut};
 mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
-use monoasm_inst::Reg;
+use monoasm_inst::{Mode, Reg};
 
 const PAGE_SIZE: usize = 4096;
 
@@ -25,6 +25,24 @@ pub enum Or {
     IndD32(Reg, i32),
 }
 
+pub enum IndKind {
+    Ind(Reg),
+    IndD8(Reg, i8),
+    IndD32(Reg, i32),
+}
+
+impl Or {
+    fn op_to_rm(self) -> (Mode, Reg, Option<i32>) {
+        match self {
+            Or::Reg(r) => (Mode::Reg, r, None),
+            Or::Ind(r) => (Mode::Ind, r, None),
+            Or::IndD8(r, d) => (Mode::InD8, r, Some(d as i32)),
+            Or::IndD32(r, d) => (Mode::InD32, r, Some(d)),
+            rm_op => unreachable!("as_rm():{:?}", rm_op),
+        }
+    }
+}
+
 /// Destination.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Dest {
@@ -33,55 +51,6 @@ pub enum Dest {
     /// Relative
     Rel(usize),
 }
-
-/*#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum Reg {
-    Rax = 0,
-    Rcx = 1,
-    Rdx = 2,
-    Rbx = 3,
-    Rsp = 4,
-    Rbp = 5,
-    Rsi = 6,
-    Rdi = 7,
-    R8 = 8,
-    R9 = 9,
-    R10 = 10,
-    R11 = 11,
-    R12 = 12,
-    R13 = 13,
-    R14 = 14,
-    R15 = 15,
-}
-
-#[allow(dead_code)]
-impl Reg {
-    pub fn none() -> Self {
-        Self::Rax
-    }
-
-    pub fn from(num: u64) -> Self {
-        match num {
-            0 => Reg::Rax,
-            1 => Reg::Rcx,
-            2 => Reg::Rdx,
-            3 => Reg::Rbx,
-            4 => Reg::Rsp,
-            5 => Reg::Rbp,
-            6 => Reg::Rsi,
-            7 => Reg::Rdi,
-            8 => Reg::R8,
-            9 => Reg::R9,
-            10 => Reg::R10,
-            11 => Reg::R11,
-            12 => Reg::R12,
-            13 => Reg::R13,
-            14 => Reg::R14,
-            15 => Reg::R15,
-            _ => unreachable!(),
-        }
-    }
-}*/
 
 /// Position in JitMemory.
 #[derive(Copy, Clone, PartialEq)]

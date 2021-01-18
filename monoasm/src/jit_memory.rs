@@ -176,7 +176,7 @@ impl JitMemory {
     /// MR-> ModRM:r/m(w) ModRM:reg(r)
     /// RM-> ModRM:reg(r) ModRM:r/m(w)
     pub fn enc_mr(&mut self, op: u8, reg: Reg, rm_op: Or) {
-        let (mode, rm, disp) = op_to_rm(rm_op);
+        let (mode, rm, disp) = rm_op.op_to_rm();
         self.enc_mr_main(op, reg, mode, rm);
         // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
         self.imm_to_ts(disp, mode);
@@ -236,15 +236,5 @@ impl JitMemory {
             },
             None => {}
         }
-    }
-}
-
-fn op_to_rm(op: Or) -> (Mode, Reg, Option<i32>) {
-    match op {
-        Or::Reg(r) => (Mode::Reg, r, None),
-        Or::Ind(r) => (Mode::Ind, r, None),
-        Or::IndD8(r, d) => (Mode::InD8, r, Some(d as i32)),
-        Or::IndD32(r, d) => (Mode::InD32, r, Some(d)),
-        rm_op => unreachable!("as_rm():{:?}", rm_op),
     }
 }
