@@ -7,17 +7,20 @@ use monoasm_macro::monoasm;
 
 fn main() {
     let ast = construct_ast();
-    let _ = codegen(ast);
-    let func = jit();
-    let x = 35;
+    let func = codegen(ast);
+    //let func = jit();
+    let x = 40;
     let ret = func(x);
     println!("fib( {} ) = {}", x, ret);
-    assert_eq!(9227465, ret)
+    assert_eq!(102334155, ret)
 }
 
 fn codegen(ast: Vec<Node>) -> fn(u64) -> u64 {
     let mut vm = VM::new();
     vm.prologue(1);
+    monoasm!(vm.jit,
+        movq [rbp - 8], rdi;
+    );
     for node in ast {
         gen(&mut vm, node);
     }
@@ -28,7 +31,7 @@ fn codegen(ast: Vec<Node>) -> fn(u64) -> u64 {
 fn gen(vm: &mut VM, node: Node) {
     match node {
         Node::Integer(i) => vm.push_int(i),
-        Node::LocalVar(lvar) => vm.get_local((lvar * 8) as i64),
+        Node::LocalVar(lvar) => vm.get_local((lvar * 8) as i64 + 8),
         Node::Return(node) => {
             gen(vm, *node);
             vm.leave(vm.exit)
@@ -49,11 +52,25 @@ fn gen(vm: &mut VM, node: Node) {
             }
             vm.call_arg1(vm.entry);
         }
-        Node::If(_) => {}
+        Node::If(If {
+            cond: Cmp { kind, lhs, rhs },
+            then,
+        }) => {
+            gen(vm, *lhs);
+            gen(vm, *rhs);
+            match kind {
+                CmpKind::Eq => {
+                    let dest = vm.jit.label();
+                    vm.jne(dest);
+                    gen(vm, *then);
+                    vm.jit.bind_label(dest);
+                }
+            }
+        }
     };
 }
 
-fn jit() -> fn(u64) -> u64 {
+fn _jit() -> fn(u64) -> u64 {
     let mut vm = VM::new();
     // Jump labels must be declared as local variable in advance.
     let fibo = vm.jit.label();
