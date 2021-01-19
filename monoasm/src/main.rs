@@ -31,51 +31,51 @@ fn jit() -> fn(u64) -> u64 {
         movq [rbp-(x_ofs)], rdi;
     );
     // %0 <- x
-    vm.get_local(0, x_ofs);
+    vm.get_local(x_ofs);
     // %1 <- 0
-    vm.set_int(1, 0);
+    vm.push_int(0);
     // cmp %0, %1
-    vm.jne(label0, 0, 1);
+    vm.jne(label0);
     // %0 <- 0
-    vm.set_int(0, 0);
+    vm.push_int(0);
     // return %0
-    vm.leave(end, 0);
+    vm.leave(end);
     monoasm!(vm.jit,
     label0:
     );
     // %0 <- x
-    vm.get_local(0, x_ofs);
+    vm.get_local(x_ofs);
     // %1 <- 1
-    vm.set_int(1, 1);
+    vm.push_int(1);
     // cmp %0, %1
-    vm.jne(label1, 0, 1);
+    vm.jne(label1);
     // %0 <- 1
-    vm.set_int(0, 1);
+    vm.push_int(1);
     // return %0
-    vm.leave(end, 0);
+    vm.leave(end);
     monoasm!(vm.jit,
     label1:
     );
     // %0 <- x
-    vm.get_local(0, x_ofs);
+    vm.get_local(x_ofs);
     // %1 <- 1
-    vm.set_int(1, 1);
+    vm.push_int(1);
     // %0 <- %0 - %1
-    vm.sub(0, 1);
+    vm.sub();
     // %0 <- fibo(%0)
-    vm.call_arg1(fibo, 0, 0);
+    vm.call_arg1(fibo);
     // %1 <- x
-    vm.get_local(1, x_ofs);
+    vm.get_local(x_ofs);
     // %2 <- 2
-    vm.set_int(2, 2);
+    vm.push_int(2);
     // %1 <- %1 - %2
-    vm.sub(1, 2);
+    vm.sub();
     // %1 <- fibo(%1)
-    vm.call_arg1(fibo, 1, 1);
+    vm.call_arg1(fibo);
     // %0 <- %0 + %1
-    vm.add(0, 1);
+    vm.add();
     // return %0
-    vm.leave(end, 0);
+    vm.leave(end);
 
     monoasm!(vm.jit,
     end:
@@ -86,6 +86,7 @@ fn jit() -> fn(u64) -> u64 {
 
 struct VM {
     jit: JitMemory,
+    stack: u64,
 }
 
 #[allow(dead_code)]
@@ -93,6 +94,7 @@ impl VM {
     fn new() -> Self {
         Self {
             jit: JitMemory::new(),
+            stack: 0,
         }
     }
 
@@ -114,51 +116,85 @@ impl VM {
         );
     }
 
-    fn set_int(&mut self, reg: u64, val: i64) {
-        monoasm!(self.jit, movq R(reg + 12), (val as u64););
+    /// Push integer.
+    /// stack +1
+    fn push_int(&mut self, val: i64) {
+        monoasm!(self.jit, movq R((self.stack) as u64 + 12), (val as u64););
+        self.stack += 1;
     }
 
-    fn set_local(&mut self, reg: u64, offset: i64) {
-        monoasm!(self.jit, movq [rbp-(offset)], R(reg + 12););
+    /// Get local var(offset), and push it.
+    /// stack +1
+    fn get_local(&mut self, offset: i64) {
+        monoasm!(self.jit, movq R(self.stack + 12), [rbp-(offset)];);
+        self.stack += 1;
     }
 
-    fn get_local(&mut self, reg: u64, offset: i64) {
-        monoasm!(self.jit, movq R(reg + 12), [rbp-(offset)];);
+    /// Pop a value, and set local var(offset) to the value.
+    /// stack -1
+    fn set_local(&mut self, offset: i64) {
+        self.stack -= 1;
+        monoasm!(self.jit, movq [rbp-(offset)], R(self.stack + 12););
     }
 
-    fn sub(&mut self, dest_reg: u64, src_reg: u64) {
-        monoasm!(self.jit, subq R(dest_reg + 12), R(src_reg + 12););
+    /// Pop two values, and subtruct the former from the latter.
+    /// Push the result.
+    /// stack -1
+    fn sub(&mut self) {
+        self.stack -= 2;
+        monoasm!(self.jit, subq R(self.stack + 12), R(self.stack + 13););
+        self.stack += 1;
     }
 
-    fn add(&mut self, dest_reg: u64, src_reg: u64) {
-        monoasm!(self.jit, addq R(dest_reg + 12), R(src_reg + 12););
+    /// Pop two values, and add the former to the latter.
+    /// Push the result.
+    /// stack -1
+    fn add(&mut self) {
+        self.stack -= 2;
+        monoasm!(self.jit, addq R(self.stack + 12), R(self.stack + 13););
+        self.stack += 1;
     }
 
-    fn jne(&mut self, dest: DestLabel, dest_reg: u64, src_reg: u64) {
+    /// Pop two values, and compare them.
+    /// If the condition is met, jump to `dest`.
+    /// stack -2
+    fn jne(&mut self, dest: DestLabel) {
+        self.stack -= 2;
         monoasm!(self.jit,
-            cmpq R(dest_reg + 12), R(src_reg + 12);
+            cmpq R(self.stack + 12), R(self.stack + 13);
             jne dest;
         );
     }
 
-    fn call_arg1(&mut self, dest: DestLabel, arg0_reg: u64, ret_reg: u64) {
+    /// Pop one argument, and call `dest` with the arg.
+    /// Push the returned value.
+    /// stack +-0
+    fn call_arg1(&mut self, dest: DestLabel) {
+        self.stack -= 1;
         monoasm!(self.jit,
-            movq rdi, R(arg0_reg + 12);
+            movq rdi, R(self.stack + 12);
             call dest;
-            movq R(ret_reg + 12), rax;
+            movq R(self.stack + 12), rax;
         );
+        self.stack += 1;
     }
 
-    fn leave(&mut self, end: DestLabel, reg: u64) {
+    /// Pop a value, and return with it.
+    /// stack -1
+    fn leave(&mut self, end: DestLabel) {
+        self.stack -= 1;
         monoasm!(self.jit,
-            movq rax, R(reg + 12);
+            movq rax, R(self.stack + 12);
             jmp end;
         );
     }
 
-    fn puts(&mut self, reg: u64) {
+    /// Pop a value, and print it as integer.
+    /// stack -1
+    fn puts(&mut self) {
+        self.stack -= 1;
         monoasm!(self.jit,
-            movq rdi, R(reg + 12);
+            movq rdi, R(self.stack + 12);
             movq rax, (monoasm::test::PUTINT as u64);
             call rax;
         );
