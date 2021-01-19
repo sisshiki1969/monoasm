@@ -6,12 +6,51 @@ use monoasm_inst::Reg;
 use monoasm_macro::monoasm;
 
 fn main() {
-    let _ = construct_ast();
+    let ast = construct_ast();
+    let _ = codegen(ast);
     let func = jit();
     let x = 35;
     let ret = func(x);
     println!("fib( {} ) = {}", x, ret);
     assert_eq!(9227465, ret)
+}
+
+fn codegen(ast: Vec<Node>) -> fn(u64) -> u64 {
+    let mut vm = VM::new();
+    vm.prologue(1);
+    for node in ast {
+        gen(&mut vm, node);
+    }
+    vm.epilogue();
+    vm.jit.finalize()
+}
+
+fn gen(vm: &mut VM, node: Node) {
+    match node {
+        Node::Integer(i) => vm.push_int(i),
+        Node::LocalVar(lvar) => vm.get_local((lvar * 8) as i64),
+        Node::Return(node) => {
+            gen(vm, *node);
+            vm.leave(vm.exit)
+        }
+        Node::Add(lhs, rhs) => {
+            gen(vm, *lhs);
+            gen(vm, *rhs);
+            vm.add();
+        }
+        Node::Sub(lhs, rhs) => {
+            gen(vm, *lhs);
+            gen(vm, *rhs);
+            vm.sub();
+        }
+        Node::Call(_func, nodes) => {
+            for node in nodes {
+                gen(vm, node);
+            }
+            vm.call_arg1(vm.entry);
+        }
+        Node::If(_) => {}
+    };
 }
 
 fn jit() -> fn(u64) -> u64 {
@@ -87,14 +126,22 @@ fn jit() -> fn(u64) -> u64 {
 struct VM {
     jit: JitMemory,
     stack: u64,
+    entry: DestLabel,
+    exit: DestLabel,
 }
 
 #[allow(dead_code)]
 impl VM {
     fn new() -> Self {
+        let mut jit = JitMemory::new();
+        let entry = jit.label();
+        let exit = jit.label();
+        jit.bind_label(entry);
         Self {
-            jit: JitMemory::new(),
+            jit,
             stack: 0,
+            entry,
+            exit,
         }
     }
 
@@ -108,6 +155,7 @@ impl VM {
     }
 
     fn epilogue(&mut self) {
+        self.jit.bind_label(self.exit);
         monoasm!(self.jit,
             popq r15; popq r14; popq r13; popq r12;
             movq rsp, rbp;
@@ -119,7 +167,7 @@ impl VM {
     /// Push integer.
     /// stack +1
     fn push_int(&mut self, val: i64) {
-        monoasm!(self.jit, movq R((self.stack) as u64 + 12), (val as u64););
+        monoasm!(self.jit, movq R(self.stack + 12), (val as u64););
         self.stack += 1;
     }
 
@@ -202,9 +250,9 @@ impl VM {
 }
 
 enum Node {
-    Integer(i64), // push 1
-    LocalVar(u8), // push 1
-    If(If),       // pop2
+    Integer(i64),  // push 1
+    LocalVar(u64), // push 1
+    If(If),        // pop2
     Return(Box<Node>),
     Add(Box<Node>, Box<Node>), // pop2, push1
     Sub(Box<Node>, Box<Node>), // pop2, push1
@@ -265,7 +313,6 @@ impl Cmp {
 
 enum CmpKind {
     Eq,
-    Ne,
 }
 
 fn construct_ast() -> Vec<Node> {
