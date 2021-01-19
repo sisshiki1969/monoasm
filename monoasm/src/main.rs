@@ -7,153 +7,109 @@ use monoasm_macro::monoasm;
 
 fn main() {
     let ast = construct_ast();
-    let func = codegen(ast);
-    //let func = jit();
+    let mut codegen = Codegen::new();
+    let func = codegen.gen_func(ast, 1);
     let x = 40;
     let ret = func(x);
     println!("fib( {} ) = {}", x, ret);
     assert_eq!(102334155, ret)
 }
 
-fn codegen(ast: Vec<Node>) -> fn(u64) -> u64 {
-    let mut vm = VM::new();
-    vm.prologue(1);
-    monoasm!(vm.jit,
-        movq [rbp - 8], rdi;
-    );
-    for node in ast {
-        gen(&mut vm, node);
-    }
-    vm.epilogue();
-    vm.jit.finalize()
-}
-
-fn gen(vm: &mut VM, node: Node) {
-    match node {
-        Node::Integer(i) => vm.push_int(i),
-        Node::LocalVar(lvar) => vm.get_local((lvar * 8) as i64 + 8),
-        Node::Return(node) => {
-            gen(vm, *node);
-            vm.leave(vm.exit)
-        }
-        Node::Add(lhs, rhs) => {
-            gen(vm, *lhs);
-            gen(vm, *rhs);
-            vm.add();
-        }
-        Node::Sub(lhs, rhs) => {
-            gen(vm, *lhs);
-            gen(vm, *rhs);
-            vm.sub();
-        }
-        Node::Call(_func, nodes) => {
-            for node in nodes {
-                gen(vm, node);
-            }
-            vm.call_arg1(vm.entry);
-        }
-        Node::If(If {
-            cond: Cmp { kind, lhs, rhs },
-            then,
-        }) => {
-            gen(vm, *lhs);
-            gen(vm, *rhs);
-            match kind {
-                CmpKind::Eq => {
-                    let dest = vm.jit.label();
-                    vm.jne(dest);
-                    gen(vm, *then);
-                    vm.jit.bind_label(dest);
-                }
-            }
-        }
-    };
-}
-
-fn _jit() -> fn(u64) -> u64 {
-    let mut vm = VM::new();
-    // Jump labels must be declared as local variable in advance.
-    let fibo = vm.jit.label();
-    let label0 = vm.jit.label();
-    let label1 = vm.jit.label();
-    let end = vm.jit.label();
-    vm.jit.bind_label(fibo);
-    // Negative offset to rbp for local variable 'x'.
-    let x_ofs = 8;
-    // working registers: %0:r12 %1:r13 %2:r14
-    vm.prologue(1);
-    monoasm!(vm.jit,
-        // load argument to x.
-        movq [rbp-(x_ofs)], rdi;
-    );
-    // %0 <- x
-    vm.get_local(x_ofs);
-    // %1 <- 0
-    vm.push_int(0);
-    // cmp %0, %1
-    vm.jne(label0);
-    // %0 <- 0
-    vm.push_int(0);
-    // return %0
-    vm.leave(end);
-    monoasm!(vm.jit,
-    label0:
-    );
-    // %0 <- x
-    vm.get_local(x_ofs);
-    // %1 <- 1
-    vm.push_int(1);
-    // cmp %0, %1
-    vm.jne(label1);
-    // %0 <- 1
-    vm.push_int(1);
-    // return %0
-    vm.leave(end);
-    monoasm!(vm.jit,
-    label1:
-    );
-    // %0 <- x
-    vm.get_local(x_ofs);
-    // %1 <- 1
-    vm.push_int(1);
-    // %0 <- %0 - %1
-    vm.sub();
-    // %0 <- fibo(%0)
-    vm.call_arg1(fibo);
-    // %1 <- x
-    vm.get_local(x_ofs);
-    // %2 <- 2
-    vm.push_int(2);
-    // %1 <- %1 - %2
-    vm.sub();
-    // %1 <- fibo(%1)
-    vm.call_arg1(fibo);
-    // %0 <- %0 + %1
-    vm.add();
-    // return %0
-    vm.leave(end);
-
-    monoasm!(vm.jit,
-    end:
-    );
-    vm.epilogue();
-    vm.jit.finalize()
-}
-
-struct VM {
+struct Codegen {
     jit: JitMemory,
     stack: u64,
     entry: DestLabel,
     exit: DestLabel,
 }
 
+impl Codegen {
+    fn gen_func(&mut self, ast: Vec<Node>, arg_num: usize) -> fn(u64) -> u64 {
+        self.stack = 0;
+        self.entry = self.jit.label();
+        self.exit = self.jit.label();
+        self.jit.bind_label(self.entry);
+        self.prologue(arg_num);
+        match arg_num {
+            0 => {}
+            1 => {
+                monoasm!(self.jit,
+                    movq [rbp - 8], rdi;
+                );
+            }
+            2 => {
+                monoasm!(self.jit,
+                    movq [rbp - 8], rdi;
+                    movq [rbp - 16], rsi;
+                );
+            }
+            3 => {
+                monoasm!(self.jit,
+                    movq [rbp - 8], rdi;
+                    movq [rbp - 16], rsi;
+                    movq [rbp - 24], rdx;
+                );
+            }
+            _ => unreachable!(),
+        };
+        for node in ast {
+            self.gen(node);
+        }
+        self.jit.bind_label(self.exit);
+        self.epilogue();
+        self.jit.finalize()
+    }
+
+    fn gen(&mut self, node: Node) {
+        match node {
+            Node::Integer(i) => self.push_int(i),
+            Node::LocalVar(lvar) => self.get_local((lvar * 8) as i64 + 8),
+            Node::Return(node) => {
+                self.gen(*node);
+                self.leave(self.exit)
+            }
+            Node::Add(lhs, rhs) => {
+                self.gen(*lhs);
+                self.gen(*rhs);
+                self.add();
+            }
+            Node::Sub(lhs, rhs) => {
+                self.gen(*lhs);
+                self.gen(*rhs);
+                self.sub();
+            }
+            Node::Call(_func, nodes) => {
+                for node in nodes {
+                    self.gen(node);
+                }
+                self.call_arg1(self.entry);
+            }
+            Node::If(If {
+                cond: Cmp { kind, lhs, rhs },
+                then,
+            }) => {
+                self.gen(*lhs);
+                self.gen(*rhs);
+                match kind {
+                    CmpKind::Eq => {
+                        let dest = self.jit.label();
+                        self.jne(dest);
+                        self.gen(*then);
+                        self.jit.bind_label(dest);
+                    }
+                }
+            }
+        };
+    }
+}
+
 #[allow(dead_code)]
-impl VM {
+impl Codegen {
     fn new() -> Self {
         let mut jit = JitMemory::new();
         let entry = jit.label();
         let exit = jit.label();
         jit.bind_label(entry);
+        jit.bind_label(exit);
         Self {
             jit,
             stack: 0,
@@ -172,7 +128,6 @@ impl VM {
     }
 
     fn epilogue(&mut self) {
-        self.jit.bind_label(self.exit);
         monoasm!(self.jit,
             popq r15; popq r14; popq r13; popq r12;
             movq rsp, rbp;
