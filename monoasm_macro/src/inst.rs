@@ -1,44 +1,18 @@
 extern crate proc_macro2;
 extern crate quote;
 extern crate syn;
+use super::parse::*;
 use monoasm_inst::Reg;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use syn::Ident;
+use syn::parse::{Parse, ParseStream};
+use syn::{Error, Ident};
 
-#[derive(Clone)]
-pub struct Stmts {
-    pub base: syn::Expr,
-    pub contents: Vec<Inst>,
-}
-
-#[derive(Clone, Debug)]
-pub enum Inst {
-    Label(Ident),
-
-    Movq(Operand, Operand),
-    Addq(Operand, Operand),
-    Orq(Operand, Operand),
-    Adcq(Operand, Operand),
-    Sbbq(Operand, Operand),
-    Andq(Operand, Operand),
-    Subq(Operand, Operand),
-    Xorq(Operand, Operand),
-    Cmpq(Operand, Operand),
-
-    Imull(Operand, Operand),
-
-    Pushq(Operand),
-    Popq(Operand),
-
-    Jmp(Dest),
-    Jne(Ident),
-    Je(Ident),
-
-    Call(Dest),
-    Ret,
-    Syscall,
-}
+//----------------------------------------------------------------------
+//
+//  Operands.
+//
+//----------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
 pub enum Operand {
@@ -46,14 +20,6 @@ pub enum Operand {
     Reg(Reg),
     RegExpr(TokenStream),
     Ind(Reg, Disp),
-}
-
-#[derive(Clone, Debug)]
-pub enum Disp {
-    None,
-    D8(i8),
-    D32(i32),
-    Expr(TokenStream),
 }
 
 impl std::fmt::Display for Operand {
@@ -89,23 +55,30 @@ impl ToTokens for Operand {
     }
 }
 
+//----------------------------------------------------------------------
+//
+//  Destination.
+//
+//----------------------------------------------------------------------
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum Dest {
     Reg(Reg),
     Rel(Ident),
 }
 
-#[derive(Clone, Debug)]
-pub enum Displacement {
-    Const(i32),
-    Expr(TokenStream),
-}
-
-impl std::fmt::Display for Displacement {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Displacement::Const(i) => write!(f, "{}", i),
-            Displacement::Expr(ts) => write!(f, "({})", ts),
+impl Parse for Dest {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        let lookahead = input.lookahead1();
+        if lookahead.peek(Ident) && is_single(input) {
+            let dest: Ident = input.parse()?;
+            let reg = Reg::from_str(&dest.to_string());
+            match reg {
+                Some(reg) => Ok(Dest::Reg(reg)),
+                None => Ok(Dest::Rel(dest)),
+            }
+        } else {
+            Err(lookahead.error())
         }
     }
 }

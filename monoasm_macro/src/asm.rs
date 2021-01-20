@@ -1,7 +1,108 @@
 use super::inst::*;
+use super::parse::Disp;
 use monoasm_inst::{util, Mode, Reg};
 use proc_macro2::TokenStream;
 use quote::quote;
+use syn::parse::{Parse, ParseStream};
+use syn::{Error, Ident, Token};
+
+//----------------------------------------------------------------------
+//
+//  Assembly instructions.
+//
+//----------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub enum Inst {
+    Label(Ident),
+
+    Movq(Operand, Operand),
+    Addq(Operand, Operand),
+    Orq(Operand, Operand),
+    Adcq(Operand, Operand),
+    Sbbq(Operand, Operand),
+    Andq(Operand, Operand),
+    Subq(Operand, Operand),
+    Xorq(Operand, Operand),
+    Cmpq(Operand, Operand),
+
+    Imull(Operand, Operand),
+
+    Pushq(Operand),
+    Popq(Operand),
+
+    Jmp(Dest),
+    Jne(Ident),
+    Je(Ident),
+
+    Call(Dest),
+    Ret,
+    Syscall,
+}
+
+impl Parse for Inst {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        macro_rules! parse_2op {
+            ($inst: ident) => (
+                {
+                    let op1 = input.parse()?;
+                    input.parse::<Token![,]>()?;
+                    let op2 = input.parse()?;
+                    input.parse::<Token![;]>()?;
+                    Ok(Inst::$inst(op1, op2))
+                }
+            )
+        }
+
+        macro_rules! parse_1op {
+            ($inst: ident) => (
+                {
+                    let op = input.parse()?;
+                    input.parse::<Token![;]>()?;
+                    Ok(Inst::$inst(op))
+                }
+            )
+        }
+
+        macro_rules! parse_0op {
+            ($inst: ident) => (
+                {
+                    input.parse::<Token![;]>()?;
+                    Ok(Inst::$inst)
+                }
+            )
+        }
+
+        let inst: Ident = input.parse()?;
+        if input.peek(Token![:]) {
+            input.parse::<Token![:]>()?;
+            Ok(Inst::Label(inst))
+        } else {
+            match inst.to_string().as_str() {
+                "movq" => parse_2op!(Movq),
+                "addq" => parse_2op!(Addq),
+                "orq" => parse_2op!(Orq),
+                "adcq" => parse_2op!(Adcq),
+                "sbbq" => parse_2op!(Sbbq),
+                "andq" => parse_2op!(Andq),
+                "subq" => parse_2op!(Subq),
+                "xorq" => parse_2op!(Xorq),
+                "imull" => parse_2op!(Imull),
+
+                "pushq" => parse_1op!(Pushq),
+                "popq" => parse_1op!(Popq),
+                "cmpq" => parse_2op!(Cmpq),
+                "call" => parse_1op!(Call),
+                "ret" => parse_0op!(Ret),
+                "jmp" => parse_1op!(Jmp),
+                "jne" => parse_1op!(Jne),
+                "je" => parse_1op!(Je),
+                "syscall" => parse_0op!(Syscall),
+                _ => Err(Error::new(inst.span(), "unimplemented instruction.")),
+            }
+        }
+    }
+}
 
 pub fn compile(inst: Inst) -> TokenStream {
     match inst {

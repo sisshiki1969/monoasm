@@ -67,16 +67,15 @@ impl JitMemory {
         res
     }
 
+    pub fn get_current(&self) -> usize {
+        self.counter.0
+    }
+
     fn _p(&self) {
         for i in 0..self.counter.0 {
             print!("{:>02x} ", self[Pos(i)]);
         }
         println!();
-    }
-
-    /// Get top address of the heap-allocated memory.
-    pub fn get_mem_addr(&self) -> u64 {
-        self.contents as u64
     }
 
     /// Create new label and returns `DestLabel`.
@@ -92,13 +91,26 @@ impl JitMemory {
         self.reloc[label].loc = Some(self.counter);
     }
 
+    /// Bind the current location to `DestLabel`.
+    pub fn bind_label_to_pos(&mut self, label: DestLabel, pos: usize) {
+        self.reloc[label].loc = Some(Pos::from(pos));
+    }
+
+    /// Bind the current location to `DestLabel`.
+    pub fn get_label_pos(&mut self, label: DestLabel) -> usize {
+        self.reloc[label]
+            .loc
+            .expect("The DestLabel has no position binding.")
+            .0
+    }
+
     /// Save relocaton slot for `DestLabel`.
     pub fn save_reloc(&mut self, dest: DestLabel, size: u8) {
         self.reloc[dest].disp.push((size, self.counter));
     }
 
     /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
-    pub fn finalize<T, U>(&mut self) -> fn(T) -> U {
+    pub fn resolve(&mut self) {
         let mut relocs: Vec<(Pos, i32)> = vec![];
         for rel in self.reloc.iter_mut() {
             let pos = rel.loc.expect("Reloc not determined.");
@@ -113,7 +125,20 @@ impl JitMemory {
         for (dest, disp) in relocs {
             self.write32(dest, disp);
         }
+    }
+
+    pub fn finalize<T, U>(&mut self) -> fn(T) -> U {
+        self.resolve();
         unsafe { mem::transmute(self.contents) }
+    }
+
+    pub fn get_label_addr<T, U>(&mut self, label: DestLabel) -> fn(T) -> U {
+        let counter = self.reloc[label]
+            .loc
+            .expect("The DestLabel has no position binding.")
+            .0;
+        let adr = self.contents;
+        unsafe { mem::transmute(adr.add(counter)) }
     }
 
     /// Emit a byte.

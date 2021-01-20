@@ -53,6 +53,12 @@ pub enum Dest {
 #[derive(Copy, Clone, PartialEq)]
 pub struct Pos(usize);
 
+impl Pos {
+    pub fn from(pos: usize) -> Self {
+        Pos(pos)
+    }
+}
+
 impl Add<i32> for Pos {
     type Output = Pos;
 

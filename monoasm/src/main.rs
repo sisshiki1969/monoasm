@@ -4,13 +4,21 @@ extern crate monoasm_macro;
 use monoasm::*;
 use monoasm_inst::Reg;
 use monoasm_macro::monoasm;
+use std::collections::HashMap;
 
 fn main() {
     let ast = construct_ast();
     let mut codegen = Codegen::new();
-    let func = codegen.gen_func(ast, 1);
+    let fid = codegen.gen_func("fibo", ast, 1);
+    for (name, dest) in &codegen.func_reloc {
+        let fid = codegen.func_map.get(name).expect("Undefined func name.");
+        let entry = codegen.get_func(*fid).entry;
+        let entry = codegen.jit.get_label_pos(entry);
+        codegen.jit.bind_label_to_pos(*dest, entry);
+    }
+    codegen.jit.resolve();
     let x = 40;
-    let ret = func(x);
+    let ret = (codegen.get_func(fid).body)(x);
     println!("fib( {} ) = {}", x, ret);
     assert_eq!(102334155, ret)
 }
@@ -20,10 +28,39 @@ struct Codegen {
     stack: u64,
     entry: DestLabel,
     exit: DestLabel,
+    func_map: HashMap<String, FuncId>,
+    func_reloc: Vec<(String, DestLabel)>,
+    funcs: Vec<FuncInfo>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FuncId(usize);
+
+struct FuncInfo {
+    entry: DestLabel,
+    pub body: fn(u64) -> u64,
+}
+
+impl FuncInfo {
+    fn new(entry: DestLabel, body: fn(u64) -> u64) -> Self {
+        Self { entry, body }
+    }
 }
 
 impl Codegen {
-    fn gen_func(&mut self, ast: Vec<Node>, arg_num: usize) -> fn(u64) -> u64 {
+    fn add_func(&mut self, name: &str, info: FuncInfo) -> FuncId {
+        let fid = FuncId(self.funcs.len());
+        self.funcs.push(info);
+        self.func_reloc.push((name.to_string(), self.entry));
+        self.func_map.insert(name.to_string(), fid);
+        fid
+    }
+
+    fn get_func(&self, id: FuncId) -> &FuncInfo {
+        &self.funcs[id.0]
+    }
+
+    fn gen_func(&mut self, name: &str, ast: Vec<Node>, arg_num: usize) -> FuncId {
         self.stack = 0;
         self.entry = self.jit.label();
         self.exit = self.jit.label();
@@ -56,7 +93,8 @@ impl Codegen {
         }
         self.jit.bind_label(self.exit);
         self.epilogue();
-        self.jit.finalize()
+        let func = FuncInfo::new(self.entry, self.jit.get_label_addr(self.entry));
+        self.add_func(name, func)
     }
 
     fn gen(&mut self, node: Node) {
@@ -77,11 +115,13 @@ impl Codegen {
                 self.gen(*rhs);
                 self.sub();
             }
-            Node::Call(_func, nodes) => {
+            Node::Call(func, nodes) => {
                 for node in nodes {
                     self.gen(node);
                 }
-                self.call_arg1(self.entry);
+                let label = self.jit.label();
+                self.func_reloc.push((func, label));
+                self.call_arg1(label);
             }
             Node::If(If {
                 cond: Cmp { kind, lhs, rhs },
@@ -115,6 +155,9 @@ impl Codegen {
             stack: 0,
             entry,
             exit,
+            func_map: HashMap::default(),
+            func_reloc: vec![],
+            funcs: vec![],
         }
     }
 

@@ -1,5 +1,7 @@
+use super::asm::*;
 use super::inst::*;
 use monoasm_inst::Reg;
+use proc_macro2::TokenStream;
 use proc_macro2::{Group, Punct};
 use quote::quote;
 use syn::{
@@ -9,9 +11,96 @@ use syn::{
 use syn::{token, Error, Ident, LitInt, Token};
 
 #[derive(Clone, Debug)]
+pub enum Disp {
+    None,
+    D8(i8),
+    D32(i32),
+    Expr(TokenStream),
+}
+
+pub fn is_single(input: ParseStream) -> bool {
+    input.peek2(Token![,]) || input.peek2(Token![;])
+}
+
+//----------------------------------------------------------------------
+//
+//  Modes for indirect addressing.
+//
+//----------------------------------------------------------------------
+#[derive(Clone, Debug)]
 struct IndAddr {
     reg: Reg,
     offset: Displacement,
+}
+
+impl Parse for IndAddr {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        let content;
+        syn::bracketed!(content in input);
+        let ident: Ident = content.parse()?;
+        let reg = match Reg::from_str(&ident.to_string()) {
+            None => return Err(content.error("expected register name.")),
+            Some(reg) => reg,
+        };
+        let offset: Displacement = content.parse()?;
+        Ok(IndAddr { reg, offset })
+    }
+}
+
+//----------------------------------------------------------------------
+//
+//  Displacement for indirect addressing.
+//
+//----------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+enum Displacement {
+    Const(i32),
+    Expr(TokenStream),
+}
+
+impl std::fmt::Display for Displacement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Displacement::Const(i) => write!(f, "{}", i),
+            Displacement::Expr(ts) => write!(f, "({})", ts),
+        }
+    }
+}
+
+impl Parse for Displacement {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        let lookahead = input.lookahead1();
+        let offset = if input.is_empty() {
+            Displacement::Const(0)
+        } else if lookahead.peek(Token![-]) || lookahead.peek(Token![+]) {
+            let sign = match input.parse::<Punct>()?.as_char() {
+                '-' => -1,
+                '+' => 1,
+                _ => return Err(lookahead.error()),
+            };
+            let lookahead = input.lookahead1();
+            if lookahead.peek(token::Paren) {
+                let content;
+                syn::parenthesized!(content in input);
+                let expr: Expr = content.parse()?;
+                let expr = if sign == 1 {
+                    quote!(expr)
+                } else {
+                    quote!(-(#expr))
+                };
+                Displacement::Expr(expr)
+            } else if lookahead.peek(LitInt) {
+                let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
+                Displacement::Const(ofs * sign)
+            } else {
+                return Err(lookahead.error());
+            }
+        } else {
+            return Err(lookahead.error());
+        };
+        Ok(offset)
+    }
 }
 
 impl Parse for Operand {
@@ -62,137 +151,16 @@ impl Parse for Operand {
     }
 }
 
-impl Parse for Dest {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        let lookahead = input.lookahead1();
-        if lookahead.peek(Ident) && is_single(input) {
-            let dest: Ident = input.parse()?;
-            let reg = Reg::from_str(&dest.to_string());
-            match reg {
-                Some(reg) => Ok(Dest::Reg(reg)),
-                None => Ok(Dest::Rel(dest)),
-            }
-        } else {
-            Err(lookahead.error())
-        }
-    }
-}
+//----------------------------------------------------------------------
+//
+//  Instruction / Operands definitions.
+//
+//----------------------------------------------------------------------
 
-impl Parse for Displacement {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        let lookahead = input.lookahead1();
-        let offset = if input.is_empty() {
-            Displacement::Const(0)
-        } else if lookahead.peek(Token![-]) || lookahead.peek(Token![+]) {
-            let sign = match input.parse::<Punct>()?.as_char() {
-                '-' => -1,
-                '+' => 1,
-                _ => return Err(lookahead.error()),
-            };
-            let lookahead = input.lookahead1();
-            if lookahead.peek(token::Paren) {
-                let content;
-                syn::parenthesized!(content in input);
-                let expr: Expr = content.parse()?;
-                let expr = if sign == 1 {
-                    quote!(expr)
-                } else {
-                    quote!(-(#expr))
-                };
-                Displacement::Expr(expr)
-            } else if lookahead.peek(LitInt) {
-                let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
-                Displacement::Const(ofs * sign)
-            } else {
-                return Err(lookahead.error());
-            }
-        } else {
-            return Err(lookahead.error());
-        };
-        Ok(offset)
-    }
-}
-
-impl Parse for IndAddr {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        let content;
-        syn::bracketed!(content in input);
-        let ident: Ident = content.parse()?;
-        let reg = match Reg::from_str(&ident.to_string()) {
-            None => return Err(content.error("expected register name.")),
-            Some(reg) => reg,
-        };
-        let offset: Displacement = content.parse()?;
-        Ok(IndAddr { reg, offset })
-    }
-}
-
-fn is_single(input: ParseStream) -> bool {
-    input.peek2(Token![,]) || input.peek2(Token![;])
-}
-
-impl Parse for Inst {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        macro_rules! parse_2op {
-            ($inst: ident) => (
-                {
-                    let op1 = input.parse()?;
-                    input.parse::<Token![,]>()?;
-                    let op2 = input.parse()?;
-                    input.parse::<Token![;]>()?;
-                    Ok(Inst::$inst(op1, op2))
-                }
-            )
-        }
-
-        macro_rules! parse_1op {
-            ($inst: ident) => (
-                {
-                    let op = input.parse()?;
-                    input.parse::<Token![;]>()?;
-                    Ok(Inst::$inst(op))
-                }
-            )
-        }
-
-        macro_rules! parse_0op {
-            ($inst: ident) => (
-                {
-                    input.parse::<Token![;]>()?;
-                    Ok(Inst::$inst)
-                }
-            )
-        }
-
-        let inst: Ident = input.parse()?;
-        if input.peek(Token![:]) {
-            input.parse::<Token![:]>()?;
-            Ok(Inst::Label(inst))
-        } else {
-            match inst.to_string().as_str() {
-                "movq" => parse_2op!(Movq),
-                "addq" => parse_2op!(Addq),
-                "orq" => parse_2op!(Orq),
-                "adcq" => parse_2op!(Adcq),
-                "sbbq" => parse_2op!(Sbbq),
-                "andq" => parse_2op!(Andq),
-                "subq" => parse_2op!(Subq),
-                "xorq" => parse_2op!(Xorq),
-                "imull" => parse_2op!(Imull),
-
-                "pushq" => parse_1op!(Pushq),
-                "popq" => parse_1op!(Popq),
-                "cmpq" => parse_2op!(Cmpq),
-                "call" => parse_1op!(Call),
-                "ret" => parse_0op!(Ret),
-                "jmp" => parse_1op!(Jmp),
-                "jne" => parse_1op!(Jne),
-                "je" => parse_1op!(Je),
-                "syscall" => parse_0op!(Syscall),
-                _ => Err(Error::new(inst.span(), "unimplemented instruction.")),
-            }
-        }
-    }
+#[derive(Clone)]
+pub struct Stmts {
+    pub base: syn::Expr,
+    pub contents: Vec<Inst>,
 }
 
 impl Parse for Stmts {

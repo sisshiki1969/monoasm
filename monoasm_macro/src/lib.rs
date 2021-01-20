@@ -13,7 +13,13 @@ mod asm;
 mod inst;
 mod parse;
 use asm::*;
-use inst::*;
+use parse::*;
+
+//----------------------------------------------------------------------
+//
+//  Entry point for monoasm proc-macro.
+//
+//----------------------------------------------------------------------
 
 #[proc_macro]
 pub fn monoasm(tokens: TokenStream) -> TokenStream {

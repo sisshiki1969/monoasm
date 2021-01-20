@@ -2,5 +2,6 @@
 
 members = [
     "monoasm",
-    "monoasm_macro"
+    "monoasm_macro",
+    "monoasm_inst",
 ]

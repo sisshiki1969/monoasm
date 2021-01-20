@@ -1,10 +1,7 @@
 extern crate proc_macro2;
 extern crate quote;
-//extern crate syn;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-//use std::u64;
-//use syn::Ident;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Reg {
@@ -89,10 +86,10 @@ impl ToTokens for Reg {
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Mode {
-    Ind = 0,   // (rax)
-    InD8 = 1,  // (rax + disp8)
-    InD32 = 2, // (rax + disp32)
-    Reg = 3,   // rax
+    Ind = 0,   // [reg]
+    InD8 = 1,  // [reg + disp8]
+    InD32 = 2, // [rax + disp32]
+    Reg = 3,   // reg
 }
 
 pub mod util {
