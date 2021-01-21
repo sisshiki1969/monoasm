@@ -110,7 +110,7 @@ impl JitMemory {
     }
 
     /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
-    pub fn resolve(&mut self) {
+    pub fn resolve_relocs(&mut self) {
         let mut relocs: Vec<(Pos, i32)> = vec![];
         for rel in self.reloc.iter_mut() {
             let pos = rel.loc.expect("Reloc not determined.");
@@ -128,7 +128,7 @@ impl JitMemory {
     }
 
     pub fn finalize<T, U>(&mut self) -> fn(T) -> U {
-        self.resolve();
+        self.resolve_relocs();
         unsafe { mem::transmute(self.contents) }
     }
 

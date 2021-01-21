@@ -6,7 +6,8 @@ use std::ops::{Add, Deref, DerefMut, Index, IndexMut};
 mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
-use monoasm_inst::{Mode, Reg};
+use monoasm_inst::Mode;
+pub use monoasm_inst::Reg;
 
 const PAGE_SIZE: usize = 4096;
 

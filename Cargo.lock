@@ -52,6 +52,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "monoruby"
+version = "0.1.0"
+dependencies = [
+ "monoasm",
+ "monoasm_macro",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"

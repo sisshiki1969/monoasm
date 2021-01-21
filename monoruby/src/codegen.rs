@@ -1,42 +1,12 @@
-#![feature(proc_macro_hygiene)]
-extern crate monoasm;
-extern crate monoasm_macro;
+use super::{Cmp, CmpKind, If, Node};
 use monoasm::*;
-use monoasm_inst::Reg;
 use monoasm_macro::monoasm;
 use std::collections::HashMap;
 
-fn main() {
-    let ast = construct_ast();
-    let mut codegen = Codegen::new();
-    let fid = codegen.gen_func("fibo", ast, 1);
-    for (name, dest) in &codegen.func_reloc {
-        let fid = codegen.func_map.get(name).expect("Undefined func name.");
-        let entry = codegen.get_func(*fid).entry;
-        let entry = codegen.jit.get_label_pos(entry);
-        codegen.jit.bind_label_to_pos(*dest, entry);
-    }
-    codegen.jit.resolve();
-    let x = 40;
-    let ret = (codegen.get_func(fid).body)(x);
-    println!("fib( {} ) = {}", x, ret);
-    assert_eq!(102334155, ret)
-}
-
-struct Codegen {
-    jit: JitMemory,
-    stack: u64,
-    entry: DestLabel,
-    exit: DestLabel,
-    func_map: HashMap<String, FuncId>,
-    func_reloc: Vec<(String, DestLabel)>,
-    funcs: Vec<FuncInfo>,
-}
-
 #[derive(Clone, Copy, Debug)]
-struct FuncId(usize);
+pub struct FuncId(usize);
 
-struct FuncInfo {
+pub struct FuncInfo {
     entry: DestLabel,
     pub body: fn(u64) -> u64,
 }
@@ -47,20 +17,52 @@ impl FuncInfo {
     }
 }
 
+pub struct Codegen {
+    jit: JitMemory,
+    stack: u64,
+    entry: DestLabel,
+    exit: DestLabel,
+    func_map: HashMap<String, FuncId>,
+    func_reloc: HashMap<String, DestLabel>,
+    funcs: Vec<FuncInfo>,
+}
+
 impl Codegen {
     fn add_func(&mut self, name: &str, info: FuncInfo) -> FuncId {
         let fid = FuncId(self.funcs.len());
         self.funcs.push(info);
-        self.func_reloc.push((name.to_string(), self.entry));
-        self.func_map.insert(name.to_string(), fid);
+        if self.func_map.insert(name.to_string(), fid).is_some() {
+            panic!("Duplicate func name {}.", name)
+        };
         fid
     }
 
-    fn get_func(&self, id: FuncId) -> &FuncInfo {
+    pub fn get_func(&self, id: FuncId) -> &FuncInfo {
         &self.funcs[id.0]
     }
 
-    fn gen_func(&mut self, name: &str, ast: Vec<Node>, arg_num: usize) -> FuncId {
+    fn get_func_label(&mut self, func: String) -> DestLabel {
+        match self.func_reloc.get(&func) {
+            Some(dest) => *dest,
+            None => {
+                let label = self.jit.label();
+                self.func_reloc.insert(func, label);
+                label
+            }
+        }
+    }
+
+    pub fn resolve_func_labels(&mut self) {
+        for (name, dest) in &self.func_reloc {
+            let fid = self.func_map.get(name).expect("Undefined func name.");
+            let entry = self.get_func(*fid).entry;
+            let entry = self.jit.get_label_pos(entry);
+            self.jit.bind_label_to_pos(*dest, entry);
+        }
+        self.jit.resolve_relocs();
+    }
+
+    pub fn gen_func(&mut self, name: &str, ast: Vec<Node>, arg_num: usize) -> FuncId {
         self.stack = 0;
         self.entry = self.jit.label();
         self.exit = self.jit.label();
@@ -119,8 +121,7 @@ impl Codegen {
                 for node in nodes {
                     self.gen(node);
                 }
-                let label = self.jit.label();
-                self.func_reloc.push((func, label));
+                let label = self.get_func_label(func);
                 self.call_arg1(label);
             }
             Node::If(If {
@@ -144,7 +145,7 @@ impl Codegen {
 
 #[allow(dead_code)]
 impl Codegen {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let mut jit = JitMemory::new();
         let entry = jit.label();
         let exit = jit.label();
@@ -156,7 +157,7 @@ impl Codegen {
             entry,
             exit,
             func_map: HashMap::default(),
-            func_reloc: vec![],
+            func_reloc: HashMap::default(),
             funcs: vec![],
         }
     }
@@ -262,87 +263,4 @@ impl Codegen {
             call rax;
         );
     }
-}
-
-enum Node {
-    Integer(i64),  // push 1
-    LocalVar(u64), // push 1
-    If(If),        // pop2
-    Return(Box<Node>),
-    Add(Box<Node>, Box<Node>), // pop2, push1
-    Sub(Box<Node>, Box<Node>), // pop2, push1
-    Call(String, Vec<Node>),   // popn, push1
-}
-
-impl Node {
-    fn add(lhs: Node, rhs: Node) -> Self {
-        Node::Add(Box::new(lhs), Box::new(rhs))
-    }
-
-    fn sub(lhs: Node, rhs: Node) -> Self {
-        Node::Sub(Box::new(lhs), Box::new(rhs))
-    }
-
-    fn if_(cond: Cmp, then: Node) -> Self {
-        Node::If(If::new(cond, then))
-    }
-
-    fn call(func: &str, args: Vec<Node>) -> Self {
-        Node::Call(func.to_string(), args)
-    }
-
-    fn ret(val: Node) -> Self {
-        Node::Return(Box::new(val))
-    }
-}
-
-struct If {
-    cond: Cmp,
-    then: Box<Node>,
-}
-
-impl If {
-    fn new(cond: Cmp, then: Node) -> Self {
-        Self {
-            cond,
-            then: Box::new(then),
-        }
-    }
-}
-
-struct Cmp {
-    kind: CmpKind,
-    lhs: Box<Node>,
-    rhs: Box<Node>,
-}
-
-impl Cmp {
-    fn new(kind: CmpKind, lhs: Node, rhs: Node) -> Self {
-        Self {
-            kind,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-        }
-    }
-}
-
-enum CmpKind {
-    Eq,
-}
-
-fn construct_ast() -> Vec<Node> {
-    vec![
-        Node::if_(
-            Cmp::new(CmpKind::Eq, Node::LocalVar(0), Node::Integer(0)),
-            Node::ret(Node::Integer(0)),
-        ),
-        Node::if_(
-            Cmp::new(CmpKind::Eq, Node::LocalVar(0), Node::Integer(1)),
-            Node::ret(Node::Integer(1)),
-        ),
-        Node::ret(Node::add(
-            Node::call("fibo", vec![Node::sub(Node::LocalVar(0), Node::Integer(1))]),
-            Node::call("fibo", vec![Node::sub(Node::LocalVar(0), Node::Integer(2))]),
-        )),
-    ]
 }
