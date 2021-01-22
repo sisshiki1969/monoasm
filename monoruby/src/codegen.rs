@@ -1,4 +1,4 @@
-use super::{Cmp, CmpKind, If, Node};
+use super::ast::{Cmp, CmpKind, If, Node};
 use monoasm::*;
 use monoasm_macro::monoasm;
 use std::collections::HashMap;

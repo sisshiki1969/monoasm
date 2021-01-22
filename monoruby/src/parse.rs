@@ -1,5 +1,3 @@
-use std::cmp;
-
 use super::Node;
 use nom::branch::{alt, permutation};
 use nom::character::{
