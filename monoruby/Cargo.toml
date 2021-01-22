@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 monoasm_macro = { path = "../monoasm_macro" }
 monoasm = { path = "../monoasm" }
+nom = "6.0.1"

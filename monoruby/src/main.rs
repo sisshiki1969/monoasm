@@ -1,15 +1,20 @@
 mod codegen;
 use codegen::Codegen;
+mod parse;
+use parse::stmt;
 
 fn main() {
-    let _program = "
+    let program = "
+        fibo(x - 1) + fibo(x - 2)
         fibo(40)
+        if x == 0 then return 0
         def fibo(x)
             if x == 0 then return 0
             if x == 1 then return 1
             fibo(x - 1) + fibo(x - 2)
         end
         ";
+    eprintln!("{:?}", stmt(program));
     let ast = construct_ast();
     let mut codegen = Codegen::new();
     let fid = codegen.gen_func("fibo", ast, 1);
@@ -20,7 +25,9 @@ fn main() {
     assert_eq!(102334155, ret)
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum Node {
+    Stmt(Vec<Node>),
     Integer(i64),  // push 1
     LocalVar(u64), // push 1
     If(If),        // pop2
@@ -31,6 +38,10 @@ pub enum Node {
 }
 
 impl Node {
+    fn stmt(nodes: Vec<Node>) -> Self {
+        Node::Stmt(nodes)
+    }
+
     fn add(lhs: Node, rhs: Node) -> Self {
         Node::Add(Box::new(lhs), Box::new(rhs))
     }
@@ -52,6 +63,7 @@ impl Node {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct If {
     cond: Cmp,
     then: Box<Node>,
@@ -66,6 +78,7 @@ impl If {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 struct Cmp {
     kind: CmpKind,
     lhs: Box<Node>,
@@ -82,6 +95,7 @@ impl Cmp {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 enum CmpKind {
     Eq,
 }
@@ -101,4 +115,21 @@ fn construct_ast() -> Vec<Node> {
             Node::call("fibo", vec![Node::sub(Node::LocalVar(0), Node::Integer(2))]),
         )),
     ]
+}
+
+mod test {
+    use super::*;
+    #[test]
+    fn decimal_test() {
+        assert_eq!(Node::Integer(100), decimal_number("100").unwrap().1);
+        assert_eq!(Node::Integer(-100), decimal_number("-100").unwrap().1);
+        assert_eq!(
+            Node::sub(Node::Integer(100), Node::Integer(30)),
+            add_expr("100 - 30").unwrap().1
+        );
+        assert_eq!(
+            Node::add(Node::Integer(100), Node::Integer(30)),
+            add_expr("100 + 30").unwrap().1
+        );
+    }
 }

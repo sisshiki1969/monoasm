@@ -101,6 +101,11 @@ impl Codegen {
 
     fn gen(&mut self, node: Node) {
         match node {
+            Node::Stmt(nodes) => {
+                for n in nodes {
+                    self.gen(n);
+                }
+            }
             Node::Integer(i) => self.push_int(i),
             Node::LocalVar(lvar) => self.get_local((lvar * 8) as i64 + 8),
             Node::Return(node) => {
