@@ -30,7 +30,7 @@ pub enum Disp {
 }
 
 impl Or {
-    fn op_to_rm(self) -> (Mode, Reg, Disp) {
+    pub fn op_to_rm(self) -> (Mode, Reg, Disp) {
         match self {
             Or::Reg(r) => (Mode::Reg, r, Disp::None),
             Or::Ind(r, Disp::None) => (Mode::Ind, r, Disp::None),

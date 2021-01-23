@@ -126,7 +126,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                 (Operand::Reg(r1), op2) => {
                     let (mode, reg, disp) = op_to_rm(op2);
                     let modrm = modrm(r1, mode, reg);
-                    let disp = imm_to_ts(disp);
+                    let disp = emit_disp(disp);
                     quote! {
                         jit.emitb(0x0f);
                         jit.emitb(0xaf);
@@ -224,11 +224,11 @@ fn op_to_rm(op: Operand) -> (Mode, Reg, Disp) {
             Disp::D32(i) => (Mode::InD32, r, Disp::D32(i)),
             Disp::Expr(expr) => (Mode::InD32, r, Disp::Expr(expr)),
         },
-        _ => unreachable!(),
+        _ => unreachable!("Illegal operand. {}", op),
     }
 }
 
-fn imm_to_ts(disp: Disp) -> TokenStream {
+fn emit_disp(disp: Disp) -> TokenStream {
     match disp {
         Disp::None => quote!(),
         Disp::D8(i) => quote!( jit.emitb(#i as u8); ),
@@ -261,7 +261,7 @@ fn enc_mr(op: u8, reg: Reg, rm_op: Operand) -> TokenStream {
     let (mode, rm, disp) = op_to_rm(rm_op);
     let enc_mr = enc_mr_main(op, reg, mode, rm);
     // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
-    let disp = imm_to_ts(disp);
+    let disp = emit_disp(disp);
     quote! {
         #enc_mr
         #disp
@@ -430,12 +430,28 @@ fn binary_op(
         // OP=AND REX.W 81 /4 id
         // OP=SUB REX.W 81 /5 id
         // MI
+        (Operand::RegExpr(expr), Operand::Imm(i)) => {
+            quote! {
+                let imm = (#i) as u64;
+                if imm > 0xffff_ffff {
+                    panic!("'{} {}, imm64' does not exists.", #op_name, #expr);
+                }
+                let r = Reg::from(#expr as u64);
+                let rm_op = Or::Reg(r);
+                let (mode, reg, disp) = rm_op.op_to_rm();
+                jit.rexw(Reg::none(), reg, Reg::none());
+                jit.emitb(#op_imm);
+                jit.modrm_digit(#digit, mode, reg);
+                jit.emit_disp(disp);
+                jit.emitl(imm as u32);
+            }
+        }
         (op1, Operand::Imm(i)) => {
             let op1_str = format!("{}", op1);
             let (mode, reg, disp) = op_to_rm(op1);
             let rex = rexw(Reg::none(), reg, Reg::none());
             let modrm = modrm_digit(digit, mode, reg);
-            let disp = imm_to_ts(disp);
+            let disp = emit_disp(disp);
             quote! {
                 let imm = (#i) as u64;
                 if imm > 0xffff_ffff {

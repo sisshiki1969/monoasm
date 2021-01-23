@@ -1,4 +1,4 @@
-use super::ast::{Cmp, CmpKind, If, Node};
+use super::ast::{CmpKind, Node};
 use monoasm::*;
 use monoasm_macro::monoasm;
 use std::collections::HashMap;
@@ -37,8 +37,9 @@ impl Codegen {
         fid
     }
 
-    pub fn get_func(&self, id: FuncId) -> &FuncInfo {
-        &self.funcs[id.0]
+    pub fn get_func(&self, name: &str) -> &FuncInfo {
+        let fid = self.func_map.get(name).unwrap();
+        &self.funcs[fid.0]
     }
 
     fn get_func_label(&mut self, func: String) -> DestLabel {
@@ -55,7 +56,7 @@ impl Codegen {
     pub fn resolve_func_labels(&mut self) {
         for (name, dest) in &self.func_reloc {
             let fid = self.func_map.get(name).expect("Undefined func name.");
-            let entry = self.get_func(*fid).entry;
+            let entry = self.funcs[fid.0].entry;
             let entry = self.jit.get_label_pos(entry);
             self.jit.bind_label_to_pos(*dest, entry);
         }
@@ -88,7 +89,7 @@ impl Codegen {
                     movq [rbp - 24], rdx;
                 );
             }
-            _ => unreachable!(),
+            _ => unreachable!("the number of argument is too large."),
         };
         for node in ast {
             self.gen(node);
@@ -101,14 +102,12 @@ impl Codegen {
 
     fn gen(&mut self, node: Node) {
         match node {
-            Node::Stmt(nodes) => {
-                for n in nodes {
-                    self.gen(n);
-                }
+            Node::Stmt(node) => {
+                self.gen(*node);
             }
             Node::Integer(i) => self.push_int(i),
-            Node::LocalVar(lvar) => self.get_local((lvar * 8) as i64 + 8),
-            Node::Return(node) => {
+            Node::LocalVar(_lvar) => self.get_local((0 * 8) as i64 + 8),
+            Node::ReturnStmt(node) => {
                 self.gen(*node);
                 self.leave(self.exit)
             }
@@ -122,6 +121,11 @@ impl Codegen {
                 self.gen(*rhs);
                 self.sub();
             }
+            Node::Cmp(CmpKind::Eq, lhs, rhs) => {
+                self.gen(*lhs);
+                self.gen(*rhs);
+                self.eq();
+            }
             Node::Call(func, nodes) => {
                 for node in nodes {
                     self.gen(node);
@@ -129,21 +133,17 @@ impl Codegen {
                 let label = self.get_func_label(func);
                 self.call_arg1(label);
             }
-            Node::If(If {
-                cond: Cmp { kind, lhs, rhs },
-                then,
-            }) => {
-                self.gen(*lhs);
-                self.gen(*rhs);
-                match kind {
-                    CmpKind::Eq => {
-                        let dest = self.jit.label();
-                        self.jne(dest);
-                        self.gen(*then);
-                        self.jit.bind_label(dest);
-                    }
-                }
+            Node::IfStmt { cond, then } => {
+                self.gen(*cond);
+                let dest = self.jit.label();
+                self.jmp_iff(dest);
+                self.gen(*then);
+                self.jit.bind_label(dest);
             }
+            Node::DefStmt(name, _arg, body) => {
+                self.gen_func(&name, body, 1);
+            }
+            Node::Nop => {}
         };
     }
 }
@@ -224,13 +224,31 @@ impl Codegen {
         self.stack += 1;
     }
 
-    /// Pop two values, and compare them.
-    /// If the condition is met, jump to `dest`.
-    /// stack -2
-    fn jne(&mut self, dest: DestLabel) {
+    /// Pop two values, and compare the former to the latter.
+    /// Push 1 if equal and 0 if else.
+    /// stack -1
+    fn eq(&mut self) {
         self.stack -= 2;
+        let l0 = self.jit.label();
+        let l1 = self.jit.label();
         monoasm!(self.jit,
             cmpq R(self.stack + 12), R(self.stack + 13);
+            jne l0;
+            movq R(self.stack + 12), 1;
+            jmp l1;
+        l0:
+            movq R(self.stack + 12), 0;
+        l1:
+        );
+        self.stack += 1;
+    }
+
+    /// Pop one values and jump to `dest` if the value is not 1.
+    /// stack -1
+    fn jmp_iff(&mut self, dest: DestLabel) {
+        self.stack -= 1;
+        monoasm!(self.jit,
+            cmpq R(self.stack + 12), (1);
             jne dest;
         );
     }

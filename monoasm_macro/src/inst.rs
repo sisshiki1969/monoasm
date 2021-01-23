@@ -41,7 +41,7 @@ impl std::fmt::Display for Operand {
 impl ToTokens for Operand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
-            Operand::Imm(_) => unreachable!(),
+            Operand::Imm(_) => unreachable!("immediate"),
             Operand::Reg(r) => quote!(Or::Reg(#r)),
             Operand::RegExpr(ts) => quote!(Or::Reg(Reg::from((#ts) as u64))),
             Operand::Ind(r, disp) => match disp {

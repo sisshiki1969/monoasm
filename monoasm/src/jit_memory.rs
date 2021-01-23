@@ -109,17 +109,18 @@ impl JitMemory {
         self.reloc[dest].disp.push((size, self.counter));
     }
 
-    /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
+    /// Resolve all relocations.
     pub fn resolve_relocs(&mut self) {
         let mut relocs: Vec<(Pos, i32)> = vec![];
         for rel in self.reloc.iter_mut() {
-            let pos = rel.loc.expect("Reloc not determined.");
-            for (size, dest) in &mut rel.disp {
-                let disp = pos.0 as i64 - dest.0 as i64 - *size as i64;
-                if i32::min_value() as i64 > disp || disp > i32::max_value() as i64 {
-                    panic!("Relocation overflow");
+            if let Some(pos) = rel.loc {
+                for (size, dest) in &mut rel.disp {
+                    let disp = pos.0 as i64 - dest.0 as i64 - *size as i64;
+                    if i32::min_value() as i64 > disp || disp > i32::max_value() as i64 {
+                        panic!("Relocation overflow");
+                    }
+                    relocs.push((*dest, disp as i32));
                 }
-                relocs.push((*dest, disp as i32));
             }
         }
         for (dest, disp) in relocs {
@@ -127,6 +128,7 @@ impl JitMemory {
         }
     }
 
+    /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
     pub fn finalize<T, U>(&mut self) -> fn(T) -> U {
         self.resolve_relocs();
         unsafe { mem::transmute(self.contents) }
@@ -226,33 +228,33 @@ impl JitMemory {
         }
     }
 
-    fn modrm_digit(&mut self, digit: u8, mode: Mode, rm: Reg) {
+    pub fn modrm_digit(&mut self, digit: u8, mode: Mode, rm: Reg) {
         self.emitb(util::modrm_digit(digit, mode, rm));
     }
 
-    fn modrm(&mut self, reg: Reg, mode: Mode, rm: Reg) {
+    pub fn modrm(&mut self, reg: Reg, mode: Mode, rm: Reg) {
         self.emitb(util::modrm(reg, mode, rm));
     }
 
-    fn rexw(&mut self, reg: Reg, base: Reg, index: Reg) {
+    pub fn rexw(&mut self, reg: Reg, base: Reg, index: Reg) {
         self.emitb(util::rexw(reg, base, index));
     }
 
-    fn rex(&mut self, reg: Reg, base: Reg, index: Reg) {
+    pub fn rex(&mut self, reg: Reg, base: Reg, index: Reg) {
         if let Some(rex_prefix) = util::rex(reg, base, index) {
             self.emitb(rex_prefix);
         }
     }
 
-    fn op_with_rd(&mut self, op: u8, r: Reg) {
+    pub fn op_with_rd(&mut self, op: u8, r: Reg) {
         self.emitb(util::op_with_rd(op, r));
     }
 
-    fn sib(&mut self, scale: u8, index: Reg, base: u8) {
+    pub fn sib(&mut self, scale: u8, index: Reg, base: u8) {
         self.emitb(util::sib(scale, index, base));
     }
 
-    fn emit_disp(&mut self, disp: Disp) {
+    pub fn emit_disp(&mut self, disp: Disp) {
         match disp {
             Disp::D8(d) => self.emitb(d as u8),
             Disp::D32(d) => self.emitl(d as u32),

@@ -46,7 +46,7 @@ impl Reg {
             13 => Reg::R13,
             14 => Reg::R14,
             15 => Reg::R15,
-            _ => unreachable!(),
+            _ => unreachable!("Illegal register number."),
         }
     }
 
