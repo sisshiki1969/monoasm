@@ -1,5 +1,4 @@
 use super::Node;
-use nom::bytes::complete::tag;
 use nom::character::complete::{
     alpha1, alphanumeric1, char, digit1, multispace0, one_of, space0, space1,
 };
@@ -7,9 +6,9 @@ use nom::combinator::{map, not, opt, recognize};
 use nom::error::ParseError;
 use nom::multi::{many0, many1, separated_list0};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
-use nom::IResult;
-use nom::Parser;
 use nom::{branch::alt, combinator::all_consuming};
+use nom::{bytes::complete::tag, character::complete::newline};
+use nom::{IResult, Parser};
 
 pub fn script(s: &str) -> Vec<Node> {
     match all_consuming(terminated(
@@ -24,14 +23,18 @@ pub fn script(s: &str) -> Vec<Node> {
 
 fn stmt(s: &str) -> IResult<&str, Node> {
     delimited(
-        many0(lineterm_ws),
-        alt((return_stmt, if_stmt, def_stmt, expr)),
+        multispace0,
+        alt((return_stmt, if_stmt, def_stmt, expr_stmt)),
         space0,
     )(s)
 }
 
+fn expr_stmt(s: &str) -> IResult<&str, Node> {
+    map(expr, |expr| Node::stmt(expr))(s)
+}
+
 fn return_stmt(s: &str) -> IResult<&str, Node> {
-    let (s, (_, _, node)) = tuple((tag("return"), space1, opt(expr)))(s)?;
+    let (s, node) = preceded(tag("return"), opt(preceded(space1, expr)))(s)?;
     Ok((
         s,
         Node::ret(match node {
@@ -48,16 +51,16 @@ fn if_stmt(s: &str) -> IResult<&str, Node> {
 }
 
 fn def_stmt(s: &str) -> IResult<&str, Node> {
-    let (s, (_, _, name, _, arg, _, _, body, _, _)) = tuple((
+    let (s, (_, _, name, arg, body, _)) = tuple((
         tag("def"),
         space1,
         ident,
-        char('('),
-        ident,
-        char(')'),
-        many1(lineterm_ws),
-        many0(stmt),
-        many1(lineterm_ws),
+        delimited(
+            char('('),
+            delimited(multispace0, ident, multispace0),
+            char(')'),
+        ),
+        delimited(many1(lineterm_ws), many0(stmt), multispace0),
         tag("end"),
     ))(s)?;
     Ok((s, Node::def(name, arg, body)))
@@ -91,7 +94,7 @@ fn add_expr(s: &str) -> IResult<&str, Node> {
     binop_helper(prim_expr, prim_expr, alt((tag("+"), tag("-"))), mapper)(s)
 }
 
-pub fn binop_helper<'a, E: ParseError<&'a str>, F, G, H>(
+fn binop_helper<'a, E: ParseError<&'a str>, F, G, H>(
     base0: F,
     base1: F,
     operator: G,
@@ -152,14 +155,15 @@ fn decimal_number(s: &str) -> IResult<&str, Node> {
 }
 
 fn lineterm_ws(s: &str) -> IResult<&str, char> {
-    one_of(" ;\n\t")(s)
+    delimited(space0, alt((newline, char(';'))), space0)(s)
 }
 
 #[allow(unused_imports)]
 mod test {
+    use super::super::ast::*;
     use super::*;
     #[test]
-    fn decimal_test() {
+    fn expr_test() {
         assert_eq!(Node::localvar("_f1"), expr("_f1").unwrap().1);
         assert_eq!(Node::Integer(100), expr("100").unwrap().1);
         assert_eq!(Node::Integer(-100), expr("-100").unwrap().1);
@@ -174,6 +178,37 @@ mod test {
         assert_eq!(
             Node::add(Node::Integer(100), Node::Integer(30)),
             expr("100 + 30").unwrap().1
+        );
+    }
+
+    #[test]
+    fn return_test() {
+        assert_eq!(Node::ret(Node::Nop), return_stmt("return").unwrap().1);
+        assert_eq!(
+            Node::ret(Node::Integer(100)),
+            return_stmt("return 100").unwrap().1
+        );
+        assert_eq!(
+            Node::ret(Node::add(Node::localvar("x"), Node::Integer(100))),
+            return_stmt("return x+100").unwrap().1
+        );
+    }
+
+    #[test]
+    fn if_test() {
+        assert_eq!(
+            Node::if_(
+                Node::eq(Node::localvar("x"), Node::Integer(0)),
+                Node::stmt(Node::Integer(3))
+            ),
+            if_stmt("if x == 0 then 3 end").unwrap().1
+        );
+        assert_eq!(
+            Node::if_(
+                Node::eq(Node::localvar("x"), Node::Integer(1)),
+                Node::ret(Node::Integer(1))
+            ),
+            if_stmt("if x == 1 then return 1 end").unwrap().1
         );
     }
 }

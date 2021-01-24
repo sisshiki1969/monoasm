@@ -20,7 +20,7 @@ fn main() {
     codegen.gen_func("main", ast, 1);
     codegen.resolve_func_labels();
     let x = 40;
-    let ret = (codegen.get_func("main").body)(x);
+    let ret = (codegen.get_func_ptr("main"))(x);
     println!("return value = {}", ret);
     assert_eq!(102334155, ret);
 }

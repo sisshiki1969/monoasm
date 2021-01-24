@@ -6,7 +6,7 @@ use std::collections::HashMap;
 #[derive(Clone, Copy, Debug)]
 pub struct FuncId(usize);
 
-pub struct FuncInfo {
+struct FuncInfo {
     entry: DestLabel,
     pub body: fn(u64) -> u64,
 }
@@ -28,6 +28,10 @@ pub struct Codegen {
 }
 
 impl Codegen {
+    pub fn get_func_ptr(&self, name: &str) -> fn(u64) -> u64 {
+        self.get_func(name).body
+    }
+
     fn add_func(&mut self, name: &str, info: FuncInfo) -> FuncId {
         let fid = FuncId(self.funcs.len());
         self.funcs.push(info);
@@ -37,7 +41,7 @@ impl Codegen {
         fid
     }
 
-    pub fn get_func(&self, name: &str) -> &FuncInfo {
+    fn get_func(&self, name: &str) -> &FuncInfo {
         let fid = self.func_map.get(name).unwrap();
         &self.funcs[fid.0]
     }
@@ -102,9 +106,7 @@ impl Codegen {
 
     fn gen(&mut self, node: Node) {
         match node {
-            Node::Stmt(node) => {
-                self.gen(*node);
-            }
+            Node::Stmt(node) => self.gen(*node),
             Node::Integer(i) => self.push_int(i),
             Node::LocalVar(_lvar) => self.get_local((0 * 8) as i64 + 8),
             Node::ReturnStmt(node) => {
