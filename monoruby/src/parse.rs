@@ -1,16 +1,19 @@
-use super::Node;
-use nom::character::complete::{
-    alpha1, alphanumeric1, char, digit1, multispace0, one_of, space0, space1,
-};
+use crate::ast::{Expr, Stmt};
 use nom::combinator::{map, not, opt, recognize};
 use nom::error::ParseError;
-use nom::multi::{many0, many1, separated_list0};
+use nom::multi::{fold_many0, many0, many1, separated_list0};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::{branch::alt, combinator::all_consuming};
 use nom::{bytes::complete::tag, character::complete::newline};
+use nom::{
+    character::complete::{
+        alpha1, alphanumeric1, char, digit1, multispace0, one_of, space0, space1,
+    },
+    AsChar, InputTakeAtPosition,
+};
 use nom::{IResult, Parser};
 
-pub fn script(s: &str) -> Vec<Node> {
+pub fn script(s: &str) -> Vec<Stmt> {
     match all_consuming(terminated(
         separated_list0(many1(lineterm_ws), stmt),
         many0(lineterm_ws),
@@ -21,7 +24,7 @@ pub fn script(s: &str) -> Vec<Node> {
     }
 }
 
-fn stmt(s: &str) -> IResult<&str, Node> {
+fn stmt(s: &str) -> IResult<&str, Stmt> {
     delimited(
         multispace0,
         alt((return_stmt, if_stmt, def_stmt, expr_stmt)),
@@ -29,115 +32,162 @@ fn stmt(s: &str) -> IResult<&str, Node> {
     )(s)
 }
 
-fn expr_stmt(s: &str) -> IResult<&str, Node> {
-    map(expr, |expr| Node::stmt(expr))(s)
+fn expr_stmt(s: &str) -> IResult<&str, Stmt> {
+    map(expr, |expr| Stmt::stmt(expr))(s)
 }
 
-fn return_stmt(s: &str) -> IResult<&str, Node> {
+fn return_stmt(s: &str) -> IResult<&str, Stmt> {
     let (s, node) = preceded(tag("return"), opt(preceded(space1, expr)))(s)?;
     Ok((
         s,
-        Node::ret(match node {
+        Stmt::ret(match node {
             Some(node) => node,
-            None => Node::Nop,
+            None => Expr::Nop,
         }),
     ))
 }
 
-fn if_stmt(s: &str) -> IResult<&str, Node> {
+fn if_stmt(s: &str) -> IResult<&str, Stmt> {
     let (s, (_, _, cond, _, then, _)) =
         tuple((tag("if"), space1, expr, tag("then"), stmt, tag("end")))(s)?;
-    Ok((s, Node::if_(cond, then)))
+    Ok((s, Stmt::if_(cond, then)))
 }
 
-fn def_stmt(s: &str) -> IResult<&str, Node> {
+fn def_stmt(s: &str) -> IResult<&str, Stmt> {
     let (s, (_, _, name, arg, body, _)) = tuple((
         tag("def"),
         space1,
         ident,
-        delimited(
-            char('('),
-            delimited(multispace0, ident, multispace0),
-            char(')'),
-        ),
+        delimited(char('('), method_params, char(')')),
         delimited(many1(lineterm_ws), many0(stmt), multispace0),
         tag("end"),
     ))(s)?;
-    Ok((s, Node::def(name, arg, body)))
+    Ok((s, Stmt::def(name, arg, body)))
 }
 
-fn expr(s: &str) -> IResult<&str, Node> {
-    delimited(space0, eq_expr, space0)(s)
+fn method_params(s: &str) -> IResult<&str, Vec<String>> {
+    map(
+        delimited(
+            multispace0,
+            separated_list0(tuple((multispace0, char(','), multispace0)), ident),
+            multispace0,
+        ),
+        |x| x.iter().map(|x| x.to_string()).collect(),
+    )(s)
 }
 
-fn eq_expr(s: &str) -> IResult<&str, Node> {
-    fn mapper(op: &str, lhs: Node, rhs: Node) -> Node {
+fn expr(s: &str) -> IResult<&str, Expr> {
+    delimited(space0, assign_expr, space0)(s)
+}
+
+fn assign_expr(s: &str) -> IResult<&str, Expr> {
+    let (s, lhs) = eq_expr(s)?;
+    fn mapper(_op: &str, lhs: Expr, rhs: Expr) -> Expr {
+        match lhs {
+            Expr::LocalVar(name) => Expr::assign(name, rhs),
+            _ => unimplemented!(),
+        }
+    }
+    binop_fold(lhs, eq_expr, tag("="), mapper)(s)
+}
+
+fn eq_expr(s: &str) -> IResult<&str, Expr> {
+    let (s, lhs) = add_expr(s)?;
+    fn mapper(op: &str, lhs: Expr, rhs: Expr) -> Expr {
         if op == "==" {
-            Node::eq(lhs, rhs)
+            Expr::eq(lhs, rhs)
+        } else if op == "!=" {
+            Expr::ne(lhs, rhs)
         } else {
             unimplemented!()
         }
     }
-    binop_helper(add_expr, add_expr, tag("=="), mapper)(s)
+    binop_once(lhs, add_expr, alt((tag("=="), tag("!="))), mapper)(s)
 }
 
-fn add_expr(s: &str) -> IResult<&str, Node> {
-    fn mapper(op: &str, lhs: Node, rhs: Node) -> Node {
+fn add_expr(s: &str) -> IResult<&str, Expr> {
+    let (s, lhs) = prim_expr(s)?;
+    fn mapper(op: &str, lhs: Expr, rhs: Expr) -> Expr {
         if op == "-" {
-            Node::sub(lhs, rhs)
+            Expr::sub(lhs, rhs)
         } else if op == "+" {
-            Node::add(lhs, rhs)
+            Expr::add(lhs, rhs)
         } else {
             unimplemented!()
         }
     }
-    binop_helper(prim_expr, prim_expr, alt((tag("+"), tag("-"))), mapper)(s)
+    binop_fold(lhs, prim_expr, alt((tag("+"), tag("-"))), mapper)(s)
 }
 
-fn binop_helper<'a, E: ParseError<&'a str>, F, G, H>(
-    base0: F,
+fn binop_once<'a, I, O, E: ParseError<I>, F, G, H>(
+    lhs: O,
     base1: F,
     operator: G,
     mut mapper: H,
-) -> impl FnMut(&'a str) -> IResult<&'a str, Node, E>
+) -> impl FnMut(I) -> IResult<I, O, E>
 where
-    F: Parser<&'a str, Node, E>,
-    G: Parser<&'a str, &'a str, E>,
-    H: FnMut(&'a str, Node, Node) -> Node,
+    I: InputTakeAtPosition + Clone + PartialEq,
+    <I as InputTakeAtPosition>::Item: AsChar + Clone,
+    O: Clone,
+    F: Parser<I, O, E>,
+    G: Parser<I, I, E>,
+    H: FnMut(I, O, O) -> O,
 {
     map(
-        pair(
-            base0,
-            opt(pair(
-                preceded(space0, operator),
-                preceded(multispace0, base1),
-            )),
-        ),
-        move |(lhs, rhs)| match rhs {
-            None => lhs,
-            Some((op, rhs)) => mapper(op, lhs, rhs),
+        opt(pair(
+            preceded(space0, operator),
+            preceded(multispace0, base1),
+        )),
+        move |rhs| match rhs {
+            Some((op, rhs)) => mapper(op, lhs.clone(), rhs),
+            None => lhs.clone(),
         },
     )
 }
 
-fn prim_expr(s: &str) -> IResult<&str, Node> {
+fn binop_fold<'a, I, O, E: ParseError<I>, F, G, H>(
+    lhs: O,
+    base1: F,
+    operator: G,
+    mut mapper: H,
+) -> impl FnMut(I) -> IResult<I, O, E>
+where
+    I: InputTakeAtPosition + Clone + PartialEq,
+    <I as InputTakeAtPosition>::Item: AsChar + Clone,
+    O: Clone,
+    F: Parser<I, O, E>,
+    G: Parser<I, I, E>,
+    H: FnMut(I, O, O) -> O,
+{
+    fold_many0(
+        pair(preceded(space0, operator), preceded(multispace0, base1)),
+        lhs,
+        move |lhs, (op, rhs)| mapper(op, lhs, rhs),
+    )
+}
+
+fn prim_expr(s: &str) -> IResult<&str, Expr> {
     alt((method_call, local_var, decimal_number))(s)
 }
 
-fn method_call(s: &str) -> IResult<&str, Node> {
+fn method_call(s: &str) -> IResult<&str, Expr> {
     let (s, name0) = ident(s)?;
-    let (s, arg) = delimited(
-        char('('),
-        delimited(multispace0, expr, multispace0),
-        char(')'),
-    )(s)?;
-    let node = Node::call(name0, vec![arg]);
+    let (s, args) = delimited(char('('), method_args, char(')'))(s)?;
+    let node = Expr::call(name0, args);
     Ok((s, node))
 }
 
-fn local_var(s: &str) -> IResult<&str, Node> {
+fn method_args(s: &str) -> IResult<&str, Vec<Expr>> {
+    delimited(
+        multispace0,
+        separated_list0(tuple((multispace0, char(','), multispace0)), expr),
+        multispace0,
+    )(s)
+}
+
+fn local_var(s: &str) -> IResult<&str, Expr> {
     let (s, name) = ident(s)?;
-    Ok((s, Node::localvar(name)))
+    Ok((s, Expr::localvar(name)))
 }
 
 fn ident(s: &str) -> IResult<&str, &str> {
@@ -148,48 +198,59 @@ fn ident(s: &str) -> IResult<&str, &str> {
     ))(s)
 }
 
-fn decimal_number(s: &str) -> IResult<&str, Node> {
+fn decimal_number(s: &str) -> IResult<&str, Expr> {
     let (s, n) = recognize(tuple((opt(one_of("+-")), digit1)))(s)?;
     let num = n.parse::<i64>().unwrap();
-    Ok((s, Node::Integer(num)))
+    Ok((s, Expr::Integer(num)))
 }
 
 fn lineterm_ws(s: &str) -> IResult<&str, char> {
     delimited(space0, alt((newline, char(';'))), space0)(s)
 }
 
-#[allow(unused_imports)]
+#[cfg(test)]
 mod test {
     use super::super::ast::*;
     use super::*;
     #[test]
-    fn expr_test() {
-        assert_eq!(Node::localvar("_f1"), expr("_f1").unwrap().1);
-        assert_eq!(Node::Integer(100), expr("100").unwrap().1);
-        assert_eq!(Node::Integer(-100), expr("-100").unwrap().1);
+    fn prim_test() {
+        assert_eq!(Expr::localvar("_f1"), expr("_f1").unwrap().1);
+        assert_eq!(Expr::Integer(100), expr("100").unwrap().1);
+        assert_eq!(Expr::Integer(-100), expr("-100").unwrap().1);
         assert_eq!(
-            Node::call("func", vec![Node::Integer(100)]),
+            Expr::call("func", vec![Expr::Integer(100)]),
             expr("func(100)").unwrap().1
         );
+    }
+
+    #[test]
+    fn op_test() {
         assert_eq!(
-            Node::sub(Node::Integer(100), Node::Integer(30)),
+            Expr::sub(Expr::Integer(100), Expr::Integer(30)),
             expr("100 - 30").unwrap().1
         );
         assert_eq!(
-            Node::add(Node::Integer(100), Node::Integer(30)),
+            Expr::add(Expr::Integer(100), Expr::Integer(30)),
             expr("100 + 30").unwrap().1
+        );
+        assert_eq!(
+            Expr::sub(
+                Expr::add(Expr::Integer(100), Expr::Integer(30)),
+                Expr::Integer(50)
+            ),
+            expr("100 + 30 - 50").unwrap().1
         );
     }
 
     #[test]
     fn return_test() {
-        assert_eq!(Node::ret(Node::Nop), return_stmt("return").unwrap().1);
+        assert_eq!(Stmt::ret(Expr::Nop), return_stmt("return").unwrap().1);
         assert_eq!(
-            Node::ret(Node::Integer(100)),
+            Stmt::ret(Expr::Integer(100)),
             return_stmt("return 100").unwrap().1
         );
         assert_eq!(
-            Node::ret(Node::add(Node::localvar("x"), Node::Integer(100))),
+            Stmt::ret(Expr::add(Expr::localvar("x"), Expr::Integer(100))),
             return_stmt("return x+100").unwrap().1
         );
     }
@@ -197,16 +258,16 @@ mod test {
     #[test]
     fn if_test() {
         assert_eq!(
-            Node::if_(
-                Node::eq(Node::localvar("x"), Node::Integer(0)),
-                Node::stmt(Node::Integer(3))
+            Stmt::if_(
+                Expr::eq(Expr::localvar("x"), Expr::Integer(0)),
+                Stmt::stmt(Expr::Integer(3))
             ),
             if_stmt("if x == 0 then 3 end").unwrap().1
         );
         assert_eq!(
-            Node::if_(
-                Node::eq(Node::localvar("x"), Node::Integer(1)),
-                Node::ret(Node::Integer(1))
+            Stmt::if_(
+                Expr::eq(Expr::localvar("x"), Expr::Integer(1)),
+                Stmt::ret(Expr::Integer(1))
             ),
             if_stmt("if x == 1 then return 1 end").unwrap().1
         );

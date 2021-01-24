@@ -1,6 +1,7 @@
 // Utility functions
 pub const PUTC: *const fn() = putc as *const fn();
 pub const PUTINT: *const fn() = putint as *const fn();
+pub const PANIC: *const fn() = panic as *const fn();
 pub const DUMP: *const fn() = dump as *const fn();
 
 extern "C" fn putc(ch: u8) {
@@ -9,6 +10,10 @@ extern "C" fn putc(ch: u8) {
 
 extern "C" fn putint(i: u64) {
     eprintln!("{:?}", i);
+}
+
+extern "C" fn panic() {
+    panic!("panic() is called.")
 }
 
 extern "C" fn dump() {

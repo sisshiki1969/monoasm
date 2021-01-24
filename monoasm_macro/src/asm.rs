@@ -33,7 +33,7 @@ pub enum Inst {
 
     Jmp(Dest),
     Jne(Ident),
-    Je(Ident),
+    Jeq(Ident),
 
     Call(Dest),
     Ret,
@@ -96,7 +96,7 @@ impl Parse for Inst {
                 "ret" => parse_0op!(Ret),
                 "jmp" => parse_1op!(Jmp),
                 "jne" => parse_1op!(Jne),
-                "je" => parse_1op!(Je),
+                "jeq" => parse_1op!(Jeq),
                 "syscall" => parse_0op!(Syscall),
                 _ => Err(Error::new(inst.span(), "unimplemented instruction.")),
             }
@@ -199,7 +199,7 @@ pub fn compile(inst: Inst) -> TokenStream {
             jit.save_reloc(#dest, 4);
             jit.emitl(0);
         ),
-        Inst::Je(dest) => quote!(
+        Inst::Jeq(dest) => quote!(
             // JE rel32
             // 0F 84 cd
             // TODO: support rel8
