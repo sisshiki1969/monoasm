@@ -7,14 +7,15 @@ use std::collections::HashMap;
 #[derive(Clone, Copy, Debug)]
 pub struct FuncId(usize);
 
+#[derive(Debug)]
 struct FuncInfo {
     entry: DestLabel,
     arg_num: usize,
-    pub body: fn(u64) -> u64,
+    pub body: extern "C" fn(u64) -> u64,
 }
 
 impl FuncInfo {
-    fn new(entry: DestLabel, arg_num: usize, body: fn(u64) -> u64) -> Self {
+    fn new(entry: DestLabel, arg_num: usize, body: extern "C" fn(u64) -> u64) -> Self {
         Self {
             entry,
             arg_num,
@@ -23,6 +24,7 @@ impl FuncInfo {
     }
 }
 
+#[derive(Clone, Debug, Default)]
 pub struct Context {
     stack: u64,
     entry: DestLabel,
@@ -31,56 +33,43 @@ pub struct Context {
     lvar_count: usize,
 }
 
+#[derive(Debug, Default)]
 pub struct Codegen {
     jit: JitMemory,
-    stack: u64,
-    entry: DestLabel,
-    exit: DestLabel,
-    lvars: HashMap<String, usize>,
-    lvar_count: usize,
+    context: Context,
     func_map: HashMap<String, FuncId>,
     func_reloc: HashMap<String, DestLabel>,
     funcs: Vec<FuncInfo>,
 }
 
 impl Codegen {
-    pub fn compile(&mut self, program: &str) -> fn(u64) -> u64 {
+    pub fn compile(&mut self, program: &str) -> extern "C" fn(u64) -> u64 {
         let ast = script(program);
         self.gen_func("main", ast, vec![]);
         self.resolve_func_labels();
         self.get_func_ptr("main")
     }
 
-    pub fn get_func_ptr(&self, name: &str) -> fn(u64) -> u64 {
+    pub fn get_func_ptr(&self, name: &str) -> extern "C" fn(u64) -> u64 {
         self.get_func_id(name).body
     }
 }
 
 impl Codegen {
     fn save_context(&mut self) -> Context {
-        Context {
-            stack: self.stack,
-            entry: self.entry,
-            exit: self.exit,
-            lvars: std::mem::take(&mut self.lvars),
-            lvar_count: self.lvar_count,
-        }
+        std::mem::take(&mut self.context)
     }
 
     fn restore_context(&mut self, mut ctx: Context) {
-        self.stack = ctx.stack;
-        self.entry = ctx.entry;
-        self.exit = ctx.exit;
-        self.lvars = std::mem::take(&mut ctx.lvars);
-        self.lvar_count = ctx.lvar_count;
+        self.context = std::mem::take(&mut ctx);
     }
 
     fn get_lvar(&mut self, name: String) -> usize {
-        match self.lvars.get(&name) {
+        match self.context.lvars.get(&name) {
             None => {
-                let ofs = self.lvar_count;
-                self.lvar_count += 1;
-                self.lvars.insert(name, ofs);
+                let ofs = self.context.lvar_count;
+                self.context.lvar_count += 1;
+                self.context.lvars.insert(name, ofs);
                 ofs
             }
             Some(ofs) => *ofs,
@@ -129,14 +118,14 @@ impl Codegen {
         );
         let arg_num = args.len();
         let saved_context = self.save_context();
-        self.stack = 0;
-        self.entry = self.jit.label();
-        self.exit = self.jit.label();
-        self.lvar_count = 0;
+        self.context.stack = 0;
+        self.context.entry = self.jit.label();
+        self.context.exit = self.jit.label();
+        self.context.lvar_count = 0;
         for v in args {
             self.get_lvar(v);
         }
-        self.jit.bind_label(self.entry);
+        self.jit.bind_label(self.context.entry);
         self.prologue(arg_num);
         match arg_num {
             0 => {}
@@ -166,10 +155,14 @@ impl Codegen {
         monoasm!(self.jit,
             movq rax, 7777;
         );
-        self.jit.bind_label(self.exit);
+        self.jit.bind_label(self.context.exit);
         self.epilogue();
         self.jit.bind_label(bypass);
-        let func = FuncInfo::new(self.entry, arg_num, self.jit.get_label_addr(self.entry));
+        let func = FuncInfo::new(
+            self.context.entry,
+            arg_num,
+            self.jit.get_label_addr(self.context.entry),
+        );
         self.restore_context(saved_context);
         self.add_func(name, func)
     }
@@ -227,7 +220,7 @@ impl Codegen {
         match node {
             Stmt::Stmt(node) => {
                 self.gen(*node);
-                self.stack -= 1;
+                self.context.stack -= 1;
             }
             Stmt::IfStmt { cond, then } => {
                 self.gen(*cond);
@@ -254,7 +247,7 @@ impl Codegen {
             }
             Stmt::ReturnStmt(node) => {
                 self.gen(*node);
-                self.leave(self.exit)
+                self.leave(self.context.exit)
             }
         };
     }
@@ -263,25 +256,10 @@ impl Codegen {
 #[allow(dead_code)]
 impl Codegen {
     pub fn new() -> Self {
-        let mut jit = JitMemory::new();
-        let entry = jit.label();
-        let exit = jit.label();
-        jit.bind_label(entry);
-        jit.bind_label(exit);
-        Self {
-            jit,
-            stack: 0,
-            entry,
-            exit,
-            lvar_count: 0,
-            lvars: HashMap::default(),
-            func_map: HashMap::default(),
-            func_reloc: HashMap::default(),
-            funcs: vec![],
-        }
+        Self::default()
     }
 
-    pub fn exec_script(program: &str) -> fn(u64) -> u64 {
+    pub fn exec_script(program: &str) -> extern "C" fn(u64) -> u64 {
         let mut codegen = Self::new();
         codegen.compile(program)
     }
@@ -307,60 +285,60 @@ impl Codegen {
     /// Push integer.
     /// stack +1
     fn push_int(&mut self, val: i64) {
-        assert!(self.stack <= 3);
-        monoasm!(self.jit, movq R(self.stack + 12), (val as u64););
-        self.stack += 1;
+        assert!(self.context.stack <= 3);
+        monoasm!(self.jit, movq R(self.context.stack + 12), (val as u64););
+        self.context.stack += 1;
     }
 
     /// Get local var(offset), and push it.
     /// stack +1
     fn get_local(&mut self, offset: usize) {
-        assert!(self.stack <= 3);
+        assert!(self.context.stack <= 3);
         let offset = (offset * 8) as i64 + 8;
-        monoasm!(self.jit, movq R(self.stack + 12), [rbp-(offset)];);
-        self.stack += 1;
+        monoasm!(self.jit, movq R(self.context.stack + 12), [rbp-(offset)];);
+        self.context.stack += 1;
     }
 
     /// Pop a value, and set local var(offset) to the value.
     /// stack +-1
     fn set_local(&mut self, offset: usize) {
         let offset = (offset * 8) as i64 + 8;
-        self.stack -= 1;
-        assert!(self.stack <= 3);
-        monoasm!(self.jit, movq [rbp-(offset)], R(self.stack + 12););
-        self.stack += 1;
+        self.context.stack -= 1;
+        assert!(self.context.stack <= 3);
+        monoasm!(self.jit, movq [rbp-(offset)], R(self.context.stack + 12););
+        self.context.stack += 1;
     }
 
     /// Pop two values, and subtruct the former from the latter.
     /// Push the result.
     /// stack -1
     fn sub(&mut self) {
-        self.stack -= 2;
-        assert!(self.stack <= 3);
-        monoasm!(self.jit, subq R(self.stack + 12), R(self.stack + 13););
-        self.stack += 1;
+        self.context.stack -= 2;
+        assert!(self.context.stack <= 3);
+        monoasm!(self.jit, subq R(self.context.stack + 12), R(self.context.stack + 13););
+        self.context.stack += 1;
     }
 
     /// Pop two values, and add the former to the latter.
     /// Push the result.
     /// stack -1
     fn add(&mut self) {
-        self.stack -= 2;
-        assert!(self.stack <= 3);
-        monoasm!(self.jit, addq R(self.stack + 12), R(self.stack + 13););
-        self.stack += 1;
+        self.context.stack -= 2;
+        assert!(self.context.stack <= 3);
+        monoasm!(self.jit, addq R(self.context.stack + 12), R(self.context.stack + 13););
+        self.context.stack += 1;
     }
 
     /// Pop two values, and compare the former to the latter.
     /// Push 1 if equal and 0 if else.
     /// stack -1
     fn cmp(&mut self, kind: CmpKind) {
-        self.stack -= 2;
+        self.context.stack -= 2;
         let l0 = self.jit.label();
         let l1 = self.jit.label();
-        assert!(self.stack <= 3);
+        assert!(self.context.stack <= 3);
         monoasm!(self.jit,
-            cmpq R(self.stack + 12), R(self.stack + 13);
+            cmpq R(self.context.stack + 12), R(self.context.stack + 13);
         );
         match kind {
             CmpKind::Eq => {
@@ -375,31 +353,31 @@ impl Codegen {
             }
         }
         monoasm!(self.jit,
-            movq R(self.stack + 12), 1;
+            movq R(self.context.stack + 12), 1;
             jmp l1;
         l0:
-            movq R(self.stack + 12), 0;
+            movq R(self.context.stack + 12), 0;
         l1:
         );
-        self.stack += 1;
+        self.context.stack += 1;
     }
 
     /// Pop one values and jump to `dest` if the value is not 1.
     /// stack -1
     fn jmp_iff(&mut self, dest: DestLabel) {
-        self.stack -= 1;
-        assert!(self.stack <= 3);
+        self.context.stack -= 1;
+        assert!(self.context.stack <= 3);
         monoasm!(self.jit,
-            cmpq R(self.stack + 12), 1;
+            cmpq R(self.context.stack + 12), 1;
             jne dest;
         );
     }
 
     fn cmp_jmp(&mut self, kind: CmpKind, dest: DestLabel) {
-        self.stack -= 2;
-        assert!(self.stack <= 3);
+        self.context.stack -= 2;
+        assert!(self.context.stack <= 3);
         monoasm!(self.jit,
-            cmpq R(self.stack + 12), R(self.stack + 13);
+            cmpq R(self.context.stack + 12), R(self.context.stack + 13);
         );
         match kind {
             CmpKind::Eq => {
@@ -423,18 +401,18 @@ impl Codegen {
 
         monoasm!(self.jit,
             call dest;
-            movq R(self.stack + 12), rax;
+            movq R(self.context.stack + 12), rax;
         );
-        self.stack += 1;
+        self.context.stack += 1;
     }
 
     /// Pop a value, and return with it.
     /// stack -1
     fn leave(&mut self, end: DestLabel) {
-        self.stack -= 1;
-        assert!(self.stack <= 3);
+        self.context.stack -= 1;
+        assert!(self.context.stack <= 3);
         monoasm!(self.jit,
-            movq rax, R(self.stack + 12);
+            movq rax, R(self.context.stack + 12);
             jmp end;
         );
     }
@@ -446,32 +424,32 @@ impl Codegen {
         monoasm!(self.jit,
             movq rax, (builtin as u64);
             call rax;
-            movq R(self.stack + 12), rax;
+            movq R(self.context.stack + 12), rax;
         );
-        self.stack += 1;
+        self.context.stack += 1;
     }
 
     fn pop_args(&mut self, arg_num: usize) {
-        self.stack -= arg_num as u64;
-        assert!(self.stack <= 3);
+        self.context.stack -= arg_num as u64;
+        assert!(self.context.stack <= 3);
         match arg_num {
             0 => {}
             1 => {
                 monoasm!(self.jit,
-                    movq rdi, R(self.stack + 12);
+                    movq rdi, R(self.context.stack + 12);
                 );
             }
             2 => {
                 monoasm!(self.jit,
-                    movq rdi, R(self.stack + 12);
-                    movq rsi, R(self.stack + 13);
+                    movq rdi, R(self.context.stack + 12);
+                    movq rsi, R(self.context.stack + 13);
                 );
             }
             3 => {
                 monoasm!(self.jit,
-                    movq rdi, R(self.stack + 12);
-                    movq rsi, R(self.stack + 13);
-                    movq rdx, R(self.stack + 14);
+                    movq rdi, R(self.context.stack + 12);
+                    movq rsi, R(self.context.stack + 13);
+                    movq rdx, R(self.context.stack + 14);
                 );
             }
             _ => unreachable!("the number of argument is too large."),

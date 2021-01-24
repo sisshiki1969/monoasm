@@ -10,7 +10,7 @@ fn main() {
         return fibo(x-1) + fibo(x-2)
     end
         ";
-    eprintln!("{}", program);
+    //eprintln!("{}", program);
     let x = 40;
     let ret = Codegen::exec_script(program)(x);
     println!("return value = {}", ret);

@@ -51,7 +51,7 @@ pub enum Dest {
 }
 
 /// Position in JitMemory.
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Pos(usize);
 
 impl Pos {
@@ -69,14 +69,14 @@ impl Add<i32> for Pos {
 }
 
 /// Id for destination label.
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Default, Debug)]
 pub struct DestLabel(usize);
 
 /// Relocation
 ///
 /// This struct holds a pair of a single destination (whether determined or not)
 /// and multiple source positions.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Reloc {
     /// Destination position in JitMemory.
     /// None for not yet determined.
@@ -95,6 +95,7 @@ impl Reloc {
 }
 
 /// Relocation tabla.
+#[derive(Debug)]
 pub struct Relocations(Vec<Reloc>);
 
 impl Relocations {

@@ -10,6 +10,7 @@ use region::{protect, Protection};
 use std::alloc::{alloc, Layout};
 
 /// Memory manager.
+#[derive(Debug)]
 pub struct JitMemory {
     /// Pointer to the heap.
     contents: *mut u8,
@@ -38,6 +39,12 @@ impl IndexMut<Pos> for JitMemory {
             panic!("Page size overflow")
         }
         unsafe { &mut *self.contents.offset(index.0 as isize) }
+    }
+}
+
+impl std::default::Default for JitMemory {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -134,7 +141,7 @@ impl JitMemory {
         unsafe { mem::transmute(self.contents) }
     }
 
-    pub fn get_label_addr<T, U>(&mut self, label: DestLabel) -> fn(T) -> U {
+    pub fn get_label_addr<T, U>(&mut self, label: DestLabel) -> extern "C" fn(T) -> U {
         let counter = self.reloc[label]
             .loc
             .expect("The DestLabel has no position binding.")
