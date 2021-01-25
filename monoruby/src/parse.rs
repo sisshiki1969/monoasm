@@ -106,7 +106,7 @@ fn eq_expr(s: &str) -> IResult<&str, Expr> {
 }
 
 fn add_expr(s: &str) -> IResult<&str, Expr> {
-    let (s, lhs) = prim_expr(s)?;
+    let (s, lhs) = mul_expr(s)?;
     fn mapper(op: &str, lhs: Expr, rhs: Expr) -> Expr {
         if op == "-" {
             Expr::sub(lhs, rhs)
@@ -116,7 +116,21 @@ fn add_expr(s: &str) -> IResult<&str, Expr> {
             unimplemented!()
         }
     }
-    binop_fold(lhs, prim_expr, alt((tag("+"), tag("-"))), mapper)(s)
+    binop_fold(lhs, mul_expr, alt((tag("+"), tag("-"))), mapper)(s)
+}
+
+fn mul_expr(s: &str) -> IResult<&str, Expr> {
+    let (s, lhs) = prim_expr(s)?;
+    fn mapper(op: &str, lhs: Expr, rhs: Expr) -> Expr {
+        if op == "*" {
+            Expr::mul(lhs, rhs)
+        } else if op == "/" {
+            Expr::div(lhs, rhs)
+        } else {
+            unimplemented!()
+        }
+    }
+    binop_fold(lhs, prim_expr, alt((tag("*"), tag("/"))), mapper)(s)
 }
 
 fn binop_once<'a, I, O, E: ParseError<I>, F, G, H>(
@@ -167,7 +181,7 @@ where
 }
 
 fn prim_expr(s: &str) -> IResult<&str, Expr> {
-    alt((method_call, local_var, decimal_number))(s)
+    alt((paren_expr, method_call, local_var, decimal_number))(s)
 }
 
 fn method_call(s: &str) -> IResult<&str, Expr> {
@@ -182,6 +196,14 @@ fn method_args(s: &str) -> IResult<&str, Vec<Expr>> {
         multispace0,
         separated_list0(tuple((multispace0, char(','), multispace0)), expr),
         multispace0,
+    )(s)
+}
+
+fn paren_expr(s: &str) -> IResult<&str, Expr> {
+    delimited(
+        char('('),
+        delimited(multispace0, expr, multispace0),
+        char(')'),
     )(s)
 }
 
@@ -240,6 +262,49 @@ mod test {
             ),
             expr("100 + 30 - 50").unwrap().1
         );
+        assert_eq!(
+            Expr::sub(
+                Expr::Integer(100),
+                Expr::mul(Expr::Integer(5), Expr::Integer(30))
+            ),
+            expr("100 - 5* 30 ").unwrap().1
+        );
+        assert_eq!(
+            Expr::div(
+                Expr::add(Expr::Integer(100), Expr::Integer(50)),
+                Expr::Integer(30),
+            ),
+            expr(" ( 100 + 50) /30 ").unwrap().1
+        );
+    }
+
+    #[test]
+    fn paren_test() {
+        assert_eq!(
+            Expr::sub(
+                Expr::Integer(100),
+                Expr::add(Expr::Integer(30), Expr::Integer(47))
+            ),
+            expr("100 -( 30+ 47  )").unwrap().1
+        );
+        assert_eq!(
+            Expr::sub(
+                Expr::Integer(100),
+                Expr::add(Expr::Integer(30), Expr::Integer(47))
+            ),
+            expr("100-  (30 +47)").unwrap().1
+        );
+        /*assert_eq!(
+            Expr::add(Expr::Integer(100), Expr::Integer(30)),
+            expr("100 + 30").unwrap().1
+        );
+        assert_eq!(
+            Expr::sub(
+                Expr::add(Expr::Integer(100), Expr::Integer(30)),
+                Expr::Integer(50)
+            ),
+            expr("100 + 30 - 50").unwrap().1
+        );*/
     }
 
     #[test]

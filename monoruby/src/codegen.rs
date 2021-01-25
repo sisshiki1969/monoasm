@@ -185,6 +185,12 @@ impl Codegen {
                 self.gen(*rhs);
                 self.sub();
             }
+            Expr::Mul(lhs, rhs) => {
+                self.gen(*lhs);
+                self.gen(*rhs);
+                self.mul();
+            }
+            Expr::Div(_lhs, _rhs) => unimplemented!(),
             Expr::Cmp(kind, lhs, rhs) => {
                 self.gen(*lhs);
                 self.gen(*rhs);
@@ -326,6 +332,16 @@ impl Codegen {
         self.context.stack -= 2;
         assert!(self.context.stack <= 3);
         monoasm!(self.jit, addq R(self.context.stack + 12), R(self.context.stack + 13););
+        self.context.stack += 1;
+    }
+
+    /// Pop two values, and multiply the former to the latter.
+    /// Push the result.
+    /// stack -1
+    fn mul(&mut self) {
+        self.context.stack -= 2;
+        assert!(self.context.stack <= 3);
+        monoasm!(self.jit, imull R(self.context.stack + 12), R(self.context.stack + 13););
         self.context.stack += 1;
     }
 
@@ -496,5 +512,25 @@ mod tests {
         ";
         let main_func = Codegen::exec_script(program);
         b.iter(|| main_func(15));
+    }
+
+    fn factorial(x: u64) -> u64 {
+        let program = "
+    return fact(10)
+    def fact(x)
+        if x == 1 then return 1 end
+        return x * fact(x-1)
+    end
+        ";
+        //eprintln!("{}", program);
+        Codegen::exec_script(program)(x)
+        //eprintln!("return value = {}", ret);
+    }
+
+    #[test]
+    fn fact_test() {
+        let ret = factorial(10);
+        eprintln!("factorial( {} ) = {}", 10, ret);
+        assert_eq!(3628800, ret);
     }
 }

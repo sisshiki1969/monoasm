@@ -123,11 +123,24 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // IMUL r32, r/m32
                 // 0F AF /r
                 // RM
+                (Operand::RegExpr(expr), op2) => {
+                    quote! {
+                        let r1 = Reg::from(#expr as u64);
+                        let (mode, reg, disp) = (#op2).op_to_rm();
+                        jit.rex(r1, reg, Reg::none());
+                        jit.emitb(0x0f);
+                        jit.emitb(0xaf);
+                        jit.modrm(r1, mode, reg);
+                        jit.emit_disp(disp)
+                    }
+                }
                 (Operand::Reg(r1), op2) => {
                     let (mode, reg, disp) = op_to_rm(op2);
+                    let rex = rex(r1, reg, Reg::none());
                     let modrm = modrm(r1, mode, reg);
                     let disp = emit_disp(disp);
                     quote! {
+                        #rex
                         jit.emitb(0x0f);
                         jit.emitb(0xaf);
                         #modrm
@@ -239,7 +252,7 @@ fn emit_disp(disp: Disp) -> TokenStream {
 
 /// Encoding: Opcode + rd  
 /// REX.W Op+ rd
-fn enc_o(op: u8, reg: Reg) -> TokenStream {
+fn enc_rexw_o(op: u8, reg: Reg) -> TokenStream {
     let rexw = rexw(Reg::none(), reg, Reg::none());
     let op_with_rd = op_with_rd(op, reg);
     quote!(
@@ -250,14 +263,14 @@ fn enc_o(op: u8, reg: Reg) -> TokenStream {
 
 /// Encoding: MI  
 /// ModRM:r/m
-fn enc_mi(op: u8, rm_op: Operand) -> TokenStream {
-    enc_mr(op, Reg::none(), rm_op)
+fn enc_rexw_mi(op: u8, rm_op: Operand) -> TokenStream {
+    enc_rexw_mr(op, Reg::none(), rm_op)
 }
 
 /// Encoding: MR or RM
 /// MR-> ModRM:r/m(w) ModRM:reg(r)
 /// RM-> ModRM:reg(r) ModRM:r/m(w)
-fn enc_mr(op: u8, reg: Reg, rm_op: Operand) -> TokenStream {
+fn enc_rexw_mr(op: u8, reg: Reg, rm_op: Operand) -> TokenStream {
     let (mode, rm, disp) = op_to_rm(rm_op);
     let enc_mr = enc_mr_main(op, reg, mode, rm);
     // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
@@ -268,16 +281,16 @@ fn enc_mr(op: u8, reg: Reg, rm_op: Operand) -> TokenStream {
     }
 }
 
-fn enc_expr_mr(op: u8, expr: TokenStream, rm_op: Operand) -> TokenStream {
+fn enc_expr_rexw_mr(op: u8, expr: TokenStream, rm_op: Operand) -> TokenStream {
     quote! {
         let r1 = Reg::from((#expr) as u64);
-        jit.enc_mr(#op, r1, #rm_op);
+        jit.enc_rexw_mr(#op, r1, #rm_op);
     }
 }
 
 fn enc_mr_main(op: u8, reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
     if mode != Mode::Reg && (rm == Reg::Rsp || rm == Reg::R12) {
-        // TODO: If mode != Reg and r/m == 4 (rsp/r12), use SIB.
+        // If mode != Reg and r/m == 4 (rsp/r12), use SIB.
         // Currently, only Mode::Ind is supported.
         assert!(mode == Mode::Ind);
         // set index to 4 when [rm] is to be used.
@@ -346,8 +359,8 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
         // REX.W + B8+ rd io
         // OI
         (Operand::Reg(r), Operand::Imm(i)) => {
-            let op_0 = enc_mi(0xc7, Operand::Reg(r)); // MOV r/m64, imm32
-            let op_1 = enc_o(0xb8, r); // MOV r64, imm64
+            let op_0 = enc_rexw_mi(0xc7, Operand::Reg(r)); // MOV r/m64, imm32
+            let op_1 = enc_rexw_o(0xb8, r); // MOV r64, imm64
             quote! {
                 let imm = (#i) as u64;
                 if  imm <= 0xffff_ffff {
@@ -366,11 +379,11 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
                 let rm_op = Or::Reg(r);
                 if  imm <= 0xffff_ffff {
                     // MOV r/m64, imm32
-                    jit.enc_mi(0xc7, rm_op);
+                    jit.enc_rexw_mi(0xc7, rm_op);
                     jit.emitl(imm as u32);
                 } else {
                     // MOV r64, imm64
-                    jit.enc_o(0xb8, r);
+                    jit.enc_rexw_o(0xb8, r);
                     jit.emitq(imm);
                 };
             )
@@ -380,7 +393,7 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
         // MI
         (op1, Operand::Imm(i)) => {
             let op1_str = format!("{:?}", op1);
-            let op_1 = enc_mi(0xc7, op1);
+            let op_1 = enc_rexw_mi(0xc7, op1);
             quote! {
                 let imm = (#i) as u64;
                 if  imm <= 0xffff_ffff {
@@ -394,19 +407,19 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
         // MOV r/m64,r64
         // REX.W + 89 /r
         // MR
-        (op1, Operand::RegExpr(expr)) => enc_expr_mr(0x89, expr, op1),
+        (op1, Operand::RegExpr(expr)) => enc_expr_rexw_mr(0x89, expr, op1),
         // MOV r64,m64
         // REX.W + 8B /r
         // RM
-        (Operand::RegExpr(expr), op2) => enc_expr_mr(0x8b, expr, op2),
+        (Operand::RegExpr(expr), op2) => enc_expr_rexw_mr(0x8b, expr, op2),
         // MOV r/m64,r64
         // REX.W + 89 /r
         // MR
-        (op1, Operand::Reg(r2)) => enc_mr(0x89, r2, op1),
+        (op1, Operand::Reg(r2)) => enc_rexw_mr(0x89, r2, op1),
         // MOV r64,m64
         // REX.W + 8B /r
         // RM
-        (Operand::Reg(r1), op2) => enc_mr(0x8b, r1, op2),
+        (Operand::Reg(r1), op2) => enc_rexw_mr(0x8b, r1, op2),
         (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
     }
 }
@@ -470,20 +483,20 @@ fn binary_op(
         (op1, Operand::RegExpr(expr)) => {
             quote! {
                 let r2 = Reg::from((#expr) as u64);
-                jit.enc_mr(#op_mr, r2, #op1);
+                jit.enc_rexw_mr(#op_mr, r2, #op1);
             }
         }
-        (op1, Operand::Reg(r2)) => enc_mr(op_mr, r2, op1),
+        (op1, Operand::Reg(r2)) => enc_rexw_mr(op_mr, r2, op1),
         // OP r64, m64
         // REX.W op_rm /r
         // RM
         (Operand::RegExpr(expr), op2) => {
             quote! {
                 let r1 = Reg::from((#expr) as u64);
-                jit.enc_mr(#op_rm, r1, #op2);
+                jit.enc_rexw_mr(#op_rm, r1, #op2);
             }
         }
-        (Operand::Reg(r1), op2) => enc_mr(op_rm, r1, op2),
+        (Operand::Reg(r1), op2) => enc_rexw_mr(op_rm, r1, op2),
         (op1, op2) => unimplemented!("{} {}, {}", op_name, op1, op2),
     }
 }

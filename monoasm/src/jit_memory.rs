@@ -195,21 +195,22 @@ impl JitMemory {
 impl JitMemory {
     /// Encoding: Opcode + rd  
     /// REX.W Op+ rd
-    pub fn enc_o(&mut self, op: u8, reg: Reg) {
+    pub fn enc_rexw_o(&mut self, op: u8, reg: Reg) {
         self.rexw(Reg::none(), reg, Reg::none());
         self.op_with_rd(op, reg);
     }
 
     /// Encoding: MI  
-    /// ModRM:r/m
-    pub fn enc_mi(&mut self, op: u8, rm_op: Or) {
-        self.enc_mr(op, Reg::none(), rm_op)
+    /// REX.W Op ModRM:r/m
+    pub fn enc_rexw_mi(&mut self, op: u8, rm_op: Or) {
+        self.enc_rexw_mr(op, Reg::none(), rm_op)
     }
 
     /// Encoding: MR or RM
+    /// REX>W Op ModRM
     /// MR-> ModRM:r/m(w) ModRM:reg(r)
     /// RM-> ModRM:reg(r) ModRM:r/m(w)
-    pub fn enc_mr(&mut self, op: u8, reg: Reg, rm_op: Or) {
+    pub fn enc_rexw_mr(&mut self, op: u8, reg: Reg, rm_op: Or) {
         let (mode, rm, disp) = rm_op.op_to_rm();
         self.enc_mr_main(op, reg, mode, rm);
         // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].

@@ -4,6 +4,8 @@ pub enum Expr {
     LocalVar(String),                   // push 1
     Add(Box<Expr>, Box<Expr>),          // pop2, push1
     Sub(Box<Expr>, Box<Expr>),          // pop2, push1
+    Mul(Box<Expr>, Box<Expr>),          // pop2, push1
+    Div(Box<Expr>, Box<Expr>),          // pop2, push1
     Cmp(CmpKind, Box<Expr>, Box<Expr>), // pop2, push1
     Call(String, Vec<Expr>),            // popn, push1
     Assign(String, Box<Expr>),          // pop1, push1
@@ -39,6 +41,14 @@ impl Expr {
 
     pub fn sub(lhs: Expr, rhs: Expr) -> Self {
         Expr::Sub(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn mul(lhs: Expr, rhs: Expr) -> Self {
+        Expr::Mul(Box::new(lhs), Box::new(rhs))
+    }
+
+    pub fn div(lhs: Expr, rhs: Expr) -> Self {
+        Expr::Div(Box::new(lhs), Box::new(rhs))
     }
 
     pub fn eq(lhs: Expr, rhs: Expr) -> Self {
