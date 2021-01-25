@@ -26,7 +26,7 @@ pub enum Inst {
     Xorq(Operand, Operand),
     Cmpq(Operand, Operand),
 
-    Imull(Operand, Operand),
+    Imul(Operand, Operand),
 
     Pushq(Operand),
     Popq(Operand),
@@ -87,7 +87,7 @@ impl Parse for Inst {
                 "andq" => parse_2op!(Andq),
                 "subq" => parse_2op!(Subq),
                 "xorq" => parse_2op!(Xorq),
-                "imull" => parse_2op!(Imull),
+                "imul" => parse_2op!(Imul),
 
                 "pushq" => parse_1op!(Pushq),
                 "popq" => parse_1op!(Popq),
@@ -117,36 +117,19 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Xorq(op1, op2) => binary_op("XOR", 0x81, 0x31, 0x33, 6, op1, op2),
         Inst::Cmpq(op1, op2) => binary_op("CMP", 0x81, 0x39, 0x3b, 7, op1, op2),
 
-        Inst::Imull(op1, op2) => {
-            // IMUL r32, r/m32: r32 <- r32 * r/m32
+        Inst::Imul(op1, op2) => {
+            // IMUL r64, r/m64: r64 <- r64 * r/m64
             match (op1, op2) {
-                // IMUL r32, r/m32
-                // 0F AF /r
+                // IMUL r64, r/m64
+                // REX.W 0F AF /r
                 // RM
                 (Operand::RegExpr(expr), op2) => {
                     quote! {
                         let r1 = Reg::from(#expr as u64);
-                        let (mode, reg, disp) = (#op2).op_to_rm();
-                        jit.rex(r1, reg, Reg::none());
-                        jit.emitb(0x0f);
-                        jit.emitb(0xaf);
-                        jit.modrm(r1, mode, reg);
-                        jit.emit_disp(disp)
+                        jit.enc_mr_main(&[0x0f,0xaf], JitMemory::rexw, r1, #op2);
                     }
                 }
-                (Operand::Reg(r1), op2) => {
-                    let (mode, reg, disp) = op_to_rm(op2);
-                    let rex = rex(r1, reg, Reg::none());
-                    let modrm = modrm(r1, mode, reg);
-                    let disp = emit_disp(disp);
-                    quote! {
-                        #rex
-                        jit.emitb(0x0f);
-                        jit.emitb(0xaf);
-                        #modrm
-                        #disp
-                    }
-                }
+                (Operand::Reg(r1), op2) => enc_mr_main(&[0x0f, 0xaf], rexw, r1, op2),
                 _ => unimplemented!(),
             }
         }
@@ -228,19 +211,6 @@ pub fn compile(inst: Inst) -> TokenStream {
     }
 }
 
-fn op_to_rm(op: Operand) -> (Mode, Reg, Disp) {
-    match op {
-        Operand::Reg(r) => (Mode::Reg, r, Disp::None),
-        Operand::Ind(r, disp) => match disp {
-            Disp::None => (Mode::Ind, r, Disp::None),
-            Disp::D8(i) => (Mode::InD8, r, Disp::D8(i)),
-            Disp::D32(i) => (Mode::InD32, r, Disp::D32(i)),
-            Disp::Expr(expr) => (Mode::InD32, r, Disp::Expr(expr)),
-        },
-        _ => unreachable!("Illegal operand. {}", op),
-    }
-}
-
 fn emit_disp(disp: Disp) -> TokenStream {
     match disp {
         Disp::None => quote!(),
@@ -271,14 +241,7 @@ fn enc_rexw_mi(op: u8, rm_op: Operand) -> TokenStream {
 /// MR-> ModRM:r/m(w) ModRM:reg(r)
 /// RM-> ModRM:reg(r) ModRM:r/m(w)
 fn enc_rexw_mr(op: u8, reg: Reg, rm_op: Operand) -> TokenStream {
-    let (mode, rm, disp) = op_to_rm(rm_op);
-    let enc_mr = enc_mr_main(op, reg, mode, rm);
-    // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
-    let disp = emit_disp(disp);
-    quote! {
-        #enc_mr
-        #disp
-    }
+    enc_mr_main(&[op], rexw, reg, rm_op)
 }
 
 fn enc_expr_rexw_mr(op: u8, expr: TokenStream, rm_op: Operand) -> TokenStream {
@@ -288,31 +251,51 @@ fn enc_expr_rexw_mr(op: u8, expr: TokenStream, rm_op: Operand) -> TokenStream {
     }
 }
 
-fn enc_mr_main(op: u8, reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
-    if mode != Mode::Reg && (rm == Reg::Rsp || rm == Reg::R12) {
+fn enc_mr_main(
+    op: &[u8],
+    rex: fn(Reg, Reg, Reg) -> TokenStream,
+    reg: Reg,
+    rm_op: Operand,
+) -> TokenStream {
+    let (mode, base, disp) = rm_op.op_to_rm();
+    let op: TokenStream = op.iter().map(|o| quote!(jit.emitb(#o);)).collect();
+    let disp = emit_disp(disp);
+    if mode != Mode::Reg && (base == Reg::Rsp || base == Reg::R12) {
         // If mode != Reg and r/m == 4 (rsp/r12), use SIB.
         // Currently, only Mode::Ind is supported.
         assert!(mode == Mode::Ind);
         // set index to 4 when [rm] is to be used.
         let index = Reg::Rsp; // magic number
         let scale = 0;
-        let rex = rexw(reg, rm, index);
-        let modrm = modrm(reg, mode, rm);
-        let sib = sib(scale, index, rm as u8);
-        quote! {
+        let rex = rex(reg, Reg::Rsp, index);
+        let modrm = modrm(reg, mode, Reg::Rsp);
+        let sib = sib(scale, Reg::Rsp, base);
+        quote!(
             #rex
-            jit.emitb(#op);
+            #op
             #modrm
             #sib
-        }
-    } else {
-        let rex = rexw(reg, rm, Reg::none());
-        let modrm = modrm(reg, mode, rm);
-        quote! {
+            #disp
+        )
+    } else if mode == Mode::Ind && (base == Reg::Rbp || base == Reg::R13) {
+        // If mode == Ind and r/m == 5 (rbp/r13), use [rbp/r13 + 0(disp8)].
+        let rex = rex(reg, base, Reg::none());
+        let modrm = modrm(reg, Mode::InD8, base);
+        quote!(
             #rex
-            jit.emitb(#op);
+            #op
             #modrm
-        }
+            jit.emitb(0);
+        )
+    } else {
+        let rex = rex(reg, base, Reg::none());
+        let modrm = modrm(reg, mode, base);
+        quote!(
+            #rex
+            #op
+            #modrm
+            #disp
+        )
     }
 }
 
@@ -343,7 +326,7 @@ fn rex(reg: Reg, base: Reg, index: Reg) -> TokenStream {
     }
 }
 
-fn sib(scale: u8, index: Reg, base: u8) -> TokenStream {
+fn sib(scale: u8, index: Reg, base: Reg) -> TokenStream {
     let sib = util::sib(scale, index, base);
     quote!( jit.emitb(#sib); )
 }
@@ -461,7 +444,7 @@ fn binary_op(
         }
         (op1, Operand::Imm(i)) => {
             let op1_str = format!("{}", op1);
-            let (mode, reg, disp) = op_to_rm(op1);
+            let (mode, reg, disp) = op1.op_to_rm();
             let rex = rexw(Reg::none(), reg, Reg::none());
             let modrm = modrm_digit(digit, mode, reg);
             let disp = emit_disp(disp);

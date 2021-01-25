@@ -63,7 +63,7 @@ fn fac() -> fn(u64) -> u64 {
         movq rdi, [rbp-(i)];
         subq rdi, 1;
         call fac;
-        imull rax, [rbp-(i)];
+        imul rax, [rbp-(i)];
     l3:
         // epilogue
         movq rsp, rbp;

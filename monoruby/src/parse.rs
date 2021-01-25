@@ -7,7 +7,7 @@ use nom::{branch::alt, combinator::all_consuming};
 use nom::{bytes::complete::tag, character::complete::newline};
 use nom::{
     character::complete::{
-        alpha1, alphanumeric1, char, digit1, multispace0, one_of, space0, space1,
+        alpha1, alphanumeric1, char, digit1, multispace0, multispace1, one_of, space0, space1,
     },
     AsChar, InputTakeAtPosition,
 };
@@ -48,8 +48,14 @@ fn return_stmt(s: &str) -> IResult<&str, Stmt> {
 }
 
 fn if_stmt(s: &str) -> IResult<&str, Stmt> {
-    let (s, (_, _, cond, _, then, _)) =
-        tuple((tag("if"), space1, expr, tag("then"), stmt, tag("end")))(s)?;
+    let (s, (_, _, cond, _, then, _)) = tuple((
+        tag("if"),
+        space1,
+        expr,
+        alt((multispace1, tag("then"))),
+        stmt,
+        pair(multispace0, tag("end")),
+    ))(s)?;
     Ok((s, Stmt::if_(cond, then)))
 }
 

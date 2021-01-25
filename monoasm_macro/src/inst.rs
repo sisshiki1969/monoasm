@@ -2,6 +2,7 @@ extern crate proc_macro2;
 extern crate quote;
 extern crate syn;
 use super::parse::*;
+use monoasm_inst::Mode;
 use monoasm_inst::Reg;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
@@ -52,6 +53,22 @@ impl ToTokens for Operand {
             },
         };
         tokens.extend(ts);
+    }
+}
+
+impl Operand {
+    /// Convert `self` to tupple of (Mode, Reg, Disp).
+    pub fn op_to_rm(self) -> (Mode, Reg, Disp) {
+        match self {
+            Operand::Reg(r) => (Mode::Reg, r, Disp::None),
+            Operand::Ind(r, disp) => match disp {
+                Disp::None => (Mode::Ind, r, Disp::None),
+                Disp::D8(i) => (Mode::InD8, r, Disp::D8(i)),
+                Disp::D32(i) => (Mode::InD32, r, Disp::D32(i)),
+                Disp::Expr(expr) => (Mode::InD32, r, Disp::Expr(expr)),
+            },
+            _ => unreachable!("Illegal operand. {}", self),
+        }
     }
 }
 

@@ -341,7 +341,7 @@ impl Codegen {
     fn mul(&mut self) {
         self.context.stack -= 2;
         assert!(self.context.stack <= 3);
-        monoasm!(self.jit, imull R(self.context.stack + 12), R(self.context.stack + 13););
+        monoasm!(self.jit, imul R(self.context.stack + 12), R(self.context.stack + 13););
         self.context.stack += 1;
     }
 
@@ -482,8 +482,12 @@ mod tests {
     fn fibo(x: u64) -> u64 {
         let program = "
         def fibo(x)
-            if x == 0 then return 0 end
-            if x == 1 then return 1 end
+            if x == 0  
+                return 0
+            end
+            if x == 1 then
+                return 1
+            end
             return fibo(x-1) + fibo(x-2)
         end
         return fibo(40)
@@ -516,11 +520,11 @@ mod tests {
 
     fn factorial(x: u64) -> u64 {
         let program = "
-    return fact(10)
-    def fact(x)
-        if x == 1 then return 1 end
-        return x * fact(x-1)
-    end
+        return fact(10)
+        def fact(x)
+            if x == 1 then return 1 end
+            return x * fact(x-1)
+        end
         ";
         //eprintln!("{}", program);
         Codegen::exec_script(program)(x)

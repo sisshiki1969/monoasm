@@ -207,32 +207,49 @@ impl JitMemory {
     }
 
     /// Encoding: MR or RM
-    /// REX>W Op ModRM
+    /// REX.W Op ModRM
     /// MR-> ModRM:r/m(w) ModRM:reg(r)
     /// RM-> ModRM:reg(r) ModRM:r/m(w)
     pub fn enc_rexw_mr(&mut self, op: u8, reg: Reg, rm_op: Or) {
-        let (mode, rm, disp) = rm_op.op_to_rm();
-        self.enc_mr_main(op, reg, mode, rm);
-        // TODO: If mode == Ind and r/m == 5, becomes [rip + disp32].
-        self.emit_disp(disp);
+        self.enc_mr_main(&[op], Self::rexw, reg, rm_op);
     }
 
-    fn enc_mr_main(&mut self, op: u8, reg: Reg, mode: Mode, rm: Reg) {
-        if mode != Mode::Reg && (rm == Reg::Rsp || rm == Reg::R12) {
+    pub fn enc_mr_main(
+        &mut self,
+        op: &[u8],
+        rex: fn(&mut Self, Reg, Reg, Reg),
+        reg: Reg,
+        rm_op: Or,
+    ) {
+        let (mode, base, disp) = rm_op.op_to_rm();
+        if mode != Mode::Reg && (base == Reg::Rsp || base == Reg::R12) {
             // TODO: If mode != Reg and r/m == 4 (rsp/r12), use SIB.
             // Currently, only Mode::Ind is supported.
             assert!(mode == Mode::Ind);
             // set index to 4 when [rm] is to be used.
             let index = Reg::Rsp; // magic number
             let scale = 0;
-            self.rexw(reg, rm, index);
-            self.emitb(op);
-            self.modrm(reg, mode, rm);
-            self.sib(scale, index, rm as u8);
+            rex(self, reg, base, index);
+            for o in op.iter() {
+                self.emitb(*o);
+            }
+            self.modrm(reg, mode, base);
+            self.sib(scale, index, base);
+            self.emit_disp(disp);
+        } else if mode == Mode::Ind && (base == Reg::Rbp || base == Reg::R13) {
+            rex(self, reg, base, Reg::none());
+            for o in op.iter() {
+                self.emitb(*o);
+            }
+            self.modrm(reg, Mode::InD8, base);
+            self.emitb(0);
         } else {
-            self.rexw(reg, rm, Reg::none());
-            self.emitb(op);
-            self.modrm(reg, mode, rm);
+            rex(self, reg, base, Reg::none());
+            for o in op.iter() {
+                self.emitb(*o);
+            }
+            self.modrm(reg, mode, base);
+            self.emit_disp(disp);
         }
     }
 
@@ -258,7 +275,7 @@ impl JitMemory {
         self.emitb(util::op_with_rd(op, r));
     }
 
-    pub fn sib(&mut self, scale: u8, index: Reg, base: u8) {
+    pub fn sib(&mut self, scale: u8, index: Reg, base: Reg) {
         self.emitb(util::sib(scale, index, base));
     }
 

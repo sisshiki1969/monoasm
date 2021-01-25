@@ -128,11 +128,11 @@ pub mod util {
     ///     rex.b:0 base:101 => use RBP  mode:00/disp32 01/RBP+disp8 10/RBP+disp32
     ///     rex.b:1 base:101 => use R13  mode:00/disp32 01/R13+disp8 10/R13+disp32
     ///
-    pub fn sib(scale: u8, index: Reg, base: u8) -> u8 {
+    pub fn sib(scale: u8, index: Reg, base: Reg) -> u8 {
         assert!(scale < 4);
         assert!((index as u8) < 8);
-        assert!(base < 8);
-        scale << 6 | (index as u8) << 3 | base
+        //assert!(base < 8);
+        scale << 6 | (index as u8) << 3 | ((base as u8) & 0b111)
     }
 
     pub fn op_with_rd(op: u8, r: Reg) -> u8 {
