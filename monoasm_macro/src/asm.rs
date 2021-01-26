@@ -1,6 +1,4 @@
 use super::inst::*;
-use super::parse::Disp;
-use monoasm_inst::{util, Mode, Reg};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
@@ -114,7 +112,7 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Sbbq(op1, op2) => binary_op("SBB", 0x81, 0x19, 0x1b, 3, op1, op2),
         Inst::Andq(op1, op2) => binary_op("AND", 0x81, 0x21, 0x23, 4, op1, op2),
         Inst::Subq(op1, op2) => binary_op("SUB", 0x81, 0x29, 0x2b, 5, op1, op2),
-        Inst::Xorq(op1, op2) => binary_op("XOR", 0x81, 0x31, 0x33, 6, op1, op2),
+        Inst::Xorq(op1, op2) => xor(op1, op2),
         Inst::Cmpq(op1, op2) => binary_op("CMP", 0x81, 0x39, 0x3b, 7, op1, op2),
 
         Inst::Imul(op1, op2) => {
@@ -139,12 +137,10 @@ pub fn compile(inst: Inst) -> TokenStream {
             Dest::Reg(r) => {
                 // CALL r/m64
                 // FF /2
-                let rex = rex(Reg::none(), r, Reg::none());
-                let modrm = modrm_digit(2, Mode::Reg, r);
                 quote! {
-                    #rex
+                    jit.rex(Reg::none(), #r, Reg::none());
                     jit.emitb(0xff);
-                    #modrm
+                    jit.modrm_digit(2, Mode::Reg, #r);
                 }
             }
             Dest::Rel(dest) => {
@@ -164,12 +160,10 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // JMP r/m64
                 // FF /4
                 // M
-                let rex = rex(Reg::none(), r, Reg::none());
-                let modrm = modrm_digit(4, Mode::Reg, r);
                 quote! (
-                    #rex
+                    jit.rex(Reg::none(), #r, Reg::none());
                     jit.emitb(0xff);
-                    #modrm
+                    jit.modrm_digit(4, Mode::Reg, #r);
                 )
             }
             Dest::Rel(dest) => {
@@ -209,96 +203,6 @@ pub fn compile(inst: Inst) -> TokenStream {
     }
 }
 
-fn emit_disp(disp: Disp) -> TokenStream {
-    match disp {
-        Disp::None => quote!(),
-        Disp::D8(i) => quote!( jit.emitb(#i as u8); ),
-        Disp::D32(i) => quote!( jit.emitl(#i as u32); ),
-        Disp::Expr(expr) => quote!( jit.emitl((#expr) as u32); ),
-    }
-}
-
-fn enc_expr_rexw_mr(op: u8, expr: TokenStream, rm_op: Operand) -> TokenStream {
-    quote! {
-        jit.enc_rexw_mr(#op, #expr, #rm_op);
-    }
-}
-
-fn enc_mr_main(
-    op: &[u8],
-    rex: fn(Reg, Reg, Reg) -> TokenStream,
-    reg: Reg,
-    rm_op: Operand,
-) -> TokenStream {
-    let (mode, base, disp) = rm_op.op_to_rm();
-    let op: TokenStream = op.iter().map(|o| quote!(jit.emitb(#o);)).collect();
-    let disp = emit_disp(disp);
-    if mode != Mode::Reg && (base == Reg::Rsp || base == Reg::R12) {
-        // If mode != Reg and r/m == 4 (rsp/r12), use SIB.
-        // Currently, only Mode::Ind is supported.
-        assert!(mode == Mode::Ind);
-        // set index to 4 when [rm] is to be used.
-        let index = Reg::Rsp; // magic number
-        let scale = 0;
-        let rex = rex(reg, Reg::Rsp, index);
-        let modrm = modrm(reg, mode, Reg::Rsp);
-        let sib = sib(scale, Reg::Rsp, base);
-        quote!(
-            #rex
-            #op
-            #modrm
-            #sib
-            #disp
-        )
-    } else if mode == Mode::Ind && (base == Reg::Rbp || base == Reg::R13) {
-        // If mode == Ind and r/m == 5 (rbp/r13), use [rbp/r13 + 0(disp8)].
-        let rex = rex(reg, base, Reg::none());
-        let modrm = modrm(reg, Mode::InD8, base);
-        quote!(
-            #rex
-            #op
-            #modrm
-            jit.emitb(0);
-        )
-    } else {
-        let rex = rex(reg, base, Reg::none());
-        let modrm = modrm(reg, mode, base);
-        quote!(
-            #rex
-            #op
-            #modrm
-            #disp
-        )
-    }
-}
-
-fn modrm_digit(digit: u8, mode: Mode, rm: Reg) -> TokenStream {
-    let modrm = util::modrm_digit(digit, mode, rm);
-    quote!( jit.emitb(#modrm); )
-}
-
-fn modrm(reg: Reg, mode: Mode, rm: Reg) -> TokenStream {
-    let modrm = util::modrm(reg, mode, rm);
-    quote!( jit.emitb(#modrm); )
-}
-
-fn rexw(reg: Reg, base: Reg, index: Reg) -> TokenStream {
-    let rex_prefix = util::rexw(reg, base, index);
-    quote!( jit.emitb(#rex_prefix); )
-}
-
-fn rex(reg: Reg, base: Reg, index: Reg) -> TokenStream {
-    match util::rex(reg, base, index) {
-        Some(rex) => quote!(jit.emitb(#rex);),
-        None => quote!(),
-    }
-}
-
-fn sib(scale: u8, index: Reg, base: Reg) -> TokenStream {
-    let sib = util::sib(scale, index, base);
-    quote!( jit.emitb(#sib); )
-}
-
 fn movq(op1: Operand, op2: Operand) -> TokenStream {
     match (op1, op2) {
         (Operand::Imm(_), op2) => panic!("'MOV Imm, {}' doen not exists.", op2),
@@ -310,10 +214,13 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
         // REX.W + B8+ rd io
         // OI
         (Operand::Reg(expr), Operand::Imm(i)) => {
+            let xor = xor(Operand::Reg(expr.clone()), Operand::Reg(expr.clone()));
             quote!(
                 let imm = (#i) as u64;
                 let rm_op = Or::Reg(#expr);
-                if  imm <= 0xffff_ffff {
+                if imm == 0 {
+                    #xor
+                } else if imm <= 0xffff_ffff {
                     // MOV r/m64, imm32
                     jit.enc_rexw_mi(0xc7, rm_op);
                     jit.emitl(imm as u32);
@@ -331,7 +238,7 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
             let op1_str = format!("{:?}", op1);
             quote! {
                 let imm = (#i) as u64;
-                if  imm <= 0xffff_ffff {
+                if imm <= 0xffff_ffff {
                     jit.enc_rexw_mi(0xc7, #op1);
                     jit.emitl(imm as u32);
                 } else {
@@ -342,11 +249,11 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
         // MOV r/m64,r64
         // REX.W + 89 /r
         // MR
-        (op1, Operand::Reg(expr)) => enc_expr_rexw_mr(0x89, expr, op1),
+        (op1, Operand::Reg(expr)) => quote!( jit.enc_rexw_mr(0x89, #expr, #op1); ),
         // MOV r64,m64
         // REX.W + 8B /r
         // RM
-        (Operand::Reg(expr), op2) => enc_expr_rexw_mr(0x8b, expr, op2),
+        (Operand::Reg(expr), op2) => quote!( jit.enc_rexw_mr(0x8b, #expr, #op2); ),
         (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
     }
 }
@@ -387,40 +294,33 @@ fn binary_op(
         }
         (op1, Operand::Imm(i)) => {
             let op1_str = format!("{}", op1);
-            let (mode, reg, disp) = op1.op_to_rm();
-            let rex = rexw(Reg::none(), reg, Reg::none());
-            let modrm = modrm_digit(digit, mode, reg);
-            let disp = emit_disp(disp);
             quote! {
+                let (mode, reg, disp) = (#op1).op_to_rm();
                 let imm = (#i) as u64;
                 if imm > 0xffff_ffff {
                     panic!("'{} {}, imm64' does not exists.", #op_name, #op1_str);
                 }
-                #rex
+                jit.rexw(Reg::none(), reg, Reg::none());
                 jit.emitb(#op_imm);
-                #modrm
-                #disp
+                jit.modrm_digit(#digit, mode, reg);
+                jit.emit_disp(disp);
                 jit.emitl(imm as u32);
             }
         }
         // OP r/m64, r64
         // REX.W op_mr /r
         // MR
-        (op1, Operand::Reg(expr)) => {
-            quote! {
-                jit.enc_rexw_mr(#op_mr, #expr, #op1);
-            }
-        }
+        (op1, Operand::Reg(expr)) => quote! ( jit.enc_rexw_mr(#op_mr, #expr, #op1); ),
         // OP r64, m64
         // REX.W op_rm /r
         // RM
-        (Operand::Reg(expr), op2) => {
-            quote! {
-                jit.enc_rexw_mr(#op_rm, #expr, #op2);
-            }
-        }
+        (Operand::Reg(expr), op2) => quote! ( jit.enc_rexw_mr(#op_rm, #expr, #op2); ),
         (op1, op2) => unimplemented!("{} {}, {}", op_name, op1, op2),
     }
+}
+
+fn xor(op1: Operand, op2: Operand) -> TokenStream {
+    binary_op("XOR", 0x81, 0x31, 0x33, 6, op1, op2)
 }
 
 fn push_pop(opcode: u8, op: Operand) -> TokenStream {

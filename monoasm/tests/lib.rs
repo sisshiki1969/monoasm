@@ -15,6 +15,9 @@ mod tests {
     fn mul() {
         let mut jit: JitMemory = JitMemory::new();
         monoasm!(jit,
+            movq rax, 0;
+            movq rax, 0xffff;
+            movq rax, 0xffff_ffff;
             imul rax, rax;
             imul rax, rcx;
             imul rax, rdx;
