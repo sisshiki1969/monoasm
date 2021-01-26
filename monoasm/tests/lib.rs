@@ -2,8 +2,7 @@
 #![feature(asm)]
 extern crate monoasm;
 extern crate monoasm_macro;
-use monoasm::test;
-use monoasm::JitMemory;
+use monoasm::*;
 use monoasm_macro::monoasm;
 mod fact;
 mod fibo;

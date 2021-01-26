@@ -18,8 +18,8 @@ use syn::{Error, Ident};
 #[derive(Clone, Debug)]
 pub enum Operand {
     Imm(TokenStream),
-    Reg(Reg),
-    RegExpr(TokenStream),
+    //Reg(Reg),
+    Reg(TokenStream),
     Ind(Reg, Disp),
 }
 
@@ -27,8 +27,7 @@ impl std::fmt::Display for Operand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Operand::Imm(i) => write!(f, "{}", i),
-            Operand::Reg(r) => write!(f, "{:?}", r),
-            Operand::RegExpr(s) => write!(f, "R({})", s),
+            Operand::Reg(s) => write!(f, "{}", s),
             Operand::Ind(r, d) => match d {
                 Disp::D8(d) => write!(f, "{}[{:?}]", d, r),
                 Disp::D32(d) => write!(f, "{}[{:?}]", d, r),
@@ -43,8 +42,7 @@ impl ToTokens for Operand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
             Operand::Imm(_) => unreachable!("immediate"),
-            Operand::Reg(r) => quote!(Or::Reg(#r)),
-            Operand::RegExpr(ts) => quote!(Or::Reg(Reg::from((#ts) as u64))),
+            Operand::Reg(ts) => quote!(Or::Reg(#ts)),
             Operand::Ind(r, disp) => match disp {
                 Disp::D8(i) => quote!(Or::Ind(#r, Disp::D8(#i))),
                 Disp::D32(i) => quote!(Or::Ind(#r, Disp::D32(#i))),
@@ -60,7 +58,7 @@ impl Operand {
     /// Convert `self` to tupple of (Mode, Reg, Disp).
     pub fn op_to_rm(self) -> (Mode, Reg, Disp) {
         match self {
-            Operand::Reg(r) => (Mode::Reg, r, Disp::None),
+            //Operand::Reg(r) => (Mode::Reg, r, Disp::None),
             Operand::Ind(r, disp) => match disp {
                 Disp::None => (Mode::Ind, r, Disp::None),
                 Disp::D8(i) => (Mode::InD8, r, Disp::D8(i)),
@@ -69,6 +67,10 @@ impl Operand {
             },
             _ => unreachable!("Illegal operand. {}", self),
         }
+    }
+
+    pub fn reg(expr: TokenStream) -> Self {
+        Self::Reg(quote!(Reg::from(#expr as u64)))
     }
 }
 

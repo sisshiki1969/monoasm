@@ -6,7 +6,7 @@ use proc_macro2::{Group, Punct};
 use quote::quote;
 use syn::{
     parse::{Parse, ParseStream},
-    Expr, ExprLit, Lit,
+    Expr,
 };
 use syn::{token, Error, Ident, LitInt, Token};
 
@@ -111,18 +111,10 @@ impl Parse for Operand {
                 let content;
                 syn::parenthesized!(content in input);
                 let s = content.parse::<Expr>()?;
-                match &s {
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Int(i), ..
-                    }) => {
-                        let i = i.base10_parse::<u64>()?;
-                        Ok(Operand::Reg(Reg::from(i)))
-                    }
-                    _ => Ok(Operand::RegExpr(quote!(#s))),
-                }
+                Ok(Operand::reg(quote!(#s)))
             } else {
-                let reg = Reg::from_str(&op).ok_or(input.error("Expected register name."))?;
-                Ok(Operand::Reg(reg))
+                let reg = Reg::from_str(&op).ok_or(input.error("Expected register name."))? as u64;
+                Ok(Operand::reg(quote!(#reg)))
             }
         } else if input.peek(LitInt) && is_single(input) {
             let imm = input.parse::<LitInt>()?;
