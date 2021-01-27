@@ -21,6 +21,18 @@ pub enum Or {
     Ind(Reg, Disp),
 }
 
+impl Or {
+    pub fn ind_from(base: Reg, disp: i32) -> Self {
+        match disp {
+            0 => Or::Ind(base, Disp::None),
+            disp if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 => {
+                Or::Ind(base, Disp::D8(disp as i8))
+            }
+            disp => Or::Ind(base, Disp::D32(disp)),
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Disp {
     None,

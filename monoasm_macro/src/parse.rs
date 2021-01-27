@@ -32,7 +32,7 @@ impl Parse for Disp {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         let lookahead = input.lookahead1();
         let offset = if input.is_empty() {
-            Disp(quote!(0))
+            Disp(quote!(0i32))
         } else if lookahead.peek(Token![-]) || lookahead.peek(Token![+]) {
             let sign = match input.parse::<Punct>()?.as_char() {
                 '-' => -1,
@@ -45,17 +45,17 @@ impl Parse for Disp {
                 syn::parenthesized!(content in input);
                 let expr: Expr = content.parse()?;
                 let expr = if sign == 1 {
-                    quote!(expr)
+                    quote!(expr as i32)
                 } else {
-                    quote!(-(#expr))
+                    quote!(-(#expr) as i32)
                 };
                 Disp(expr)
             } else if lookahead.peek(LitInt) {
                 let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
                 let expr = if sign == 1 {
-                    quote!(#ofs)
+                    quote!(#ofs as i32)
                 } else {
-                    quote!(-(#ofs))
+                    quote!(-(#ofs) as i32)
                 };
                 Disp(expr)
             } else {

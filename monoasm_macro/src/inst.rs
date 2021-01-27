@@ -175,11 +175,7 @@ impl ToTokens for Operand {
                 Or::Reg(#ts)
             ),
             Operand::Ind { base, disp } => quote!(
-                match (#disp) as i32 {
-                    0 => Or::Ind(#base, Disp::None),
-                    disp if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 => Or::Ind(#base, Disp::D8(disp as i8)),
-                    disp => Or::Ind(#base, Disp::D32(disp)),
-                }
+                Or::ind_from(#base, #disp)
             ),
         };
         tokens.extend(ts);
