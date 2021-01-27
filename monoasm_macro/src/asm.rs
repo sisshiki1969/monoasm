@@ -1,106 +1,6 @@
 use super::inst::*;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::parse::{Parse, ParseStream};
-use syn::{Error, Ident, Token};
-
-//----------------------------------------------------------------------
-//
-//  Assembly instructions.
-//
-//----------------------------------------------------------------------
-
-#[derive(Clone, Debug)]
-pub enum Inst {
-    Label(Ident),
-
-    Movq(Operand, Operand),
-    Addq(Operand, Operand),
-    Orq(Operand, Operand),
-    Adcq(Operand, Operand),
-    Sbbq(Operand, Operand),
-    Andq(Operand, Operand),
-    Subq(Operand, Operand),
-    Xorq(Operand, Operand),
-    Cmpq(Operand, Operand),
-
-    Imul(Operand, Operand),
-
-    Pushq(Operand),
-    Popq(Operand),
-
-    Jmp(Dest),
-    Jne(Ident),
-    Jeq(Ident),
-
-    Call(Dest),
-    Ret,
-    Syscall,
-}
-
-impl Parse for Inst {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        macro_rules! parse_2op {
-            ($inst: ident) => (
-                {
-                    let op1 = input.parse()?;
-                    input.parse::<Token![,]>()?;
-                    let op2 = input.parse()?;
-                    input.parse::<Token![;]>()?;
-                    Ok(Inst::$inst(op1, op2))
-                }
-            )
-        }
-
-        macro_rules! parse_1op {
-            ($inst: ident) => (
-                {
-                    let op = input.parse()?;
-                    input.parse::<Token![;]>()?;
-                    Ok(Inst::$inst(op))
-                }
-            )
-        }
-
-        macro_rules! parse_0op {
-            ($inst: ident) => (
-                {
-                    input.parse::<Token![;]>()?;
-                    Ok(Inst::$inst)
-                }
-            )
-        }
-
-        let inst: Ident = input.parse()?;
-        if input.peek(Token![:]) {
-            input.parse::<Token![:]>()?;
-            Ok(Inst::Label(inst))
-        } else {
-            match inst.to_string().as_str() {
-                "movq" => parse_2op!(Movq),
-                "addq" => parse_2op!(Addq),
-                "orq" => parse_2op!(Orq),
-                "adcq" => parse_2op!(Adcq),
-                "sbbq" => parse_2op!(Sbbq),
-                "andq" => parse_2op!(Andq),
-                "subq" => parse_2op!(Subq),
-                "xorq" => parse_2op!(Xorq),
-                "imul" => parse_2op!(Imul),
-
-                "pushq" => parse_1op!(Pushq),
-                "popq" => parse_1op!(Popq),
-                "cmpq" => parse_2op!(Cmpq),
-                "call" => parse_1op!(Call),
-                "ret" => parse_0op!(Ret),
-                "jmp" => parse_1op!(Jmp),
-                "jne" => parse_1op!(Jne),
-                "jeq" => parse_1op!(Jeq),
-                "syscall" => parse_0op!(Syscall),
-                _ => Err(Error::new(inst.span(), "unimplemented instruction.")),
-            }
-        }
-    }
-}
 
 pub fn compile(inst: Inst) -> TokenStream {
     match inst {
@@ -121,11 +21,10 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // IMUL r64, r/m64
                 // REX.W 0F AF /r
                 // RM
-                (Operand::Reg(expr), op2) => {
-                    quote! {
-                        jit.enc_mr_main(&[0x0f,0xaf], JitMemory::rexw, #expr, #op2);
-                    }
-                }
+                (Operand::Reg(expr), op2) => quote! (
+                    jit.enc_mr_main(&[0x0f,0xaf], true, #expr, #op2);
+                ),
+
                 _ => unimplemented!(),
             }
         }
@@ -138,9 +37,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // CALL r/m64
                 // FF /2
                 quote! {
-                    jit.rex(Reg::none(), #r, Reg::none());
-                    jit.emitb(0xff);
-                    jit.modrm_digit(2, Mode::Reg, #r);
+                    jit.enc_digit(&[0xff], #r, 2);
                 }
             }
             Dest::Rel(dest) => {
@@ -161,41 +58,26 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // FF /4
                 // M
                 quote! (
-                    jit.rex(Reg::none(), #r, Reg::none());
-                    jit.emitb(0xff);
-                    jit.modrm_digit(4, Mode::Reg, #r);
+                    jit.enc_digit(&[0xff],#r, 4);
                 )
             }
-            Dest::Rel(dest) => {
-                // JMP rel32
-                // E9 cd
-                // D
-                quote! {
-                    jit.emitb(0xe9);
-                    jit.save_reloc(#dest, 4);
-                    jit.emitl(0);
-                }
-            }
+            // JMP rel32
+            // E9 cd
+            // D
+            Dest::Rel(dest) => quote! ( jit.enc_d(&[0xe9], #dest); ),
             dest => unimplemented!("JMP {:?}", dest),
         },
-        Inst::Jne(dest) => quote!(
+        Inst::Jcc(cond, dest) => match cond {
             // JNE rel32
             // 0F 85 cd
             // TODO: support rel8
-            jit.emitb(0x0f);
-            jit.emitb(0x85);
-            jit.save_reloc(#dest, 4);
-            jit.emitl(0);
-        ),
-        Inst::Jeq(dest) => quote!(
+            Cond::Ne => quote!( jit.enc_d(&[0x0f, 0x85], #dest); ),
             // JE rel32
             // 0F 84 cd
             // TODO: support rel8
-            jit.emitb(0x0f);
-            jit.emitb(0x84);
-            jit.save_reloc(#dest, 4);
-            jit.emitl(0);
-        ),
+            Cond::Eq => quote!( jit.enc_d(&[0x0f, 0x84], #dest); ),
+        },
+
         Inst::Syscall => quote!(
             jit.emitb(0x0f);
             jit.emitb(0x05);
@@ -284,37 +166,33 @@ fn binary_op(
                     panic!("{} {:?}, imm64' does not exists.", #op_name, #expr);
                 }
                 let rm_op = Or::Reg(#expr);
-                let (mode, reg, disp) = rm_op.op_to_rm();
-                jit.rexw(Reg::none(), reg, Reg::none());
-                jit.emitb(#op_imm);
-                jit.modrm_digit(#digit, mode, reg);
-                jit.emit_disp(disp);
+                jit.enc_rexw_digit(&[#op_imm], rm_op, #digit);
                 jit.emitl(imm as u32);
             }
         }
         (op1, Operand::Imm(i)) => {
             let op1_str = format!("{}", op1);
             quote! {
-                let (mode, reg, disp) = (#op1).op_to_rm();
                 let imm = (#i) as u64;
                 if imm > 0xffff_ffff {
                     panic!("'{} {}, imm64' does not exists.", #op_name, #op1_str);
                 }
-                jit.rexw(Reg::none(), reg, Reg::none());
-                jit.emitb(#op_imm);
-                jit.modrm_digit(#digit, mode, reg);
-                jit.emit_disp(disp);
+                jit.enc_rexw_digit(&[#op_imm], #op1, #digit);
                 jit.emitl(imm as u32);
             }
         }
         // OP r/m64, r64
         // REX.W op_mr /r
         // MR
-        (op1, Operand::Reg(expr)) => quote! ( jit.enc_rexw_mr(#op_mr, #expr, #op1); ),
+        (op1, Operand::Reg(expr)) => quote! (
+            jit.enc_rexw_mr(#op_mr, #expr, #op1);
+        ),
         // OP r64, m64
         // REX.W op_rm /r
         // RM
-        (Operand::Reg(expr), op2) => quote! ( jit.enc_rexw_mr(#op_rm, #expr, #op2); ),
+        (Operand::Reg(expr), op2) => quote! (
+            jit.enc_rexw_mr(#op_rm, #expr, #op2);
+        ),
         (op1, op2) => unimplemented!("{} {}, {}", op_name, op1, op2),
     }
 }
@@ -328,12 +206,7 @@ fn push_pop(opcode: u8, op: Operand) -> TokenStream {
         // PUSH r64     POP 64
         // 50 +rd       58 +rd
         // O            O
-        Operand::Reg(reg) => {
-            quote! (
-                jit.rex(Reg::none(), #reg, Reg::none());
-                jit.op_with_rd(#opcode, #reg);
-            )
-        }
+        Operand::Reg(reg) => quote! ( jit.enc_o(#opcode, #reg); ),
         op => unimplemented!("PUSH/POP {:?}", op),
     }
 }

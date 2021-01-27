@@ -14,10 +14,29 @@ mod tests {
     #[ignore]
     fn mul() {
         let mut jit: JitMemory = JitMemory::new();
+        let i = 3;
         monoasm!(jit,
             movq rax, 0;
             movq rax, 0xffff;
             movq rax, 0xffff_ffff;
+            movq rax, [rdi -4];
+            movq rax, [rdi +1024];
+            movq [R(0)], R(i);
+            movq [R(1)], R(i);
+            movq [R(2)], R(i);
+            movq [R(3)], R(i);
+            movq [R(4)], R(i);
+            movq [R(5)], R(i);
+            movq [R(6)], R(i);
+            movq [R(7)], R(i);
+            movq [R(8)], R(i);
+            movq [R(9)], R(i);
+            movq [R(10)], R(i);
+            movq [R(11)], R(i);
+            movq [R(12)], R(i);
+            movq [R(13)], R(i);
+            movq [R(14)], R(i);
+            movq [R(15)], R(i);
             imul rax, rax;
             imul rax, rcx;
             imul rax, rdx;

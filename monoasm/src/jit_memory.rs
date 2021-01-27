@@ -193,7 +193,14 @@ impl JitMemory {
 
 #[allow(dead_code)]
 impl JitMemory {
-    /// Encoding: Opcode + rd  
+    /// Encoding: Opcode +rd  
+    /// Op+ rd
+    pub fn enc_o(&mut self, op: u8, reg: Reg) {
+        self.rex(Reg::none(), reg, Reg::none());
+        self.op_with_rd(op, reg);
+    }
+
+    /// Encoding: Opcode +rd  
     /// REX.W Op+ rd
     pub fn enc_rexw_o(&mut self, op: u8, reg: Reg) {
         self.rexw(Reg::none(), reg, Reg::none());
@@ -211,75 +218,111 @@ impl JitMemory {
     /// MR-> ModRM:r/m(w) ModRM:reg(r)
     /// RM-> ModRM:reg(r) ModRM:r/m(w)
     pub fn enc_rexw_mr(&mut self, op: u8, reg: Reg, rm_op: Or) {
-        self.enc_mr_main(&[op], Self::rexw, reg, rm_op);
+        self.enc_mr_main(&[op], true, reg, rm_op);
     }
 
     pub fn enc_mr_main(
         &mut self,
         op: &[u8],
-        rex: fn(&mut Self, Reg, Reg, Reg),
+        //rex: fn(&mut Self, Reg, Reg, Reg),
+        is_rexw: bool,
         reg: Reg,
         rm_op: Or,
     ) {
         let (mode, base, disp) = rm_op.op_to_rm();
         if mode != Mode::Reg && (base == Reg::Rsp || base == Reg::R12) {
-            // TODO: If mode != Reg and r/m == 4 (rsp/r12), use SIB.
+            // If mode != Reg and r/m == 4 (rsp/r12), use SIB.
             // Currently, only Mode::Ind is supported.
             assert!(mode == Mode::Ind);
             // set index to 4 when [rm] is to be used.
             let index = Reg::Rsp; // magic number
             let scale = 0;
-            rex(self, reg, base, index);
-            for o in op.iter() {
-                self.emitb(*o);
+            if is_rexw {
+                self.rexw(reg, base, index);
+            } else {
+                self.rex(reg, base, index);
             }
+            op.iter().for_each(|o| self.emitb(*o));
             self.modrm(reg, mode, base);
             self.sib(scale, index, base);
             self.emit_disp(disp);
         } else if mode == Mode::Ind && (base == Reg::Rbp || base == Reg::R13) {
-            rex(self, reg, base, Reg::none());
-            for o in op.iter() {
-                self.emitb(*o);
+            // If mode == Ind and r/m == 5 (rbp/r13), use [rbp/r13 + 0(disp8)].
+            if is_rexw {
+                self.rexw(reg, base, Reg::none());
+            } else {
+                self.rex(reg, base, Reg::none());
             }
+            op.iter().for_each(|o| self.emitb(*o));
             self.modrm(reg, Mode::InD8, base);
             self.emitb(0);
         } else {
-            rex(self, reg, base, Reg::none());
-            for o in op.iter() {
-                self.emitb(*o);
+            if is_rexw {
+                self.rexw(reg, base, Reg::none());
+            } else {
+                self.rex(reg, base, Reg::none());
             }
+            op.iter().for_each(|o| self.emitb(*o));
             self.modrm(reg, mode, base);
             self.emit_disp(disp);
         }
     }
 
-    pub fn modrm_digit(&mut self, digit: u8, mode: Mode, rm: Reg) {
-        self.emitb(util::modrm_digit(digit, mode, rm));
+    /// Encoding: D  
+    /// Op cd
+    pub fn enc_d(&mut self, op: &[u8], dest: DestLabel) {
+        op.iter().for_each(|o| self.emitb(*o));
+        self.save_reloc(dest, 4);
+        self.emitl(0);
     }
 
-    pub fn modrm(&mut self, reg: Reg, mode: Mode, rm: Reg) {
-        self.emitb(util::modrm(reg, mode, rm));
+    /// Encoding: /n  
+    /// Op /n
+    pub fn enc_digit(&mut self, op: &[u8], reg: Reg, digit: u8) {
+        self.rex(Reg::none(), reg, Reg::none());
+        op.iter().for_each(|o| self.emitb(*o));
+        self.modrm_digit(digit, Mode::Reg, reg);
     }
 
-    pub fn rexw(&mut self, reg: Reg, base: Reg, index: Reg) {
+    /// Encoding: /n  
+    /// REX.W Op /n
+    pub fn enc_rexw_digit(&mut self, op: &[u8], rm_op: Or, digit: u8) {
+        let (mode, reg, disp) = rm_op.op_to_rm();
+        self.rexw(Reg::none(), reg, Reg::none());
+        op.iter().for_each(|o| self.emitb(*o));
+        self.modrm_digit(digit, mode, reg);
+        self.emit_disp(disp);
+    }
+}
+
+impl JitMemory {
+    fn modrm_digit(&mut self, digit: u8, mode: Mode, base: Reg) {
+        self.emitb(util::modrm_digit(digit, mode, base));
+    }
+
+    fn modrm(&mut self, reg: Reg, mode: Mode, base: Reg) {
+        self.emitb(util::modrm(reg, mode, base));
+    }
+
+    fn rexw(&mut self, reg: Reg, base: Reg, index: Reg) {
         self.emitb(util::rexw(reg, base, index));
     }
 
-    pub fn rex(&mut self, reg: Reg, base: Reg, index: Reg) {
+    fn rex(&mut self, reg: Reg, base: Reg, index: Reg) {
         if let Some(rex_prefix) = util::rex(reg, base, index) {
             self.emitb(rex_prefix);
         }
     }
 
-    pub fn op_with_rd(&mut self, op: u8, r: Reg) {
-        self.emitb(util::op_with_rd(op, r));
+    fn op_with_rd(&mut self, op: u8, reg: Reg) {
+        self.emitb(util::op_with_rd(op, reg));
     }
 
-    pub fn sib(&mut self, scale: u8, index: Reg, base: Reg) {
+    fn sib(&mut self, scale: u8, index: Reg, base: Reg) {
         self.emitb(util::sib(scale, index, base));
     }
 
-    pub fn emit_disp(&mut self, disp: Disp) {
+    fn emit_disp(&mut self, disp: Disp) {
         match disp {
             Disp::D8(d) => self.emitb(d as u8),
             Disp::D32(d) => self.emitl(d as u32),
