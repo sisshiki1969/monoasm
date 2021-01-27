@@ -130,8 +130,8 @@ impl Parse for Inst {
 #[derive(Clone, Debug)]
 pub enum Operand {
     Imm(TokenStream),
-    Reg(TokenStream),
-    Ind { base: TokenStream, disp: Disp },
+    Reg(Register),
+    Ind { base: Register, disp: Disp },
 }
 
 impl Parse for Operand {
@@ -176,9 +176,9 @@ impl ToTokens for Operand {
             ),
             Operand::Ind { base, disp } => quote!(
                 match (#disp) as i32 {
-                    0 => Or::Ind(Reg::from(#base), Disp::None),
-                    disp if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 => Or::Ind(Reg::from(#base), Disp::D8(disp as i8)),
-                    disp => Or::Ind(Reg::from(#base), Disp::D32(disp)),
+                    0 => Or::Ind(#base, Disp::None),
+                    disp if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 => Or::Ind(#base, Disp::D8(disp as i8)),
+                    disp => Or::Ind(#base, Disp::D32(disp)),
                 }
             ),
         };
@@ -188,7 +188,7 @@ impl ToTokens for Operand {
 
 impl Operand {
     pub fn reg(expr: TokenStream) -> Self {
-        Self::Reg(quote!(Reg::from(#expr as u64)))
+        Self::Reg(Register(expr))
     }
 }
 
@@ -198,7 +198,7 @@ impl Operand {
 //
 //----------------------------------------------------------------------
 #[derive(Clone, Debug)]
-struct Register(TokenStream);
+pub struct Register(TokenStream);
 
 impl Parse for Register {
     fn parse(input: ParseStream) -> Result<Self, Error> {
@@ -215,6 +215,20 @@ impl Parse for Register {
     }
 }
 
+impl ToTokens for Register {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let reg = self.0.clone();
+        let ts = quote! ( Reg::from(#reg) );
+        tokens.extend(ts);
+    }
+}
+
+impl std::fmt::Display for Register {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 //----------------------------------------------------------------------
 //
 //  Modes for indirect addressing.
@@ -222,7 +236,7 @@ impl Parse for Register {
 //----------------------------------------------------------------------
 #[derive(Clone, Debug)]
 struct IndAddr {
-    base: TokenStream,
+    base: Register,
     offset: Disp,
 }
 
@@ -232,10 +246,7 @@ impl Parse for IndAddr {
         syn::bracketed!(content in input);
         let base: Register = content.parse()?;
         let offset: Disp = content.parse()?;
-        Ok(IndAddr {
-            base: base.0,
-            offset,
-        })
+        Ok(IndAddr { base, offset })
     }
 }
 
