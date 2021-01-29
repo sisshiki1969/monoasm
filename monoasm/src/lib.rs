@@ -6,31 +6,61 @@ use std::ops::{Add, Deref, DerefMut, Index, IndexMut};
 mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
-pub use monoasm_inst::{Mode, Reg};
 
 const PAGE_SIZE: usize = 4096;
 
 /// Operands.
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub enum Or {
-    /// Immediate
-    Imm(u64),
-    /// Register
-    Reg(Reg),
-    /// Indirect
-    Ind(Reg, Disp),
+pub struct Or {
+    mode: Mode,
+    base: Reg,
+    disp: Disp,
 }
 
 impl Or {
-    pub fn ind_from(base: Reg, disp: i32) -> Self {
-        match disp {
-            0 => Or::Ind(base, Disp::None),
-            disp if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 => {
-                Or::Ind(base, Disp::D8(disp as i8))
-            }
-            disp => Or::Ind(base, Disp::D32(disp)),
+    pub fn reg(reg: Reg) -> Self {
+        Self {
+            mode: Mode::Reg,
+            base: reg,
+            disp: Disp::None,
         }
     }
+    pub fn ind_from(base: Reg, disp: i32) -> Self {
+        match disp {
+            0 => Self {
+                mode: Mode::Ind,
+                base,
+                disp: Disp::None,
+            },
+            disp if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 => Self {
+                mode: Mode::InD8,
+                base,
+                disp: Disp::D8(disp as i8),
+            },
+            disp => Self {
+                mode: Mode::InD32,
+                base,
+                disp: Disp::D32(disp),
+            },
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Reg(u8);
+
+impl Reg {
+    pub fn from(num: u64) -> Self {
+        Reg(num as u8)
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Mode {
+    Ind = 0,   // [reg]
+    InD8 = 1,  // [reg + disp8]
+    InD32 = 2, // [rax + disp32]
+    Reg = 3,   // reg
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -38,18 +68,6 @@ pub enum Disp {
     None,
     D8(i8),
     D32(i32),
-}
-
-impl Or {
-    pub fn op_to_rm(self) -> (Mode, Reg, Disp) {
-        match self {
-            Or::Reg(r) => (Mode::Reg, r, Disp::None),
-            Or::Ind(r, Disp::None) => (Mode::Ind, r, Disp::None),
-            Or::Ind(r, Disp::D8(d)) => (Mode::InD8, r, Disp::D8(d)),
-            Or::Ind(r, Disp::D32(d)) => (Mode::InD32, r, Disp::D32(d)),
-            rm_op => unreachable!("as_rm():{:?}", rm_op),
-        }
-    }
 }
 
 /// Destination.

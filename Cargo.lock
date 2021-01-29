@@ -75,7 +75,6 @@ name = "monoasm"
 version = "0.1.0"
 dependencies = [
  "libc",
- "monoasm_inst",
  "monoasm_macro",
  "proc-macro2",
  "region",
@@ -83,18 +82,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "monoasm_inst"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
-]
-
-[[package]]
 name = "monoasm_macro"
 version = "0.1.0"
 dependencies = [
- "monoasm_inst",
  "proc-macro2",
  "quote",
  "syn",

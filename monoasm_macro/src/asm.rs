@@ -99,7 +99,7 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
             let xor = xor(Operand::Reg(expr.clone()), Operand::Reg(expr.clone()));
             quote!(
                 let imm = (#i) as u64;
-                let rm_op = Or::Reg(#expr);
+                let rm_op = Or::reg(#expr);
                 if imm == 0 {
                     #xor
                 } else if imm <= 0xffff_ffff {
@@ -165,7 +165,7 @@ fn binary_op(
                 if imm > 0xffff_ffff {
                     panic!("{} {:?}, imm64' does not exists.", #op_name, #expr);
                 }
-                let rm_op = Or::Reg(#expr);
+                let rm_op = Or::reg(#expr);
                 jit.enc_rexw_digit(&[#op_imm], rm_op, #digit);
                 jit.emitl(imm as u32);
             }
