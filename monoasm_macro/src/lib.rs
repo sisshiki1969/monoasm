@@ -26,12 +26,11 @@ pub fn monoasm(tokens: TokenStream) -> TokenStream {
     let stmts = parse_macro_input!(tokens as Stmts);
     let base = stmts.base;
     let mut ts = quote!(let mut jit = &mut #base;);
-    ts.extend(stmts.contents.into_iter().map(|stmt| compile(stmt)));
-    /*for stmt in stmts.contents {
+    ts.extend(stmts.contents.into_iter().map(|stmt| {
         let item = compile(stmt);
-        //#[cfg(debug_assertions)]
-        //println!("{}", item);
-        ts.extend(item);
-    }*/
+        #[cfg(debug_assertions)]
+        eprintln!("{}", item);
+        item
+    }));
     ts.into()
 }
