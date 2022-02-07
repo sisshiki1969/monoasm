@@ -165,23 +165,20 @@ where
     )
 }
 
-fn binop_fold<'a, I, O, E: ParseError<I>, F, G, H>(
-    lhs: O,
+fn binop_fold<'a, E: ParseError<&'a str>, F, G, H>(
+    lhs: Expr,
     base1: F,
     operator: G,
     mut mapper: H,
-) -> impl FnMut(I) -> IResult<I, O, E>
+) -> impl FnMut(&'a str) -> IResult<&'a str, Expr, E>
 where
-    I: InputTakeAtPosition + Clone + PartialEq,
-    <I as InputTakeAtPosition>::Item: AsChar + Clone,
-    O: Clone,
-    F: Parser<I, O, E>,
-    G: Parser<I, I, E>,
-    H: FnMut(I, O, O) -> O,
+    F: Parser<&'a str, Expr, E>,
+    G: Parser<&'a str, &'a str, E>,
+    H: FnMut(&'a str, Expr, Expr) -> Expr,
 {
     fold_many0(
         pair(preceded(space0, operator), preceded(multispace0, base1)),
-        lhs,
+        move || lhs.clone(),
         move |lhs, (op, rhs)| mapper(op, lhs, rhs),
     )
 }

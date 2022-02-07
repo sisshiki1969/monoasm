@@ -1,3 +1,5 @@
+use std::arch::asm;
+
 // Utility functions
 pub const PUTC: *const fn() = putc as *const fn();
 pub const PUTINT: *const fn() = putint as *const fn();

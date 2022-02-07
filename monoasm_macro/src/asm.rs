@@ -29,6 +29,18 @@ pub fn compile(inst: Inst) -> TokenStream {
             }
         }
 
+        Inst::Idiv(op) => {
+            // IDIV r/m64: RAX:quo RDX:rem <- RDX:RAX / r/m64
+            match op {
+                Operand::Imm(_) => panic!("'IDIV imm' does not exists."),
+                // IDIV r/m64
+                // REX.W F7 /7
+                op => quote! {
+                    jit.enc_rexw_digit(&[0xf7], #op, 7);
+                },
+            }
+        }
+
         Inst::Pushq(op) => push_pop(0x50, op),
         Inst::Popq(op) => push_pop(0x58, op),
 

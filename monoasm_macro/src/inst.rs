@@ -29,6 +29,7 @@ pub enum Inst {
     Cmpq(Operand, Operand),
 
     Imul(Operand, Operand),
+    Idiv(Operand),
 
     Pushq(Operand),
     Popq(Operand),
@@ -105,6 +106,7 @@ impl Parse for Inst {
                 "subq" => parse_2op!(Subq),
                 "xorq" => parse_2op!(Xorq),
                 "imul" => parse_2op!(Imul),
+                "idiv" => parse_1op!(Idiv),
 
                 "pushq" => parse_1op!(Pushq),
                 "popq" => parse_1op!(Popq),

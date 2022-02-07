@@ -1,5 +1,3 @@
-//#![feature(proc_macro_hygiene)]
-#![feature(asm)]
 extern crate monoasm;
 extern crate monoasm_macro;
 use monoasm::*;
@@ -137,6 +135,41 @@ fn hello() -> fn(()) -> () {
         ret;
     );
     jit.finalize()
+}
+
+fn div1() -> fn(()) -> u64 {
+    let mut jit: JitMemory = JitMemory::new();
+    monoasm!(jit,
+        movq rax, 63;
+        movq rdx, 0;
+        movq rdi, 9;
+        idiv rdi;
+        ret;
+    );
+    jit.finalize()
+}
+
+fn div2() -> fn(()) -> u64 {
+    let mut jit: JitMemory = JitMemory::new();
+    let divider = 7i64;
+    let divider_ptr = &divider as *const i64;
+    monoasm!(jit,
+        movq rax, 63;
+        movq rdx, 0;
+        movq rdi, (divider_ptr);
+        movq rdi, [rdi];
+        idiv rdi;
+        ret;
+    );
+    jit.finalize()
+}
+
+#[test]
+fn div_test() {
+    let func = div1();
+    assert_eq!(7, func(()));
+    let func = div2();
+    assert_eq!(9, func(()));
 }
 
 #[test]
