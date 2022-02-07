@@ -24,6 +24,7 @@ fn fac() -> fn(u64) -> u64 {
         // prologue
         pushq rbp;
         movq rbp, rsp;
+        pushq r15;
 
         //movq rdi, 10;
         // fac(rdi) -> rax
@@ -36,9 +37,10 @@ fn fac() -> fn(u64) -> u64 {
         movq rcx, (printf_addr);
         // printf(fmt, rsi)
         call rcx;
-        // epilogue
-        popq rbp;
         movq rax, r15;
+        // epilogue
+        popq r15;
+        popq rbp;
         ret;
 
     // fac(arg:i64) -> rax

@@ -137,24 +137,24 @@ fn hello() -> fn(()) -> () {
     jit.finalize()
 }
 
-fn div1() -> fn(()) -> u64 {
+fn div1() -> fn(u64) -> u64 {
     let mut jit: JitMemory = JitMemory::new();
     monoasm!(jit,
         movq rax, 63;
         movq rdx, 0;
-        movq rdi, 9;
+        //movq rdi, 9;
         idiv rdi;
         ret;
     );
     jit.finalize()
 }
 
-fn div2() -> fn(()) -> u64 {
+fn div2() -> fn(u64) -> u64 {
     let mut jit: JitMemory = JitMemory::new();
     let divider = 7i64;
     let divider_ptr = &divider as *const i64;
     monoasm!(jit,
-        movq rax, 63;
+        movq rax, rdi;
         movq rdx, 0;
         movq rdi, (divider_ptr);
         movq rdi, [rdi];
@@ -167,9 +167,23 @@ fn div2() -> fn(()) -> u64 {
 #[test]
 fn div_test() {
     let func = div1();
-    assert_eq!(7, func(()));
+    assert_eq!(7, func(9));
     let func = div2();
-    assert_eq!(9, func(()));
+    assert_eq!(9, func(63));
+}
+
+fn float() -> fn(f64) -> f64 {
+    let mut jit: JitMemory = JitMemory::new();
+    monoasm!(jit,
+        ret;
+    );
+    jit.finalize()
+}
+
+#[test]
+fn float_test() {
+    let func = float();
+    assert_eq!(9.88, func(9.88));
 }
 
 #[test]
