@@ -85,7 +85,7 @@ impl JitMemory {
         println!();
     }
 
-    /// Create new label and returns `DestLabel`.
+    /// Create a new label and returns `DestLabel`.
     pub fn label(&mut self) -> DestLabel {
         let label = self.label_count;
         self.label_count += 1;
@@ -112,26 +112,22 @@ impl JitMemory {
     }
 
     /// Save relocaton slot for `DestLabel`.
-    pub fn save_reloc(&mut self, dest: DestLabel, size: u8) {
-        self.reloc[dest].disp.push((size, self.counter));
+    pub fn save_reloc(&mut self, dest: DestLabel, offset: u8) {
+        self.reloc[dest].disp.push((offset, self.counter));
     }
 
     /// Resolve all relocations.
     pub fn resolve_relocs(&mut self) {
-        let mut relocs: Vec<(Pos, i32)> = vec![];
-        for rel in self.reloc.iter_mut() {
+        for rel in self.reloc.clone() {
             if let Some(pos) = rel.loc {
-                for (size, dest) in &mut rel.disp {
-                    let disp = pos.0 as i64 - dest.0 as i64 - *size as i64;
+                for (size, dest) in rel.disp {
+                    let disp = pos.0 as i64 - dest.0 as i64 - size as i64;
                     if i32::min_value() as i64 > disp || disp > i32::max_value() as i64 {
                         panic!("Relocation overflow");
                     }
-                    relocs.push((*dest, disp as i32));
+                    self.write32(dest, disp as i32);
                 }
             }
-        }
-        for (dest, disp) in relocs {
-            self.write32(dest, disp);
         }
     }
 
