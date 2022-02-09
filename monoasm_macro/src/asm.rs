@@ -41,6 +41,24 @@ pub fn compile(inst: Inst) -> TokenStream {
             }
         }
 
+        Inst::Movsd(op1, op2) => match (op1, op2) {
+            (XmmOperand::Xmm(op1), op2) => quote! {
+                jit.emitb(0xf2);
+                jit.enc_mr_main(&[0x0f, 0x10], false, Reg::from(#op1), #op2);
+            },
+            (op1, XmmOperand::Xmm(op2)) => quote! {
+                jit.emitb(0xf2);
+                jit.enc_mr_main(&[0x0f, 0x11], false, Reg::from(#op2), #op1);
+            },
+            _ => {
+                panic!("'MOVSD m64, m64' does not exists.")
+            }
+        },
+        Inst::Addsd(op1, op2) => binary_sd_op("ADDSD", 0x58, op1, op2),
+        Inst::Subsd(op1, op2) => binary_sd_op("SUBSD", 0x5c, op1, op2),
+        Inst::Mulsd(op1, op2) => binary_sd_op("MULSD", 0x59, op1, op2),
+        Inst::Divsd(op1, op2) => binary_sd_op("DIVSD", 0x5e, op1, op2),
+
         Inst::Pushq(op) => push_pop(0x50, op),
         Inst::Popq(op) => push_pop(0x58, op),
 
@@ -206,6 +224,18 @@ fn binary_op(
             jit.enc_rexw_mr(#op_rm, #expr, #op2);
         ),
         (op1, op2) => unimplemented!("{} {}, {}", op_name, op1, op2),
+    }
+}
+
+fn binary_sd_op(op_name: &str, operand: u8, op1: XmmOperand, op2: XmmOperand) -> TokenStream {
+    match (op1, op2) {
+        (XmmOperand::Xmm(op1), op2) => quote! {
+            jit.emitb(0xf2);
+            jit.enc_mr_main(&[0x0f, #operand], false, Reg::from(#op1), #op2);
+        },
+        _ => {
+            panic!("'{} m64, xmm/m64' does not exists.", op_name)
+        }
     }
 }
 

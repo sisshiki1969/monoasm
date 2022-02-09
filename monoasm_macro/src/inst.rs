@@ -31,6 +31,12 @@ pub enum Inst {
     Imul(Operand, Operand),
     Idiv(Operand),
 
+    Movsd(XmmOperand, XmmOperand),
+    Addsd(XmmOperand, XmmOperand),
+    Subsd(XmmOperand, XmmOperand),
+    Mulsd(XmmOperand, XmmOperand),
+    Divsd(XmmOperand, XmmOperand),
+
     Pushq(Operand),
     Popq(Operand),
 
@@ -107,6 +113,11 @@ impl Parse for Inst {
                 "xorq" => parse_2op!(Xorq),
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
+                "movsd" => parse_2op!(Movsd),
+                "addsd" => parse_2op!(Addsd),
+                "subsd" => parse_2op!(Subsd),
+                "mulsd" => parse_2op!(Mulsd),
+                "divsd" => parse_2op!(Divsd),
 
                 "pushq" => parse_1op!(Pushq),
                 "popq" => parse_1op!(Popq),
@@ -123,11 +134,11 @@ impl Parse for Inst {
     }
 }
 
-//----------------------------------------------------------------------
-//
-//  Operands.
-//
-//----------------------------------------------------------------------
+///----------------------------------------------------------------------
+///
+///  General register / memory reference / immediate Operands.
+///
+///----------------------------------------------------------------------
 #[derive(Clone, Debug)]
 pub enum Operand {
     Imm(TokenStream),
@@ -186,6 +197,79 @@ impl ToTokens for Operand {
 impl Operand {
     pub fn reg(expr: TokenStream) -> Self {
         Self::Reg(Register(expr))
+    }
+}
+
+///----------------------------------------------------------------------
+///
+///  Floating pointer register(xmm) / memory reference Operands.
+///
+///----------------------------------------------------------------------
+#[derive(Clone, Debug)]
+pub enum XmmOperand {
+    Xmm(TokenStream),
+    Ind { base: Register, disp: Disp },
+}
+
+impl Parse for XmmOperand {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        if input.peek(Ident) {
+            let reg = input.parse::<Ident>()?.to_string();
+            if reg == "xmm" {
+                if input.peek(token::Paren) {
+                    let gr = input.parse::<Group>()?;
+                    Ok(Self::Xmm(gr.stream()))
+                } else {
+                    Err(input.error(format!(
+                        "Expected xmm register number. e.g. xmm0 or xmm(0) actual:{}",
+                        reg,
+                    )))
+                }
+            } else if reg.starts_with("xmm") {
+                if let Ok(no) = reg[3..].parse::<u8>() {
+                    if no > 15 {
+                        Err(input.error(format!("Invalid xmm register name. {}", reg)))
+                    } else {
+                        Ok(Self::Xmm(quote!(#no as u64)))
+                    }
+                } else {
+                    Err(input.error(format!("Invalid xmm register name. {}", reg)))
+                }
+            } else {
+                Err(input.error("Expected xmm register name or memory reference."))
+            }
+        } else if input.peek(token::Bracket) {
+            let addr: IndAddr = input.parse()?;
+            Ok(Self::Ind {
+                base: addr.base,
+                disp: addr.offset,
+            })
+        } else {
+            Err(input.error("Expected xmm register name or memory reference."))
+        }
+    }
+}
+
+impl std::fmt::Display for XmmOperand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Xmm(reg) => write!(f, "xmm({})", reg),
+            Self::Ind { base, disp } => write!(f, "({})[{:?}]", disp, base),
+        }
+    }
+}
+
+impl ToTokens for XmmOperand {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let ts = match self {
+            Self::Xmm(ts) => quote!(
+                Or::reg(Reg::from(#ts))
+            ),
+            Self::Ind { base, disp } => quote!(
+                Or::ind_from(#base, #disp)
+            ),
+        };
+        tokens.extend(ts);
     }
 }
 
