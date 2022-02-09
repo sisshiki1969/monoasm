@@ -192,6 +192,7 @@ impl JitMemory {
     /// Encoding: Opcode +rd  
     /// Op+ rd
     pub fn enc_o(&mut self, op: u8, reg: Reg) {
+        assert!(!reg.is_rip());
         self.rex(Reg(0), reg, Reg(0));
         self.op_with_rd(op, reg);
     }
@@ -199,6 +200,7 @@ impl JitMemory {
     /// Encoding: Opcode +rd  
     /// REX.W Op+ rd
     pub fn enc_rexw_o(&mut self, op: u8, reg: Reg) {
+        assert!(!reg.is_rip());
         self.rexw(Reg(0), reg, Reg(0));
         self.op_with_rd(op, reg);
     }
@@ -225,7 +227,24 @@ impl JitMemory {
         reg: Reg,
         rm: Or,
     ) {
-        if rm.mode != Mode::Reg && (rm.base.0 & 0b111) == 4 {
+        assert!(!reg.is_rip());
+        if rm.base.is_rip() {
+            assert!(rm.mode != Mode::Reg);
+            let disp = match rm.disp {
+                Disp::D32(d) => d,
+                Disp::D8(d) => d as i32,
+                Disp::None => 0i32,
+            };
+            let rm = Or::rip_ind_from(disp);
+            if is_rexw {
+                self.rexw(reg, rm.base, Reg(0));
+            } else {
+                self.rex(reg, rm.base, Reg(0));
+            }
+            op.iter().for_each(|o| self.emitb(*o));
+            self.modrm(reg, rm.mode, rm.base);
+            self.emit_disp(rm);
+        } else if rm.mode != Mode::Reg && (rm.base.0 & 0b111) == 4 {
             // If mode != Reg and r/m == 4/12 (rsp/r12), use SIB.
             // Currently, only Mode::Ind is supported.
             assert!(rm.mode == Mode::Ind);

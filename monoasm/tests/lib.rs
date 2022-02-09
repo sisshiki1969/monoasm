@@ -12,14 +12,18 @@ mod tests {
     #[ignore]
     fn mul() {
         let mut jit: JitMemory = JitMemory::new();
-        let i = 0;
+        let data = jit.label();
         monoasm!(jit,
+            movq rax, rdi;
+            movsd xmm1, [rip + 4];
+            movsd xmm1, [rip + 4096];
+            movsd [rip], xmm1;
+            mulsd xmm0, xmm0;
             movq rax, rdi;
             movsd xmm0, xmm0;
             movsd xmm0, xmm13;
             movsd xmm0, [rax];
             movsd [rax], xmm13;
-
             addsd xmm(0), xmm(11);
             addsd xmm(0), [rax + 4];
             subsd xmm(0), xmm(11);
@@ -29,9 +33,10 @@ mod tests {
             divsd xmm(0), xmm(11);
             divsd xmm(0), [rax + 4];
             ret;
+        data:
         );
-        let func = jit.finalize::<u64, u64>();
-        func(0);
+        let func = jit.finalize::<f64, f64>();
+        dbg!(func(3.5));
     }
 }
 

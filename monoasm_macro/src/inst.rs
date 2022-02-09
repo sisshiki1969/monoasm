@@ -164,7 +164,7 @@ impl Parse for Operand {
             let gr = input.parse::<Group>()?;
             Ok(Operand::Imm(gr.stream()))
         } else {
-            return Err(input.error("Expected register name, integer literal, memory reference, or Rust expression with parenthesis."));
+            Err(input.error("Expected register name, integer literal, memory reference, or Rust expression with parenthesis."))
         }
     }
 }
@@ -291,11 +291,16 @@ pub enum Reg {
     R13 = 13,
     R14 = 14,
     R15 = 15,
+    RIP = 16,
 }
 
 impl Reg {
     pub fn none() -> Self {
         Reg::Rax
+    }
+
+    pub fn is_rip(&self) -> bool {
+        *self == Reg::RIP
     }
 
     pub fn from(num: u64) -> Self {
@@ -316,6 +321,7 @@ impl Reg {
             13 => Reg::R13,
             14 => Reg::R14,
             15 => Reg::R15,
+            16 => Reg::RIP,
             _ => unreachable!("Illegal register number."),
         }
     }
@@ -340,6 +346,7 @@ impl Reg {
             "r13" => Reg::R13,
             "r14" => Reg::R14,
             "r15" => Reg::R15,
+            "rip" => Reg::RIP,
             _ => return None,
         };
         Some(reg)
@@ -358,7 +365,7 @@ impl ToTokens for Reg {
 pub enum Mode {
     Ind = 0,   // [reg]
     InD8 = 1,  // [reg + disp8]
-    InD32 = 2, // [rax + disp32]
+    InD32 = 2, // [reg + disp32]
     Reg = 3,   // reg
 }
 

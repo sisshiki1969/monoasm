@@ -42,6 +42,13 @@ impl Or {
             },
         }
     }
+    pub fn rip_ind_from(disp: i32) -> Self {
+        Self {
+            mode: Mode::Ind,
+            base: Reg::from(5),
+            disp: Disp::D32(disp),
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -50,6 +57,10 @@ pub struct Reg(u8);
 impl Reg {
     pub fn from(num: u64) -> Self {
         Reg(num as u8)
+    }
+
+    pub fn is_rip(&self) -> bool {
+        self.0 == 16
     }
 }
 
