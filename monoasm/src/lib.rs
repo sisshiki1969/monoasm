@@ -10,43 +10,73 @@ const PAGE_SIZE: usize = 4096;
 /// Operands.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Or {
-    mode: Mode,
     base: Reg,
-    disp: Disp,
+    mode: Mode,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Mode {
+    Reg,
+    Ind,                 // [reg]
+    InD8(i8),            // [reg + disp8]
+    InD32(i32),          // [reg + disp32]
+    IndLabel(DestLabel), // [reg + label]
+}
+
+impl Mode {
+    pub fn encode(&self) -> u8 {
+        match self {
+            Mode::Reg => 3,
+            Mode::Ind => 0,
+            Mode::InD8(_) => 1,
+            Mode::InD32(_) => 2,
+            Mode::IndLabel(_) => 2,
+        }
+    }
+
+    pub fn from_disp(disp: i32) -> Self {
+        match disp {
+            0 => Self::Ind,
+            disp if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 => {
+                Self::InD8(disp as i8)
+            }
+            disp => Self::InD32(disp),
+        }
+    }
+
+    pub fn from_label(label: DestLabel) -> Self {
+        Self::IndLabel(label)
+    }
 }
 
 impl Or {
-    pub fn reg(reg: Reg) -> Self {
+    pub fn reg(base: Reg) -> Self {
         Self {
+            base,
             mode: Mode::Reg,
-            base: reg,
-            disp: Disp::None,
         }
     }
-    pub fn ind_from(base: Reg, disp: i32) -> Self {
-        match disp {
-            0 => Self {
-                mode: Mode::Ind,
-                base,
-                disp: Disp::None,
-            },
-            disp if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 => Self {
-                mode: Mode::InD8,
-                base,
-                disp: Disp::D8(disp as i8),
-            },
-            disp => Self {
-                mode: Mode::InD32,
-                base,
-                disp: Disp::D32(disp),
-            },
-        }
+
+    pub fn new(base: Reg, mode: Mode) -> Self {
+        Self { base, mode }
     }
-    pub fn rip_ind_from(disp: i32) -> Self {
+
+    pub fn rip_ind_from(rm: Or) -> Self {
+        let disp = match rm.mode {
+            Mode::Reg => unimplemented!(),
+            Mode::InD32(d) => d,
+            Mode::InD8(d) => d as i32,
+            Mode::IndLabel(label) => {
+                return Self {
+                    base: Reg::from(5),
+                    mode: Mode::IndLabel(label),
+                }
+            }
+            Mode::Ind => 0i32,
+        };
         Self {
-            mode: Mode::Ind,
             base: Reg::from(5),
-            disp: Disp::D32(disp),
+            mode: Mode::InD32(disp),
         }
     }
 }
@@ -65,18 +95,11 @@ impl Reg {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub enum Mode {
-    Ind = 0,   // [reg]
-    InD8 = 1,  // [reg + disp8]
-    InD32 = 2, // [rax + disp32]
-    Reg = 3,   // reg
-}
-
-#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Disp {
     None,
     D8(i8),
     D32(i32),
+    Label(DestLabel),
 }
 
 /// Destination.

@@ -220,13 +220,20 @@ pub fn is_single(input: ParseStream) -> bool {
 #[derive(Clone, Debug)]
 pub enum Disp {
     Imm(TokenStream),
+    Label(Ident),
 }
 
 impl ToTokens for Disp {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        match self {
-            Self::Imm(ts) => tokens.extend(ts.clone()),
-        }
+        let ts = match self {
+            Disp::Label(label) => quote!(
+                Mode::from_label(#label)
+            ),
+            Disp::Imm(ts) => quote!(
+                Mode::from_disp(#ts)
+            ),
+        };
+        tokens.extend(ts);
     }
 }
 
@@ -234,6 +241,7 @@ impl std::fmt::Display for Disp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Imm(ts) => write!(f, "{}", ts),
+            Self::Label(label) => write!(f, "{}", label),
         }
     }
 }
@@ -271,6 +279,9 @@ impl Parse for Disp {
                     quote!(-(#ofs) as i32)
                 };
                 Ok(Disp::Imm(expr))
+            } else if lookahead.peek(Ident) {
+                let label = input.parse::<Ident>().unwrap();
+                Ok(Disp::Label(label))
             } else {
                 Err(lookahead.error())
             }

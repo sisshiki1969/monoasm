@@ -12,31 +12,38 @@ mod tests {
     #[ignore]
     fn mul() {
         let mut jit: JitMemory = JitMemory::new();
-        let data = jit.label();
+        let data = jit.const_f64(3.5);
+        let data2 = jit.const_i64(100);
         monoasm!(jit,
-            movq rax, rdi;
-            movsd xmm1, [rip + 4];
-            movsd xmm1, [rip + 4096];
-            movsd [rip], xmm1;
-            mulsd xmm0, xmm0;
-            movq rax, rdi;
-            movsd xmm0, xmm0;
-            movsd xmm0, xmm13;
-            movsd xmm0, [rax];
-            movsd [rax], xmm13;
-            addsd xmm(0), xmm(11);
-            addsd xmm(0), [rax + 4];
-            subsd xmm(0), xmm(11);
-            subsd xmm(0), [rax + 4];
-            mulsd xmm(0), xmm(11);
-            mulsd xmm(0), [rax + 4];
-            divsd xmm(0), xmm(11);
-            divsd xmm(0), [rax + 4];
-            ret;
-        data:
+                mulsd xmm0, [rip + data];
+                cvtsi2sdq xmm1, [rip + data2];
+                mulsd xmm0, xmm1;
+                //movq rax, [rsp];
+                //movq rax, [rbp];
+                //movq rax, [rbp + 8];
+                //movq rax, [rbp + 4096];
+                //movq rax, rdi;
+                //movsd xmm1, [rip + 4];
+                //movsd xmm1, [rip + 4096];
+                //movsd [rip], xmm1;
+                //mulsd xmm0, xmm0;
+                //movq rax, rdi;
+                //movsd xmm0, xmm0;
+                //movsd xmm0, xmm13;
+                //movsd xmm0, [rax];
+                //movsd [rax], xmm13;
+                //addsd xmm(0), xmm(11);
+                //addsd xmm(0), [rax + 4];
+                //subsd xmm(0), xmm(11);
+                //subsd xmm(0), [rax + 4];
+                //mulsd xmm(0), xmm(11);
+                //mulsd xmm(0), [rax + 4];
+                //divsd xmm(0), xmm(11);
+                //divsd xmm(0), [rax + 4];
+                ret;
         );
         let func = jit.finalize::<f64, f64>();
-        dbg!(func(3.5));
+        assert_eq!(3.5 * 2.3 * 100f64, func(2.3));
     }
 }
 

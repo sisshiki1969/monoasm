@@ -7,6 +7,7 @@ use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::Expr;
+use syn::LitFloat;
 use syn::{token, Error, Ident, LitInt, Token};
 
 ///----------------------------------------------------------------------
@@ -32,7 +33,7 @@ impl Parse for Stmts {
             if input.is_empty() {
                 break;
             }
-            let inst = input.parse()?;
+            let inst = input.parse::<Inst>()?;
             //println!("{:?}", &inst);
             stmts.contents.push(inst);
         }
@@ -48,6 +49,9 @@ impl Parse for Stmts {
 #[derive(Clone, Debug)]
 pub enum Inst {
     Label(Ident),
+
+    F64(f64),
+    I64(i64),
 
     Movq(Operand, Operand),
     Addq(Operand, Operand),
@@ -67,6 +71,8 @@ pub enum Inst {
     Subsd(XmmOperand, XmmOperand),
     Mulsd(XmmOperand, XmmOperand),
     Divsd(XmmOperand, XmmOperand),
+
+    Cvtsi2sdq(XmmOperand, Operand),
 
     Pushq(Operand),
     Popq(Operand),
@@ -126,19 +132,19 @@ impl Parse for Inst {
         macro_rules! parse_jcc {
             ($inst: ident) => (
                 {
-                    let op = input.parse()?;
+                    let op = input.parse::<Ident>()?;
                     input.parse::<Token![;]>()?;
                     Ok(Inst::Jcc(Cond::$inst, op))
                 }
             )
         }
 
-        let inst: Ident = input.parse()?;
+        let ident = input.parse::<Ident>()?;
         if input.peek(Token![:]) {
             input.parse::<Token![:]>()?;
-            Ok(Inst::Label(inst))
+            Ok(Inst::Label(ident))
         } else {
-            match inst.to_string().as_str() {
+            match ident.to_string().as_str() {
                 "movq" => parse_2op!(Movq),
                 "addq" => parse_2op!(Addq),
                 "orq" => parse_2op!(Orq),
@@ -149,11 +155,14 @@ impl Parse for Inst {
                 "xorq" => parse_2op!(Xorq),
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
+
                 "movsd" => parse_2op!(Movsd),
                 "addsd" => parse_2op!(Addsd),
                 "subsd" => parse_2op!(Subsd),
                 "mulsd" => parse_2op!(Mulsd),
                 "divsd" => parse_2op!(Divsd),
+
+                "cvtsi2sdq" => parse_2op!(Cvtsi2sdq),
 
                 "pushq" => parse_1op!(Pushq),
                 "popq" => parse_1op!(Popq),
@@ -164,7 +173,21 @@ impl Parse for Inst {
                 "jne" => parse_jcc!(Ne),
                 "jeq" => parse_jcc!(Eq),
                 "syscall" => parse_0op!(Syscall),
-                _ => Err(Error::new(inst.span(), "unimplemented instruction.")),
+
+                "dq" => {
+                    if input.peek(LitFloat) {
+                        let f = input.parse::<LitFloat>()?.base10_parse()?;
+                        input.parse::<Token![;]>()?;
+                        Ok(Inst::F64(f))
+                    } else if input.peek(LitInt) {
+                        let i = input.parse::<LitInt>()?.base10_parse()?;
+                        input.parse::<Token![;]>()?;
+                        Ok(Inst::I64(i))
+                    } else {
+                        Err(input.error("unimplemented literal."))
+                    }
+                }
+                _ => Err(Error::new(ident.span(), "unimplemented instruction.")),
             }
         }
     }
@@ -223,12 +246,8 @@ impl ToTokens for Operand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
             Operand::Imm(_) => unreachable!("immediate"),
-            Operand::Reg(ts) => quote!(
-                Or::reg(#ts)
-            ),
-            Operand::Ind { base, disp } => quote!(
-                Or::ind_from(#base, #disp)
-            ),
+            Operand::Reg(ts) => quote!(Or::reg(#ts)),
+            Operand::Ind { base, disp } => quote!( Or::new(#base, #disp) ),
         };
         tokens.extend(ts);
     }
@@ -305,9 +324,7 @@ impl ToTokens for XmmOperand {
             Self::Xmm(ts) => quote!(
                 Or::reg(Reg::from(#ts))
             ),
-            Self::Ind { base, disp } => quote!(
-                Or::ind_from(#base, #disp)
-            ),
+            Self::Ind { base, disp } => quote!( Or::new(#base, #disp) ),
         };
         tokens.extend(ts);
     }
