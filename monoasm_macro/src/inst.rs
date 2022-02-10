@@ -149,18 +149,22 @@ pub enum Operand {
 impl Parse for Operand {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         if input.peek(Ident) {
+            // e.g. "rax"
             let reg = input.parse::<Register>()?;
             Ok(Operand::reg(reg.0))
         } else if input.peek(LitInt) && is_single(input) {
+            // e.g. "42"
             let imm = input.parse::<LitInt>()?;
             Ok(Operand::Imm(quote! { #imm }))
         } else if input.peek(token::Bracket) {
-            let addr: IndAddr = input.parse()?;
+            // e.g. "[rax + 4]", "[rax - (4)]"
+            let addr = input.parse::<IndAddr>()?;
             Ok(Operand::Ind {
                 base: addr.base,
                 disp: addr.offset,
             })
         } else if input.peek(token::Paren) {
+            // e.g. "(42)"
             let gr = input.parse::<Group>()?;
             Ok(Operand::Imm(gr.stream()))
         } else {
@@ -421,8 +425,8 @@ impl Parse for IndAddr {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         let content;
         syn::bracketed!(content in input);
-        let base: Register = content.parse()?;
-        let offset: Disp = content.parse()?;
+        let base = content.parse::<Register>()?;
+        let offset = content.parse::<Disp>()?;
         Ok(IndAddr { base, offset })
     }
 }

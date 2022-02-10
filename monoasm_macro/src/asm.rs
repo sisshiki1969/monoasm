@@ -12,7 +12,7 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Sbbq(op1, op2) => binary_op("SBB", 0x81, 0x19, 0x1b, 3, op1, op2),
         Inst::Andq(op1, op2) => binary_op("AND", 0x81, 0x21, 0x23, 4, op1, op2),
         Inst::Subq(op1, op2) => binary_op("SUB", 0x81, 0x29, 0x2b, 5, op1, op2),
-        Inst::Xorq(op1, op2) => xor(op1, op2),
+        Inst::Xorq(op1, op2) => binary_op("XOR", 0x81, 0x31, 0x33, 6, op1, op2),
         Inst::Cmpq(op1, op2) => binary_op("CMP", 0x81, 0x39, 0x3b, 7, op1, op2),
 
         Inst::Imul(op1, op2) => {
@@ -126,13 +126,10 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
         // REX.W + B8+ rd io
         // OI
         (Operand::Reg(expr), Operand::Imm(i)) => {
-            let xor = xor(Operand::Reg(expr.clone()), Operand::Reg(expr.clone()));
             quote!(
                 let imm = (#i) as u64;
                 let rm_op = Or::reg(#expr);
-                if imm == 0 {
-                    #xor
-                } else if imm <= 0xffff_ffff {
+              if imm <= 0xffff_ffff {
                     // MOV r/m64, imm32
                     jit.enc_rexw_mi(0xc7, rm_op);
                     jit.emitl(imm as u32);
@@ -237,10 +234,6 @@ fn binary_sd_op(op_name: &str, operand: u8, op1: XmmOperand, op2: XmmOperand) ->
             panic!("'{} m64, xmm/m64' does not exists.", op_name)
         }
     }
-}
-
-fn xor(op1: Operand, op2: Operand) -> TokenStream {
-    binary_op("XOR", 0x81, 0x31, 0x33, 6, op1, op2)
 }
 
 fn push_pop(opcode: u8, op: Operand) -> TokenStream {

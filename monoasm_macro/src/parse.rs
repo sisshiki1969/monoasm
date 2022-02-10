@@ -14,25 +14,32 @@ use syn::{token, Error, LitInt, Token};
 //
 //----------------------------------------------------------------------
 #[derive(Clone, Debug)]
-pub struct Disp(TokenStream);
+pub enum Disp {
+    Imm(TokenStream),
+}
 
 impl ToTokens for Disp {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.0.clone());
+        match self {
+            Self::Imm(ts) => tokens.extend(ts.clone()),
+        }
     }
 }
 
 impl std::fmt::Display for Disp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        match self {
+            Self::Imm(ts) => write!(f, "{}", ts),
+        }
     }
 }
 
 impl Parse for Disp {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         let lookahead = input.lookahead1();
-        let offset = if input.is_empty() {
-            Disp(quote!(0i32))
+        if input.is_empty() {
+            // e.g. "[rax]"
+            Ok(Disp::Imm(quote!(0i32)))
         } else if lookahead.peek(Token![-]) || lookahead.peek(Token![+]) {
             let sign = match input.parse::<Punct>()?.as_char() {
                 '-' => -1,
@@ -41,30 +48,31 @@ impl Parse for Disp {
             };
             let lookahead = input.lookahead1();
             if lookahead.peek(token::Paren) {
+                // e.g. "[rax - (4)]"
                 let content;
                 syn::parenthesized!(content in input);
-                let expr: Expr = content.parse()?;
+                let expr = content.parse::<Expr>()?;
                 let expr = if sign == 1 {
                     quote!(expr as i32)
                 } else {
                     quote!(-(#expr) as i32)
                 };
-                Disp(expr)
+                Ok(Disp::Imm(expr))
             } else if lookahead.peek(LitInt) {
+                // e.g. "[rax + 4]"
                 let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
                 let expr = if sign == 1 {
                     quote!(#ofs as i32)
                 } else {
                     quote!(-(#ofs) as i32)
                 };
-                Disp(expr)
+                Ok(Disp::Imm(expr))
             } else {
-                return Err(lookahead.error());
+                Err(lookahead.error())
             }
         } else {
-            return Err(lookahead.error());
-        };
-        Ok(offset)
+            Err(lookahead.error())
+        }
     }
 }
 #[derive(Clone)]

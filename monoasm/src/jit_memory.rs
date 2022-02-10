@@ -146,6 +146,11 @@ impl JitMemory {
         unsafe { mem::transmute(adr.add(counter)) }
     }
 
+    /// Emit bytes.
+    pub fn emit(&mut self, slice: &[u8]) {
+        slice.iter().for_each(|b| self.emitb(*b));
+    }
+
     /// Emit a byte.
     pub fn emitb(&mut self, val: u8) {
         let c = self.counter;
@@ -241,7 +246,7 @@ impl JitMemory {
             } else {
                 self.rex(reg, rm.base, Reg(0));
             }
-            op.iter().for_each(|o| self.emitb(*o));
+            self.emit(op);
             self.modrm(reg, rm.mode, rm.base);
             self.emit_disp(rm);
         } else if rm.mode != Mode::Reg && (rm.base.0 & 0b111) == 4 {
@@ -256,7 +261,7 @@ impl JitMemory {
             } else {
                 self.rex(reg, rm.base, index);
             }
-            op.iter().for_each(|o| self.emitb(*o));
+            self.emit(op);
             self.modrm(reg, rm.mode, rm.base);
             self.sib(scale, index, rm.base);
             self.emit_disp(rm);
@@ -267,7 +272,7 @@ impl JitMemory {
             } else {
                 self.rex(reg, rm.base, Reg(0));
             }
-            op.iter().for_each(|o| self.emitb(*o));
+            self.emit(op);
             self.modrm(reg, Mode::InD8, rm.base);
             self.emitb(0);
         } else {
@@ -276,7 +281,7 @@ impl JitMemory {
             } else {
                 self.rex(reg, rm.base, Reg(0));
             }
-            op.iter().for_each(|o| self.emitb(*o));
+            self.emit(op);
             self.modrm(reg, rm.mode, rm.base);
             self.emit_disp(rm);
         }
@@ -285,7 +290,7 @@ impl JitMemory {
     /// Encoding: D  
     /// Op cd
     pub fn enc_d(&mut self, op: &[u8], dest: DestLabel) {
-        op.iter().for_each(|o| self.emitb(*o));
+        self.emit(op);
         self.save_reloc(dest, 4);
         self.emitl(0);
     }
@@ -294,7 +299,7 @@ impl JitMemory {
     /// Op /n
     pub fn enc_digit(&mut self, op: &[u8], reg: Reg, digit: u8) {
         self.rex(Reg(0), reg, Reg(0));
-        op.iter().for_each(|o| self.emitb(*o));
+        self.emit(op);
         self.modrm_digit(digit, Mode::Reg, reg);
     }
 
@@ -302,7 +307,7 @@ impl JitMemory {
     /// REX.W Op /n
     pub fn enc_rexw_digit(&mut self, op: &[u8], rm: Or, digit: u8) {
         self.rexw(Reg(0), rm.base, Reg(0));
-        op.iter().for_each(|o| self.emitb(*o));
+        self.emit(op);
         self.modrm_digit(digit, rm.mode, rm.base);
         self.emit_disp(rm);
     }
