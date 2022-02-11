@@ -7,6 +7,60 @@ This module generates x86-64 machine codes on memory and you can execute them as
 You can write x64 assembly in your Rust code using intel-like syntax with the aid of procedual macro, which is a powerful feature of Rust 2018.
 The assembly code is assembled in compile time, and embedded as a code generator for x64 assembly.
 
+## operand syntax
+
+|addressing mode   |     syntex                                   |
+|:----------------:|:--------------------------------------------:|
+|register direct   |  rax, R(_expr_), xmm0, xmm(_expr_)           |
+|indirect          | [rax], [R(_expr_)]                           |
+|indirect with disp| [rax + 100], [rax + (_expr_)], [rip + label] |
+
+## supported instructions
+
+### general register operation
+
+- movq
+- addq
+- orq
+- adcq
+- sbbq
+- andq
+- subq
+- xorq
+- imul
+- idiv
+- cmpq
+
+### floating point operation
+
+- movsd
+- addsd
+- subsd
+- mulsd
+- divsd
+- cvtsi2sdq
+
+### stack operation
+
+- pushq
+- popq
+
+### call/branch
+
+- call
+- ret
+- jmp
+- jne
+- jeq
+
+### misc
+
+- syscall
+
+### constant data
+
+- dq
+
 ```Rust
 #![feature(proc_macro_hygiene)]
 extern crate monoasm;

@@ -144,15 +144,15 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
         // OI
         (Operand::Reg(expr), Operand::Imm(i)) => {
             quote!(
-                let imm = (#i) as u64;
+                let imm = (#i) as i64;
                 let rm_op = Or::reg(#expr);
-              if imm <= 0xffff_ffff {
+              if let Ok(imm) = i32::try_from(imm) {
                     // MOV r/m64, imm32
-                    jit.enc_rexw_mi(0xc7, rm_op, Imm::L(imm as u32));
+                    jit.enc_rexw_mi(0xc7, rm_op, Imm::L(imm));
                 } else {
                     // MOV r64, imm64
                     jit.enc_rexw_o(0xb8, #expr);
-                    jit.emitq(imm);
+                    jit.emitq(imm as u64);
                 };
             )
         }
@@ -160,11 +160,11 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
         // REX.W + C7 /0 id
         // MI
         (op1, Operand::Imm(i)) => {
-            let op1_str = format!("{:?}", op1);
+            let op1_str = format!("{}", op1);
             quote! {
-                let imm = (#i) as u64;
-                if imm <= 0xffff_ffff {
-                    jit.enc_rexw_mi(0xc7, #op1, Imm::L(imm as u32));
+                let imm = (#i) as i64;
+                if let Ok(imm) = i32::try_from(imm)  {
+                    jit.enc_rexw_mi(0xc7, #op1, Imm::L(imm));
                 } else {
                     panic!("'MOV {}, imm64' does not exists.", #op1_str);
                 }
@@ -203,22 +203,24 @@ fn binary_op(
         // MI
         (Operand::Reg(expr), Operand::Imm(i)) => {
             quote! {
-                let imm = (#i) as u64;
-                if imm > 0xffff_ffff {
+                let imm = (#i) as i64;
+                if let Ok(imm) = i32::try_from(imm) {
+                    let rm_op = Or::reg(#expr);
+                    jit.enc_rexw_digit(&[#op_imm], rm_op, #digit, Imm::L(imm));
+                } else {
                     panic!("{} {:?}, imm64' does not exists.", #op_name, #expr);
                 }
-                let rm_op = Or::reg(#expr);
-                jit.enc_rexw_digit(&[#op_imm], rm_op, #digit, Imm::L(imm as u32));
             }
         }
         (op1, Operand::Imm(i)) => {
             let op1_str = format!("{}", op1);
             quote! {
-                let imm = (#i) as u64;
-                if imm > 0xffff_ffff {
+                let imm = (#i) as i64;
+                if let Ok(imm) = i32::try_from(imm) {
+                    jit.enc_rexw_digit(&[#op_imm], #op1, #digit, Imm::L(imm));
+                } else {
                     panic!("'{} {}, imm64' does not exists.", #op_name, #op1_str);
                 }
-                jit.enc_rexw_digit(&[#op_imm], #op1, #digit, Imm::L(imm as u32));
             }
         }
         // OP r/m64, r64

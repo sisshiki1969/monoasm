@@ -26,10 +26,10 @@ pub struct JitMemory {
 
 pub enum Imm {
     None,
-    B(u8),
-    W(u16),
-    L(u32),
-    Q(u64),
+    B(i8),
+    W(i16),
+    L(i32),
+    Q(i64),
 }
 
 impl Imm {
@@ -439,10 +439,10 @@ impl JitMemory {
         }
         match imm {
             Imm::None => {}
-            Imm::B(b) => self.emitb(b),
-            Imm::W(w) => self.emitw(w),
-            Imm::L(l) => self.emitl(l),
-            Imm::Q(q) => self.emitq(q),
+            Imm::B(b) => self.emitb(b as u8),
+            Imm::W(w) => self.emitw(w as u16),
+            Imm::L(l) => self.emitl(l as u32),
+            Imm::Q(q) => self.emitq(q as u64),
         }
     }
 }
