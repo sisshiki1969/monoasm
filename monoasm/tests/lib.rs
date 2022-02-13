@@ -15,6 +15,8 @@ mod tests {
         let data = jit.const_f64(3.5);
         let data2 = jit.const_i64(100);
         monoasm!(jit,
+                negq rax;
+                negq [rax + 100];
                 mulsd xmm0, [rip + data];
                 cvtsi2sdq xmm1, [rip + data2];
                 mulsd xmm0, xmm1;

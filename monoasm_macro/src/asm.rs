@@ -22,6 +22,13 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Xorq(op1, op2) => binary_op("XOR", 0x81, 0x31, 0x33, 6, op1, op2),
         Inst::Cmpq(op1, op2) => binary_op("CMP", 0x81, 0x39, 0x3b, 7, op1, op2),
 
+        Inst::Negq(op) => match op {
+            Operand::Imm(_) => panic!("'NEG imm' does not exists."),
+            op => quote! (
+                jit.enc_rexw_digit(&[0xf7], #op, 3, Imm::None);
+            ),
+        },
+
         Inst::Imul(op1, op2) => {
             // IMUL r64, r/m64: r64 <- r64 * r/m64
             match (op1, op2) {
