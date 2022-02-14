@@ -22,6 +22,8 @@ pub struct JitMemory {
     reloc: Relocations,
     /// Constants section.
     constants: Vec<(u64, DestLabel)>,
+    /// Machine code length
+    code_len: usize,
 }
 
 pub enum Imm {
@@ -91,10 +93,27 @@ impl JitMemory {
             label_count: 0,
             reloc: Relocations::new(),
             constants: vec![],
+            code_len: 0usize,
         };
         res.emitb(0xc3);
         res.counter = Pos(0);
         res
+    }
+
+    /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
+    pub fn finalize<T, U>(&mut self) -> fn(T) -> U {
+        self.code_len = self.counter.0;
+        self.resolve_constants();
+        self.fill_relocs();
+        unsafe { mem::transmute(self.contents) }
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        //let len = self.counter.0;
+        let mut v = vec![];
+        let slice = unsafe { std::slice::from_raw_parts(self.contents, self.code_len) };
+        v.extend_from_slice(slice);
+        v
     }
 
     pub fn get_current(&self) -> usize {
@@ -153,13 +172,8 @@ impl JitMemory {
         self.reloc[dest].disp.push((offset, self.counter));
     }
 
-    /// Resolve all relocations.
-    pub fn resolve_relocs(&mut self) {
-        for (val, label) in self.constants.clone() {
-            self.bind_label(label);
-            self.emitq(val);
-        }
-
+    /// Resolve and fill all relocations.
+    fn fill_relocs(&mut self) {
         for rel in self.reloc.clone() {
             if let Some(pos) = rel.loc {
                 for (size, dest) in rel.disp {
@@ -173,10 +187,12 @@ impl JitMemory {
         }
     }
 
-    /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
-    pub fn finalize<T, U>(&mut self) -> fn(T) -> U {
-        self.resolve_relocs();
-        unsafe { mem::transmute(self.contents) }
+    /// Resolve labels for constant data, and emit them to `contents`.
+    fn resolve_constants(&mut self) {
+        for (val, label) in self.constants.clone() {
+            self.bind_label(label);
+            self.emitq(val);
+        }
     }
 
     pub fn get_label_addr<T, U>(&mut self, label: DestLabel) -> extern "C" fn(T) -> U {
