@@ -173,7 +173,7 @@ impl JitMemory {
     }
 
     /// Resolve and fill all relocations.
-    fn fill_relocs(&mut self) {
+    pub fn fill_relocs(&mut self) {
         for rel in self.reloc.clone() {
             if let Some(pos) = rel.loc {
                 for (size, dest) in rel.disp {

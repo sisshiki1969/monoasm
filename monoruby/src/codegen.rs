@@ -108,7 +108,7 @@ impl Codegen {
             let entry = self.jit.get_label_pos(entry);
             self.jit.bind_label_to_pos(*dest, entry);
         }
-        self.jit.resolve_relocs();
+        self.jit.fill_relocs();
     }
 
     fn gen_func(&mut self, name: &str, ast: Vec<Stmt>, args: Vec<String>) -> FuncId {
