@@ -139,9 +139,21 @@ pub fn compile(inst: Inst) -> TokenStream {
     }
 }
 
-fn movq(op1: Operand, op2: Operand) -> TokenStream {
+fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
     match (op1, op2) {
-        (Operand::Imm(_), op2) => panic!("'MOV Imm, {}' doen not exists.", op2),
+        (MovOperand::Xmm(op1), op2) => match &op2 {
+            MovOperand::Imm(_) => panic!("'MOV xmm, Imm' does not exists."),
+            MovOperand::Reg(op2) => quote! {
+                let op2 = Or::reg(#op2);
+                jit.emitb(0x66);
+                jit.enc_mr_main(&[0x0f, 0x6e], true, Reg::from(#op1), op2, Imm::None);
+            },
+            op2 => quote! {
+                jit.emitb(0xf3);
+                jit.enc_mr_main(&[0x0f, 0x7e], false, Reg::from(#op1), #op2, Imm::None);
+            },
+        },
+        (MovOperand::Imm(_), op2) => panic!("'MOV Imm, {}' does not exists.", op2),
         // MOV r/m64, imm32
         // REX.W + C7 /0 id
         // MI
@@ -149,11 +161,11 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
         // MOV r64, imm64
         // REX.W + B8+ rd io
         // OI
-        (Operand::Reg(expr), Operand::Imm(i)) => {
+        (MovOperand::Reg(expr), MovOperand::Imm(i)) => {
             quote!(
                 let imm = (#i) as i64;
                 let rm_op = Or::reg(#expr);
-              if let Ok(imm) = i32::try_from(imm) {
+                if let Ok(imm) = i32::try_from(imm) {
                     // MOV r/m64, imm32
                     jit.enc_rexw_mi(0xc7, rm_op, Imm::L(imm));
                 } else {
@@ -166,7 +178,7 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
         // MOV r/m64, imm32
         // REX.W + C7 /0 id
         // MI
-        (op1, Operand::Imm(i)) => {
+        (op1, MovOperand::Imm(i)) => {
             let op1_str = format!("{}", op1);
             quote! {
                 let imm = (#i) as i64;
@@ -180,11 +192,20 @@ fn movq(op1: Operand, op2: Operand) -> TokenStream {
         // MOV r/m64,r64
         // REX.W + 89 /r
         // MR
-        (op1, Operand::Reg(expr)) => quote!( jit.enc_rexw_mr(0x89, #expr, #op1, Imm::None); ),
+        (op1, MovOperand::Reg(expr)) => quote!( jit.enc_rexw_mr(0x89, #expr, #op1, Imm::None); ),
+        (MovOperand::Reg(op1), MovOperand::Xmm(op2)) => quote! {
+            let op1 = Or::reg(#op1);
+            jit.emitb(0x66);
+            jit.enc_mr_main(&[0x0f, 0x7e], true, Reg::from(#op2), op1, Imm::None);
+        },
+        (op1, MovOperand::Xmm(op2)) => quote! {
+            jit.emitb(0x66);
+            jit.enc_mr_main(&[0x0f, 0xd6], false, Reg::from(#op2), #op1, Imm::None);
+        },
         // MOV r64,m64
         // REX.W + 8B /r
         // RM
-        (Operand::Reg(expr), op2) => quote!( jit.enc_rexw_mr(0x8b, #expr, #op2, Imm::None); ),
+        (MovOperand::Reg(expr), op2) => quote!( jit.enc_rexw_mr(0x8b, #expr, #op2, Imm::None); ),
         (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
     }
 }
