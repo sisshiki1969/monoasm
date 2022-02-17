@@ -265,7 +265,7 @@ impl Parse for Disp {
                 syn::parenthesized!(content in input);
                 let expr = content.parse::<Expr>()?;
                 let expr = if sign == 1 {
-                    quote!(expr as i32)
+                    quote!(#expr as i32)
                 } else {
                     quote!(-(#expr) as i32)
                 };

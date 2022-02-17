@@ -205,7 +205,7 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
         // MOV r64,m64
         // REX.W + 8B /r
         // RM
-        (MovOperand::Reg(expr), op2) => quote!( jit.enc_rexw_mr(0x8b, #expr, #op2, Imm::None); ),
+        (MovOperand::Reg(op1), op2) => quote!( jit.enc_rexw_mr(0x8b, #op1, #op2, Imm::None); ),
         (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
     }
 }

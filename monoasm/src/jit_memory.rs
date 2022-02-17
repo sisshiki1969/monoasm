@@ -306,20 +306,23 @@ impl JitMemory {
             self.emit_disp_imm(rm.mode, imm);
         } else if rm.mode != Mode::Reg && (rm.base.0 & 0b111) == 4 {
             // If mode != Reg and r/m == 4/12 (rsp/r12), use SIB.
-            // Currently, only Mode::Ind is supported.
-            assert!(rm.mode == Mode::Ind);
-            // set index to 4 when [rm] is to be used.
-            let index = Reg(4); // magic number
-            let scale = 0;
-            if is_rexw {
-                self.rexw(reg, rm.base, index);
-            } else {
-                self.rex(reg, rm.base, index);
+            match rm.mode {
+                Mode::Ind | Mode::InD8(_) | Mode::InD32(_) => {
+                    let index = Reg(4); // magic number
+                    let scale = 0;
+                    let base = rm.base;
+                    if is_rexw {
+                        self.rexw(reg, base, index);
+                    } else {
+                        self.rex(reg, base, index);
+                    }
+                    self.emit(op);
+                    self.modrm(reg, rm.mode.encode(), base);
+                    self.sib(scale, index, base);
+                    self.emit_disp_imm(rm.mode, imm);
+                }
+                _ => unimplemented!(),
             }
-            self.emit(op);
-            self.modrm(reg, rm.mode.encode(), rm.base);
-            self.sib(scale, index, rm.base);
-            self.emit_disp_imm(rm.mode, imm);
         } else if rm.mode == Mode::Ind && (rm.base.0 & 0b111) == 5 {
             // If mode == Ind and r/m == 5/13 (rbp/r13), use [rbp/r13 + 0(disp8)].
             if is_rexw {
@@ -438,8 +441,8 @@ impl JitMemory {
     ///
     fn sib(&mut self, scale: u8, index: Reg, base: Reg) {
         assert!(scale < 4);
-        assert!(index.0 < 8);
-        let sib = (scale << 6) | (index.0 << 3) | (base.0 & 0b111);
+        assert!(index.0 < 16);
+        let sib = (scale << 6) | ((index.0 & 0b111) << 3) | (base.0 & 0b111);
         self.emitb(sib);
     }
 

@@ -15,6 +15,14 @@ mod tests {
         let data = jit.const_f64(3.5);
         let data2 = jit.const_i64(100);
         monoasm!(jit,
+                movq rax, [rsp];
+                movq rax, [r12];
+                movq rax, [rsp + 1];
+                movq rax, [r12 + 1];
+                movq rax, [rsp + 1024];
+                movq rax, [r12 + 1024];
+                movq rax, [rbp];
+                movq rax, [r13];
                 movq xmm1, rax;
                 movq rax, xmm15;
                 movq xmm1, xmm3;
