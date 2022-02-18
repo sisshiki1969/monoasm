@@ -123,16 +123,7 @@ pub struct Register(TokenStream);
 
 impl Parse for Register {
     fn parse(input: ParseStream) -> Result<Self, Error> {
-        let op = input.parse::<Ident>()?.to_string();
-        if op == "R" {
-            let content;
-            syn::parenthesized!(content in input);
-            let s = content.parse::<Expr>()?;
-            Ok(Self(quote!(#s)))
-        } else {
-            let reg = Reg::from_str(&op).ok_or(input.error("Expected register name."))? as u64;
-            Ok(Self(quote!(#reg)))
-        }
+        Self::parse_register(input, &input.parse::<Ident>()?.to_string())
     }
 }
 
@@ -158,6 +149,20 @@ impl Register {
     pub fn get(self) -> TokenStream {
         self.0
     }
+
+    pub fn parse_register(input: ParseStream, ident: &String) -> Result<Register, Error> {
+        if ident == "R" {
+            // e.g. "R(13)"
+            let content;
+            syn::parenthesized!(content in input);
+            let s = content.parse::<Expr>()?;
+            Ok(Register::new(quote!(#s)))
+        } else {
+            // e.g. "rax"
+            let reg = Reg::from_str(ident).ok_or(input.error("Expected register name."))? as u64;
+            Ok(Register::new(quote!(#reg)))
+        }
+    }
 }
 
 ///----------------------------------------------------------------------
@@ -168,7 +173,13 @@ impl Register {
 #[derive(Clone, Debug)]
 pub struct IndAddr {
     pub base: Register,
-    pub offset: Disp,
+    pub disp: Disp,
+}
+
+impl IndAddr {
+    pub fn new(base: Register, disp: Disp) -> Self {
+        Self { base, disp }
+    }
 }
 
 impl Parse for IndAddr {
@@ -176,8 +187,21 @@ impl Parse for IndAddr {
         let content;
         syn::bracketed!(content in input);
         let base = content.parse::<Register>()?;
-        let offset = content.parse::<Disp>()?;
-        Ok(IndAddr { base, offset })
+        let disp = content.parse::<Disp>()?;
+        Ok(IndAddr { base, disp })
+    }
+}
+
+impl std::fmt::Display for IndAddr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({})[{:?}]", self.disp, self.base)
+    }
+}
+
+impl ToTokens for IndAddr {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self { base, disp } = self;
+        tokens.extend(quote!( Or::new(#base, #disp) ));
     }
 }
 

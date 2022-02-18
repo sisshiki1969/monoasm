@@ -204,7 +204,7 @@ impl Parse for Inst {
 pub enum Operand {
     Imm(TokenStream),
     Reg(Register),
-    Ind { base: Register, disp: Disp },
+    Ind(IndAddr),
 }
 
 impl Parse for Operand {
@@ -219,11 +219,7 @@ impl Parse for Operand {
             Ok(Operand::imm(imm))
         } else if input.peek(token::Bracket) {
             // e.g. "[rax + 4]", "[rax - (4)]"
-            let addr = input.parse::<IndAddr>()?;
-            Ok(Operand::Ind {
-                base: addr.base,
-                disp: addr.offset,
-            })
+            Ok(Operand::Ind(input.parse::<IndAddr>()?))
         } else if input.peek(token::Paren) {
             // e.g. "(42)"
             let gr = input.parse::<Group>()?;
@@ -239,7 +235,7 @@ impl std::fmt::Display for Operand {
         match self {
             Operand::Imm(i) => write!(f, "{}", i),
             Operand::Reg(reg) => write!(f, "{}", reg),
-            Operand::Ind { base, disp } => write!(f, "({})[{:?}]", disp, base),
+            Operand::Ind(ind) => write!(f, "{}", ind),
         }
     }
 }
@@ -249,7 +245,7 @@ impl ToTokens for Operand {
         let ts = match self {
             Operand::Imm(_) => unreachable!("immediate"),
             Operand::Reg(ts) => quote!(Or::reg(#ts)),
-            Operand::Ind { base, disp } => quote!( Or::new(#base, #disp) ),
+            Operand::Ind(ind) => quote!(#ind),
         };
         tokens.extend(ts);
     }
@@ -273,42 +269,45 @@ impl Operand {
 #[derive(Clone, Debug)]
 pub enum XmmOperand {
     Xmm(TokenStream),
-    Ind { base: Register, disp: Disp },
+    Ind(IndAddr),
+}
+
+fn parse_xmm(input: ParseStream, ident: &String) -> Result<TokenStream, Error> {
+    assert!(ident.starts_with("xmm"));
+    if ident.len() == 3 {
+        if input.peek(token::Paren) {
+            let gr = input.parse::<Group>()?;
+            Ok(gr.stream())
+        } else {
+            Err(input.error(format!(
+                "Expected xmm register number. e.g. xmm0 or xmm(0) actual:{}",
+                ident,
+            )))
+        }
+    } else {
+        if let Ok(no) = ident[3..].parse::<u8>() {
+            if no > 15 {
+                Err(input.error(format!("Invalid xmm register name. {}", ident)))
+            } else {
+                Ok(quote!(#no as u64))
+            }
+        } else {
+            Err(input.error(format!("Invalid xmm register name. {}", ident)))
+        }
+    }
 }
 
 impl Parse for XmmOperand {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         if input.peek(Ident) {
             let reg = input.parse::<Ident>()?.to_string();
-            if reg == "xmm" {
-                if input.peek(token::Paren) {
-                    let gr = input.parse::<Group>()?;
-                    Ok(Self::Xmm(gr.stream()))
-                } else {
-                    Err(input.error(format!(
-                        "Expected xmm register number. e.g. xmm0 or xmm(0) actual:{}",
-                        reg,
-                    )))
-                }
-            } else if reg.starts_with("xmm") {
-                if let Ok(no) = reg[3..].parse::<u8>() {
-                    if no > 15 {
-                        Err(input.error(format!("Invalid xmm register name. {}", reg)))
-                    } else {
-                        Ok(Self::Xmm(quote!(#no as u64)))
-                    }
-                } else {
-                    Err(input.error(format!("Invalid xmm register name. {}", reg)))
-                }
+            if reg.starts_with("xmm") {
+                Ok(Self::Xmm(parse_xmm(input, &reg)?))
             } else {
                 Err(input.error("Expected xmm register name or memory reference."))
             }
         } else if input.peek(token::Bracket) {
-            let addr: IndAddr = input.parse()?;
-            Ok(Self::Ind {
-                base: addr.base,
-                disp: addr.offset,
-            })
+            Ok(Self::Ind(input.parse::<IndAddr>()?))
         } else {
             Err(input.error("Expected xmm register name or memory reference."))
         }
@@ -319,7 +318,7 @@ impl std::fmt::Display for XmmOperand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Xmm(reg) => write!(f, "xmm({})", reg),
-            Self::Ind { base, disp } => write!(f, "({})[{:?}]", disp, base),
+            Self::Ind(ind) => write!(f, "{}", ind),
         }
     }
 }
@@ -327,10 +326,8 @@ impl std::fmt::Display for XmmOperand {
 impl ToTokens for XmmOperand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
-            Self::Xmm(ts) => quote!(
-                Or::reg(Reg::from(#ts))
-            ),
-            Self::Ind { base, disp } => quote!( Or::new(#base, #disp) ),
+            Self::Xmm(ts) => quote!(Or::reg(Reg::from(#ts))),
+            Self::Ind(ind) => quote!(#ind),
         };
         tokens.extend(ts);
     }
@@ -346,48 +343,17 @@ pub enum MovOperand {
     Imm(TokenStream),
     Reg(Register),
     Xmm(TokenStream),
-    Ind { base: Register, disp: Disp },
+    Ind(IndAddr),
 }
 
 impl Parse for MovOperand {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         if input.peek(Ident) {
             let ident = input.parse::<Ident>()?.to_string();
-            if ident == "xmm" {
-                if input.peek(token::Paren) {
-                    // e.g. "xmm(0)"
-                    let gr = input.parse::<Group>()?;
-                    Ok(Self::Xmm(gr.stream()))
-                } else {
-                    Err(input.error(format!(
-                        "Expected xmm register number. e.g. xmm0 or xmm(0) actual:{}",
-                        ident,
-                    )))
-                }
-            } else if ident.starts_with("xmm") {
-                // e.g. "xmm0"
-                if let Ok(no) = ident[3..].parse::<u8>() {
-                    if no > 15 {
-                        Err(input.error(format!("Invalid xmm register name. {}", ident)))
-                    } else {
-                        Ok(Self::Xmm(quote!(#no as u64)))
-                    }
-                } else {
-                    Err(input.error(format!("Invalid xmm register name. {}", ident)))
-                }
+            if ident.starts_with("xmm") {
+                Ok(Self::Xmm(parse_xmm(input, &ident)?))
             } else {
-                // e.g. "rax"
-                let register = if ident == "R" {
-                    let content;
-                    syn::parenthesized!(content in input);
-                    let s = content.parse::<Expr>()?;
-                    Register::new(quote!(#s))
-                } else {
-                    let reg =
-                        Reg::from_str(&ident).ok_or(input.error("Expected register name."))? as u64;
-                    Register::new(quote!(#reg))
-                };
-                Ok(Self::reg(register))
+                Ok(Self::reg(Register::parse_register(input, &ident)?))
             }
         } else if input.peek(LitInt) && is_single(input) {
             // e.g. "42"
@@ -395,11 +361,7 @@ impl Parse for MovOperand {
             Ok(Self::imm(imm))
         } else if input.peek(token::Bracket) {
             // e.g. "[rax + 4]", "[rax - (4)]"
-            let addr = input.parse::<IndAddr>()?;
-            Ok(Self::Ind {
-                base: addr.base,
-                disp: addr.offset,
-            })
+            Ok(Self::Ind(input.parse::<IndAddr>()?))
         } else if input.peek(token::Paren) {
             // e.g. "(42)"
             let gr = input.parse::<Group>()?;
@@ -416,7 +378,7 @@ impl std::fmt::Display for MovOperand {
             Self::Imm(i) => write!(f, "{}", i),
             Self::Reg(reg) => write!(f, "{}", reg),
             Self::Xmm(reg) => write!(f, "xmm({})", reg),
-            Self::Ind { base, disp } => write!(f, "({})[{:?}]", disp, base),
+            Self::Ind(ind) => write!(f, "{}", ind),
         }
     }
 }
@@ -425,9 +387,9 @@ impl ToTokens for MovOperand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
             Self::Imm(_) => unreachable!("immediate"),
-            Self::Reg(ts) => quote!(Or::reg(#ts)),
+            Self::Reg(r) => quote!(Or::reg(#r)),
             Self::Xmm(ts) => quote!(Or::reg(Reg::from(#ts))),
-            Self::Ind { base, disp } => quote!( Or::new(#base, #disp) ),
+            Self::Ind(ind) => quote!(#ind),
         };
         tokens.extend(ts);
     }
