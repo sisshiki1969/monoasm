@@ -95,6 +95,10 @@ pub enum Inst {
 pub enum Cond {
     Ne,
     Eq,
+    Gt,
+    Ge,
+    Lt,
+    Le,
 }
 
 impl Parse for Inst {
@@ -174,6 +178,10 @@ impl Parse for Inst {
                 "jmp" => parse_1op!(Jmp),
                 "jne" => parse_jcc!(Ne),
                 "jeq" => parse_jcc!(Eq),
+                "jgt" => parse_jcc!(Gt),
+                "jge" => parse_jcc!(Ge),
+                "jlt" => parse_jcc!(Lt),
+                "jle" => parse_jcc!(Le),
                 "syscall" => parse_0op!(Syscall),
 
                 "dq" => {

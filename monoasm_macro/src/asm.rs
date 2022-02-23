@@ -130,6 +130,22 @@ pub fn compile(inst: Inst) -> TokenStream {
             // 0F 84 cd
             // TODO: support rel8
             Cond::Eq => quote!( jit.enc_d(&[0x0f, 0x84], #dest); ),
+            // JGE rel32
+            // 0F 8D cd
+            // TODO: support rel8
+            Cond::Ge => quote!( jit.enc_d(&[0x0f, 0x8D], #dest); ),
+            // JG rel32
+            // 0F 8F cd
+            // TODO: support rel8
+            Cond::Gt => quote!( jit.enc_d(&[0x0f, 0x8f], #dest); ),
+            // JLE rel32
+            // 0F 8E cd
+            // TODO: support rel8
+            Cond::Le => quote!( jit.enc_d(&[0x0f, 0x8e], #dest); ),
+            // JL rel32
+            // 0F 8C cd
+            // TODO: support rel8
+            Cond::Lt => quote!( jit.enc_d(&[0x0f, 0x8c], #dest); ),
         },
 
         Inst::Syscall => quote!(

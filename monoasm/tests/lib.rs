@@ -14,7 +14,14 @@ mod tests {
         let mut jit: JitMemory = JitMemory::new();
         let data = jit.const_f64(3.5);
         let data2 = jit.const_i64(100);
+        let label = jit.label();
         monoasm!(jit,
+                jge label;
+                jgt label;
+                jle label;
+                jlt label;
+                jeq label;
+                jne label;
                 movq rax, [rsp];
                 movq rax, [r12];
                 movq rax, [rsp + 1];
