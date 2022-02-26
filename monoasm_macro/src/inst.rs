@@ -176,6 +176,10 @@ impl Parse for Inst {
                 "idiv" => parse_1op!(Idiv),
                 "sete" => parse_set!(Set, Eq),
                 "setne" => parse_set!(Set, Ne),
+                "setgt" => parse_set!(Set, Gt),
+                "setge" => parse_set!(Set, Ge),
+                "setlt" => parse_set!(Set, Lt),
+                "setle" => parse_set!(Set, Le),
                 "cqo" => parse_0op!(Cqo),
 
                 "movsd" => parse_2op!(Movsd),

@@ -214,6 +214,10 @@ impl ToTokens for IndAddr {
 pub enum Flag {
     Eq,
     Ne,
+    Gt,
+    Ge,
+    Lt,
+    Le,
 }
 
 ///----------------------------------------------------------------------

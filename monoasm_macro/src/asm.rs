@@ -26,6 +26,10 @@ pub fn compile(inst: Inst) -> TokenStream {
             let flag: u8 = match flag {
                 Flag::Eq => 0x94,
                 Flag::Ne => 0x95,
+                Flag::Gt => 0x9f,
+                Flag::Ge => 0x9d,
+                Flag::Lt => 0x9c,
+                Flag::Le => 0x9e,
             };
             quote!(
                 jit.enc_mr_main(&[0x0f, #flag], false, Reg::from(0), #op, Imm::None);
