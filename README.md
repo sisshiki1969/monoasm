@@ -27,9 +27,20 @@ The assembly code is assembled in compile time, and embedded as a code generator
 - andq
 - subq
 - xorq
+- cmpq
+
 - imul
 - idiv
-- cmpq
+- cqo
+
+- negq
+
+- seteq
+- setne
+- setgt
+- setge
+- setlt
+- setle
 
 ### floating point operation
 
@@ -52,6 +63,10 @@ The assembly code is assembled in compile time, and embedded as a code generator
 - jmp
 - jne
 - jeq
+- jgt
+- jge
+- jlt
+- jle
 
 ### misc
 

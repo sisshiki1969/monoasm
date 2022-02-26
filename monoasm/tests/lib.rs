@@ -17,14 +17,19 @@ mod tests {
         let label = jit.label();
         monoasm!(jit,
                 cqo;
-                sete rax;
-                sete [rax];
-                sete [rax+128];
-                sete [rax+1024];
-                sete r15;
-                sete [r15];
-                sete [r15+128];
-                sete [r15+1024];
+                seteq rax;
+                setne rax;
+                setgt rax;
+                setge rax;
+                setlt rax;
+                setle rax;
+                seteq [rax];
+                seteq [rax+128];
+                seteq [rax+1024];
+                seteq r15;
+                seteq [r15];
+                seteq [r15+128];
+                seteq [r15+1024];
                 jge label;
                 jgt label;
                 jle label;

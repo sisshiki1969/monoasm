@@ -67,7 +67,7 @@ pub enum Inst {
     Imul(RmiOperand, RmiOperand),
     Idiv(RmOperand),
 
-    Set(Flag, RmOperand),
+    Setcc(Flag, RmOperand),
     Cqo,
 
     Movsd(XmmOperand, XmmOperand),
@@ -174,12 +174,12 @@ impl Parse for Inst {
                 "negq" => parse_1op!(Negq),
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
-                "sete" => parse_set!(Set, Eq),
-                "setne" => parse_set!(Set, Ne),
-                "setgt" => parse_set!(Set, Gt),
-                "setge" => parse_set!(Set, Ge),
-                "setlt" => parse_set!(Set, Lt),
-                "setle" => parse_set!(Set, Le),
+                "seteq" => parse_set!(Setcc, Eq),
+                "setne" => parse_set!(Setcc, Ne),
+                "setgt" => parse_set!(Setcc, Gt),
+                "setge" => parse_set!(Setcc, Ge),
+                "setlt" => parse_set!(Setcc, Lt),
+                "setle" => parse_set!(Setcc, Le),
                 "cqo" => parse_0op!(Cqo),
 
                 "movsd" => parse_2op!(Movsd),

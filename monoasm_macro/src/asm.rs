@@ -22,7 +22,7 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Xorq(op1, op2) => binary_op("XOR", 0x81, 0x31, 0x33, 6, op1, op2),
         Inst::Cmpq(op1, op2) => binary_op("CMP", 0x81, 0x39, 0x3b, 7, op1, op2),
 
-        Inst::Set(flag, op) => {
+        Inst::Setcc(flag, op) => {
             let flag: u8 = match flag {
                 Flag::Eq => 0x94,
                 Flag::Ne => 0x95,
@@ -31,21 +31,15 @@ pub fn compile(inst: Inst) -> TokenStream {
                 Flag::Lt => 0x9c,
                 Flag::Le => 0x9e,
             };
-            quote!(
-                jit.enc_mr_main(&[0x0f, #flag], false, Reg::from(0), #op, Imm::None);
-            )
+            quote!( jit.enc_mr_main(&[0x0f, #flag], false, Reg::from(0), #op, Imm::None); )
         }
 
         Inst::Cqo => {
-            quote! (
-                jit.emit(&[0x48, 0x99]);
-            )
+            quote! ( jit.emit(&[0x48, 0x99]); )
         }
 
         Inst::Negq(op) => match op {
-            op => quote! (
-                jit.enc_rexw_digit(&[0xf7], #op, 3, Imm::None);
-            ),
+            op => quote! ( jit.enc_rexw_digit(&[0xf7], #op, 3, Imm::None); ),
         },
 
         Inst::Imul(op1, op2) => {
@@ -67,9 +61,7 @@ pub fn compile(inst: Inst) -> TokenStream {
             match op {
                 // IDIV r/m64
                 // REX.W F7 /7
-                op => quote! {
-                    jit.enc_rexw_digit(&[0xf7], #op, 7, Imm::None);
-                },
+                op => quote! { jit.enc_rexw_digit(&[0xf7], #op, 7, Imm::None); },
             }
         }
 
@@ -139,36 +131,38 @@ pub fn compile(inst: Inst) -> TokenStream {
             Dest::Rel(dest) => quote! ( jit.enc_d(&[0xe9], #dest); ),
             dest => unimplemented!("JMP {:?}", dest),
         },
-        Inst::Jcc(cond, dest) => match cond {
-            // JNE rel32
-            // 0F 85 cd
-            // TODO: support rel8
-            Cond::Ne => quote!( jit.enc_d(&[0x0f, 0x85], #dest); ),
-            // JE rel32
-            // 0F 84 cd
-            // TODO: support rel8
-            Cond::Eq => quote!( jit.enc_d(&[0x0f, 0x84], #dest); ),
-            // JGE rel32
-            // 0F 8D cd
-            // TODO: support rel8
-            Cond::Ge => quote!( jit.enc_d(&[0x0f, 0x8D], #dest); ),
-            // JG rel32
-            // 0F 8F cd
-            // TODO: support rel8
-            Cond::Gt => quote!( jit.enc_d(&[0x0f, 0x8f], #dest); ),
-            // JLE rel32
-            // 0F 8E cd
-            // TODO: support rel8
-            Cond::Le => quote!( jit.enc_d(&[0x0f, 0x8e], #dest); ),
-            // JL rel32
-            // 0F 8C cd
-            // TODO: support rel8
-            Cond::Lt => quote!( jit.enc_d(&[0x0f, 0x8c], #dest); ),
-        },
+        Inst::Jcc(cond, dest) => {
+            let cond: u8 = match cond {
+                // JNE rel32
+                // 0F 85 cd
+                // TODO: support rel8
+                Cond::Ne => 0x85,
+                // JE rel32
+                // 0F 84 cd
+                // TODO: support rel8
+                Cond::Eq => 0x84,
+                // JGE rel32
+                // 0F 8D cd
+                // TODO: support rel8
+                Cond::Ge => 0x8D,
+                // JG rel32
+                // 0F 8F cd
+                // TODO: support rel8
+                Cond::Gt => 0x8f,
+                // JLE rel32
+                // 0F 8E cd
+                // TODO: support rel8
+                Cond::Le => 0x8e,
+                // JL rel32
+                // 0F 8C cd
+                // TODO: support rel8
+                Cond::Lt => 0x8c,
+            };
+            quote!( jit.enc_d(&[0x0f, #cond], #dest); )
+        }
 
         Inst::Syscall => quote!(
-            jit.emitb(0x0f);
-            jit.emitb(0x05);
+            jit.emit(&[0x0f, 0x05]);
         ),
     }
 }
@@ -226,7 +220,7 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
         // MOV r/m64,r64
         // REX.W + 89 /r
         // MR
-        (op1, MovOperand::Reg(expr)) => quote!( jit.enc_rexw_mr(0x89, #expr, #op1, Imm::None); ),
+        (op1, MovOperand::Reg(expr)) => quote!( jit.enc_rexw_mr(0x89, #expr, #op1); ),
         (MovOperand::Reg(op1), MovOperand::Xmm(op2)) => quote! {
             let op1 = Or::reg(#op1);
             jit.emitb(0x66);
@@ -239,7 +233,7 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
         // MOV r64,m64
         // REX.W + 8B /r
         // RM
-        (MovOperand::Reg(op1), op2) => quote!( jit.enc_rexw_mr(0x8b, #op1, #op2, Imm::None); ),
+        (MovOperand::Reg(op1), op2) => quote!( jit.enc_rexw_mr(0x8b, #op1, #op2); ),
         (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
     }
 }
@@ -287,15 +281,11 @@ fn binary_op(
         // OP r/m64, r64
         // REX.W op_mr /r
         // MR
-        (op1, RmiOperand::Reg(expr)) => quote! (
-            jit.enc_rexw_mr(#op_mr, #expr, #op1, Imm::None);
-        ),
+        (op1, RmiOperand::Reg(expr)) => quote! ( jit.enc_rexw_mr(#op_mr, #expr, #op1); ),
         // OP r64, m64
         // REX.W op_rm /r
         // RM
-        (RmOperand::Reg(expr), op2) => quote! (
-            jit.enc_rexw_mr(#op_rm, #expr, #op2, Imm::None);
-        ),
+        (RmOperand::Reg(expr), op2) => quote! ( jit.enc_rexw_mr(#op_rm, #expr, #op2); ),
         (op1, op2) => unimplemented!("{} {}, {}", op_name, op1, op2),
     }
 }
@@ -314,7 +304,7 @@ fn binary_sd_op(op_name: &str, operand: u8, op1: XmmOperand, op2: XmmOperand) ->
 
 fn push_pop(opcode: u8, op: RmiOperand) -> TokenStream {
     match op {
-        // PUSH r64     POP 64
+        // PUSH r64     POP r64
         // 50 +rd       58 +rd
         // O            O
         RmiOperand::Reg(reg) => quote! ( jit.enc_o(#opcode, #reg); ),

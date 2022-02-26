@@ -271,15 +271,15 @@ impl JitMemory {
     /// Encoding: MI  
     /// REX.W Op ModRM:r/m
     pub fn enc_rexw_mi(&mut self, op: u8, rm_op: Or, imm: Imm) {
-        self.enc_rexw_mr(op, Reg(0), rm_op, imm)
+        self.enc_mr_main(&[op], true, Reg(0), rm_op, imm);
     }
 
     /// Encoding: MR or RM
     /// REX.W Op ModRM
     /// MR-> ModRM:r/m(w) ModRM:reg(r)
     /// RM-> ModRM:reg(r) ModRM:r/m(w)
-    pub fn enc_rexw_mr(&mut self, op: u8, reg: Reg, rm_op: Or, imm: Imm) {
-        self.enc_mr_main(&[op], true, reg, rm_op, imm);
+    pub fn enc_rexw_mr(&mut self, op: u8, reg: Reg, rm_op: Or) {
+        self.enc_mr_main(&[op], true, reg, rm_op, Imm::None);
     }
 
     pub fn enc_mr_main(
