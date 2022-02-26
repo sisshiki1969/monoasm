@@ -16,6 +16,15 @@ mod tests {
         let data2 = jit.const_i64(100);
         let label = jit.label();
         monoasm!(jit,
+                cqo;
+                sete rax;
+                sete [rax];
+                sete [rax+128];
+                sete [rax+1024];
+                sete r15;
+                sete [r15];
+                sete [r15+128];
+                sete [r15+1024];
                 jge label;
                 jgt label;
                 jle label;

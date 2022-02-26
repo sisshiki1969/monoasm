@@ -22,8 +22,23 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Xorq(op1, op2) => binary_op("XOR", 0x81, 0x31, 0x33, 6, op1, op2),
         Inst::Cmpq(op1, op2) => binary_op("CMP", 0x81, 0x39, 0x3b, 7, op1, op2),
 
+        Inst::Set(flag, op) => {
+            let flag: u8 = match flag {
+                Flag::Eq => 0x94,
+                Flag::Ne => 0x95,
+            };
+            quote!(
+                jit.enc_mr_main(&[0x0f, #flag], false, Reg::from(0), #op, Imm::None);
+            )
+        }
+
+        Inst::Cqo => {
+            quote! (
+                jit.emit(&[0x48, 0x99]);
+            )
+        }
+
         Inst::Negq(op) => match op {
-            Operand::Imm(_) => panic!("'NEG imm' does not exists."),
             op => quote! (
                 jit.enc_rexw_digit(&[0xf7], #op, 3, Imm::None);
             ),
@@ -35,7 +50,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // IMUL r64, r/m64
                 // REX.W 0F AF /r
                 // RM
-                (Operand::Reg(expr), op2) => quote! (
+                (RmiOperand::Reg(expr), op2) => quote! (
                     jit.enc_mr_main(&[0x0f,0xaf], true, #expr, #op2, Imm::None);
                 ),
 
@@ -46,7 +61,6 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Idiv(op) => {
             // IDIV r/m64: RAX:quo RDX:rem <- RDX:RAX / r/m64
             match op {
-                Operand::Imm(_) => panic!("'IDIV imm' does not exists."),
                 // IDIV r/m64
                 // REX.W F7 /7
                 op => quote! {
@@ -232,11 +246,10 @@ fn binary_op(
     op_mr: u8,
     op_rm: u8,
     digit: u8,
-    op1: Operand,
-    op2: Operand,
+    op1: RmOperand,
+    op2: RmiOperand,
 ) -> TokenStream {
     match (op1, op2) {
-        (Operand::Imm(_), op2) => panic!("'{} imm, {}' does not exists.", op_name, op2),
         // OP r/m64, imm32
         // OP=ADD REX.W 81 /0 id
         // OP=OR  REX.W 81 /1 id
@@ -245,7 +258,7 @@ fn binary_op(
         // OP=AND REX.W 81 /4 id
         // OP=SUB REX.W 81 /5 id
         // MI
-        (Operand::Reg(expr), Operand::Imm(i)) => {
+        (RmOperand::Reg(expr), RmiOperand::Imm(i)) => {
             quote! {
                 let imm = (#i) as i64;
                 if let Ok(imm) = i32::try_from(imm) {
@@ -256,7 +269,7 @@ fn binary_op(
                 }
             }
         }
-        (op1, Operand::Imm(i)) => {
+        (op1, RmiOperand::Imm(i)) => {
             let op1_str = format!("{}", op1);
             quote! {
                 let imm = (#i) as i64;
@@ -270,13 +283,13 @@ fn binary_op(
         // OP r/m64, r64
         // REX.W op_mr /r
         // MR
-        (op1, Operand::Reg(expr)) => quote! (
+        (op1, RmiOperand::Reg(expr)) => quote! (
             jit.enc_rexw_mr(#op_mr, #expr, #op1, Imm::None);
         ),
         // OP r64, m64
         // REX.W op_rm /r
         // RM
-        (Operand::Reg(expr), op2) => quote! (
+        (RmOperand::Reg(expr), op2) => quote! (
             jit.enc_rexw_mr(#op_rm, #expr, #op2, Imm::None);
         ),
         (op1, op2) => unimplemented!("{} {}, {}", op_name, op1, op2),
@@ -295,12 +308,12 @@ fn binary_sd_op(op_name: &str, operand: u8, op1: XmmOperand, op2: XmmOperand) ->
     }
 }
 
-fn push_pop(opcode: u8, op: Operand) -> TokenStream {
+fn push_pop(opcode: u8, op: RmiOperand) -> TokenStream {
     match op {
         // PUSH r64     POP 64
         // 50 +rd       58 +rd
         // O            O
-        Operand::Reg(reg) => quote! ( jit.enc_o(#opcode, #reg); ),
+        RmiOperand::Reg(reg) => quote! ( jit.enc_o(#opcode, #reg); ),
         op => unimplemented!("PUSH/POP {:?}", op),
     }
 }

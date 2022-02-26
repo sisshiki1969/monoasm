@@ -54,18 +54,21 @@ pub enum Inst {
     I64(i64),
 
     Movq(MovOperand, MovOperand),
-    Addq(Operand, Operand),
-    Orq(Operand, Operand),
-    Adcq(Operand, Operand),
-    Sbbq(Operand, Operand),
-    Andq(Operand, Operand),
-    Subq(Operand, Operand),
-    Xorq(Operand, Operand),
-    Cmpq(Operand, Operand),
-    Negq(Operand),
+    Addq(RmOperand, RmiOperand),
+    Orq(RmOperand, RmiOperand),
+    Adcq(RmOperand, RmiOperand),
+    Sbbq(RmOperand, RmiOperand),
+    Andq(RmOperand, RmiOperand),
+    Subq(RmOperand, RmiOperand),
+    Xorq(RmOperand, RmiOperand),
+    Cmpq(RmOperand, RmiOperand),
+    Negq(RmOperand),
 
-    Imul(Operand, Operand),
-    Idiv(Operand),
+    Imul(RmiOperand, RmiOperand),
+    Idiv(RmOperand),
+
+    Set(Flag, RmOperand),
+    Cqo,
 
     Movsd(XmmOperand, XmmOperand),
     Addsd(XmmOperand, XmmOperand),
@@ -73,10 +76,10 @@ pub enum Inst {
     Mulsd(XmmOperand, XmmOperand),
     Divsd(XmmOperand, XmmOperand),
 
-    Cvtsi2sdq(XmmOperand, Operand),
+    Cvtsi2sdq(XmmOperand, RmiOperand),
 
-    Pushq(Operand),
-    Popq(Operand),
+    Pushq(RmiOperand),
+    Popq(RmiOperand),
 
     Jmp(Dest),
     Jcc(Cond, Ident),
@@ -144,6 +147,16 @@ impl Parse for Inst {
             )
         }
 
+        macro_rules! parse_set {
+            ($inst: ident, $flag: ident) => (
+                {
+                    let op = input.parse()?;
+                    input.parse::<Token![;]>()?;
+                    Ok(Inst::$inst(Flag::$flag, op))
+                }
+            )
+        }
+
         let ident = input.parse::<Ident>()?;
         if input.peek(Token![:]) {
             input.parse::<Token![:]>()?;
@@ -161,6 +174,9 @@ impl Parse for Inst {
                 "negq" => parse_1op!(Negq),
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
+                "sete" => parse_set!(Set, Eq),
+                "setne" => parse_set!(Set, Ne),
+                "cqo" => parse_0op!(Cqo),
 
                 "movsd" => parse_2op!(Movsd),
                 "addsd" => parse_2op!(Addsd),
@@ -205,61 +221,112 @@ impl Parse for Inst {
 
 ///----------------------------------------------------------------------
 ///
+///  General register / memory reference.
+///
+///----------------------------------------------------------------------
+#[derive(Clone, Debug)]
+pub enum RmOperand {
+    Reg(Register),
+    Ind(IndAddr),
+}
+
+impl Parse for RmOperand {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        if input.peek(Ident) {
+            // e.g. "rax"
+            let reg = input.parse::<Register>()?;
+            Ok(Self::reg(reg))
+        } else if input.peek(token::Bracket) {
+            // e.g. "[rax + 4]", "[rax - (4)]"
+            Ok(Self::Ind(input.parse::<IndAddr>()?))
+        } else {
+            Err(input.error("Expected register name or memory reference."))
+        }
+    }
+}
+
+impl std::fmt::Display for RmOperand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Reg(reg) => write!(f, "{}", reg),
+            Self::Ind(ind) => write!(f, "{}", ind),
+        }
+    }
+}
+
+impl ToTokens for RmOperand {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let ts = match self {
+            Self::Reg(ts) => quote!(Or::reg(#ts)),
+            Self::Ind(ind) => quote!(#ind),
+        };
+        tokens.extend(ts);
+    }
+}
+
+impl RmOperand {
+    pub fn reg(reg: Register) -> Self {
+        Self::Reg(reg)
+    }
+}
+
+///----------------------------------------------------------------------
+///
 ///  General register / memory reference / immediate Operands.
 ///
 ///----------------------------------------------------------------------
 #[derive(Clone, Debug)]
-pub enum Operand {
+pub enum RmiOperand {
     Imm(TokenStream),
     Reg(Register),
     Ind(IndAddr),
 }
 
-impl Parse for Operand {
+impl Parse for RmiOperand {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         if input.peek(Ident) {
             // e.g. "rax"
             let reg = input.parse::<Register>()?;
-            Ok(Operand::reg(reg))
+            Ok(RmiOperand::reg(reg))
         } else if input.peek(LitInt) && is_single(input) {
             // e.g. "42"
             let imm = input.parse::<LitInt>()?;
-            Ok(Operand::imm(imm))
+            Ok(RmiOperand::imm(imm))
         } else if input.peek(token::Bracket) {
             // e.g. "[rax + 4]", "[rax - (4)]"
-            Ok(Operand::Ind(input.parse::<IndAddr>()?))
+            Ok(RmiOperand::Ind(input.parse::<IndAddr>()?))
         } else if input.peek(token::Paren) {
             // e.g. "(42)"
             let gr = input.parse::<Group>()?;
-            Ok(Operand::Imm(gr.stream()))
+            Ok(RmiOperand::Imm(gr.stream()))
         } else {
             Err(input.error("Expected register name, integer literal, memory reference, or Rust expression with parenthesis."))
         }
     }
 }
 
-impl std::fmt::Display for Operand {
+impl std::fmt::Display for RmiOperand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Operand::Imm(i) => write!(f, "{}", i),
-            Operand::Reg(reg) => write!(f, "{}", reg),
-            Operand::Ind(ind) => write!(f, "{}", ind),
+            RmiOperand::Imm(i) => write!(f, "{}", i),
+            RmiOperand::Reg(reg) => write!(f, "{}", reg),
+            RmiOperand::Ind(ind) => write!(f, "{}", ind),
         }
     }
 }
 
-impl ToTokens for Operand {
+impl ToTokens for RmiOperand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
-            Operand::Imm(_) => unreachable!("immediate"),
-            Operand::Reg(ts) => quote!(Or::reg(#ts)),
-            Operand::Ind(ind) => quote!(#ind),
+            RmiOperand::Imm(_) => unreachable!("immediate"),
+            RmiOperand::Reg(ts) => quote!(Or::reg(#ts)),
+            RmiOperand::Ind(ind) => quote!(#ind),
         };
         tokens.extend(ts);
     }
 }
 
-impl Operand {
+impl RmiOperand {
     pub fn reg(reg: Register) -> Self {
         Self::Reg(reg)
     }
