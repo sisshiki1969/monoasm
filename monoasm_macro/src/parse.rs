@@ -1,3 +1,4 @@
+use proc_macro2::Group;
 use proc_macro2::Punct;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
@@ -167,6 +168,68 @@ impl Register {
 
 ///----------------------------------------------------------------------
 ///
+///  Floating pointer register(xmm).
+///
+///----------------------------------------------------------------------
+#[derive(Clone, Debug)]
+pub struct Xmm(pub TokenStream);
+
+fn parse_xmm(input: ParseStream, ident: &String) -> Result<TokenStream, Error> {
+    assert!(ident.starts_with("xmm"));
+    if ident.len() == 3 {
+        if input.peek(token::Paren) {
+            let gr = input.parse::<Group>()?;
+            Ok(gr.stream())
+        } else {
+            Err(input.error(format!(
+                "Expected xmm register number. e.g. xmm0 or xmm(0) actual:{}",
+                ident,
+            )))
+        }
+    } else {
+        if let Ok(no) = ident[3..].parse::<u8>() {
+            if no > 15 {
+                Err(input.error(format!("Invalid xmm register name. {}", ident)))
+            } else {
+                Ok(quote!(#no as u64))
+            }
+        } else {
+            Err(input.error(format!("Invalid xmm register name. {}", ident)))
+        }
+    }
+}
+
+impl Parse for Xmm {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        if input.peek(Ident) {
+            let reg = input.parse::<Ident>()?.to_string();
+            if reg.starts_with("xmm") {
+                Ok(Xmm(parse_xmm(input, &reg)?))
+            } else {
+                Err(input.error("Expected xmm register name."))
+            }
+        } else {
+            Err(input.error("Expected xmm register name."))
+        }
+    }
+}
+
+impl std::fmt::Display for Xmm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "xmm({})", self.0)
+    }
+}
+
+impl ToTokens for Xmm {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let r = &self.0;
+        let ts = quote!(Or::reg(Reg::from(#r)));
+        tokens.extend(ts);
+    }
+}
+
+///----------------------------------------------------------------------
+///
 ///  Indirect addressing modes.
 ///
 ///----------------------------------------------------------------------
@@ -218,6 +281,10 @@ pub enum Flag {
     Ge,
     Lt,
     Le,
+    A,
+    Ae,
+    B,
+    Be,
 }
 
 ///----------------------------------------------------------------------

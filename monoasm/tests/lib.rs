@@ -16,6 +16,10 @@ mod tests {
         let data2 = jit.const_i64(100);
         let label = jit.label();
         monoasm!(jit,
+                ucomisd xmm1, xmm15;
+                ucomisd xmm1, [r15];
+                ucomisd xmm15, xmm15;
+                ucomisd xmm15, [r15];
                 cqo;
                 seteq rax;
                 setne rax;

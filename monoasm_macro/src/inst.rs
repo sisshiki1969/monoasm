@@ -70,13 +70,14 @@ pub enum Inst {
     Setcc(Flag, RmOperand),
     Cqo,
 
-    Movsd(XmmOperand, XmmOperand),
-    Addsd(XmmOperand, XmmOperand),
-    Subsd(XmmOperand, XmmOperand),
-    Mulsd(XmmOperand, XmmOperand),
-    Divsd(XmmOperand, XmmOperand),
+    Movsd(XmOperand, XmOperand),
+    Addsd(Xmm, XmOperand),
+    Subsd(Xmm, XmOperand),
+    Mulsd(Xmm, XmOperand),
+    Divsd(Xmm, XmOperand),
+    UComIsd(Xmm, XmOperand),
 
-    Cvtsi2sdq(XmmOperand, RmiOperand),
+    Cvtsi2sdq(Xmm, RmOperand),
 
     Pushq(RmiOperand),
     Popq(RmiOperand),
@@ -102,6 +103,10 @@ pub enum Cond {
     Ge,
     Lt,
     Le,
+    A,
+    Ae,
+    B,
+    Be,
 }
 
 impl Parse for Inst {
@@ -180,6 +185,10 @@ impl Parse for Inst {
                 "setge" => parse_set!(Setcc, Ge),
                 "setlt" => parse_set!(Setcc, Lt),
                 "setle" => parse_set!(Setcc, Le),
+                "seta" => parse_set!(Setcc, A),
+                "setae" => parse_set!(Setcc, Ae),
+                "setb" => parse_set!(Setcc, B),
+                "setbe" => parse_set!(Setcc, Be),
                 "cqo" => parse_0op!(Cqo),
 
                 "movsd" => parse_2op!(Movsd),
@@ -187,6 +196,7 @@ impl Parse for Inst {
                 "subsd" => parse_2op!(Subsd),
                 "mulsd" => parse_2op!(Mulsd),
                 "divsd" => parse_2op!(Divsd),
+                "ucomisd" => parse_2op!(UComIsd),
 
                 "cvtsi2sdq" => parse_2op!(Cvtsi2sdq),
 
@@ -202,6 +212,10 @@ impl Parse for Inst {
                 "jge" => parse_jcc!(Ge),
                 "jlt" => parse_jcc!(Lt),
                 "jle" => parse_jcc!(Le),
+                "jae" => parse_jcc!(Ae),
+                "ja" => parse_jcc!(A),
+                "jbe" => parse_jcc!(Be),
+                "jb" => parse_jcc!(B),
                 "syscall" => parse_0op!(Syscall),
 
                 "dq" => {
@@ -346,7 +360,7 @@ impl RmiOperand {
 ///
 ///----------------------------------------------------------------------
 #[derive(Clone, Debug)]
-pub enum XmmOperand {
+pub enum XmOperand {
     Xmm(TokenStream),
     Ind(IndAddr),
 }
@@ -376,7 +390,7 @@ fn parse_xmm(input: ParseStream, ident: &String) -> Result<TokenStream, Error> {
     }
 }
 
-impl Parse for XmmOperand {
+impl Parse for XmOperand {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         if input.peek(Ident) {
             let reg = input.parse::<Ident>()?.to_string();
@@ -393,7 +407,7 @@ impl Parse for XmmOperand {
     }
 }
 
-impl std::fmt::Display for XmmOperand {
+impl std::fmt::Display for XmOperand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Xmm(reg) => write!(f, "xmm({})", reg),
@@ -402,7 +416,7 @@ impl std::fmt::Display for XmmOperand {
     }
 }
 
-impl ToTokens for XmmOperand {
+impl ToTokens for XmOperand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
             Self::Xmm(ts) => quote!(Or::reg(Reg::from(#ts))),
