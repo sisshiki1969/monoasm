@@ -16,6 +16,9 @@ mod tests {
         let data2 = jit.const_i64(100);
         let label = jit.label();
         monoasm!(jit,
+                cmpb r15, 13;
+                cmpb r14, [r15];
+                cmpb [r15], r14;
                 ucomisd xmm1, xmm15;
                 ucomisd xmm1, [r15];
                 ucomisd xmm15, xmm15;

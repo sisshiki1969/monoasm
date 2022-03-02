@@ -376,6 +376,13 @@ impl JitMemory {
         self.modrm_digit(digit, rm.mode.encode(), rm.base);
         self.emit_disp_imm(rm.mode, imm);
     }
+
+    pub fn enc_rex_digit(&mut self, op: &[u8], rm: Or, digit: u8, imm: Imm) {
+        self.rex(Reg(0), rm.base, Reg(0));
+        self.emit(op);
+        self.modrm_digit(digit, rm.mode.encode(), rm.base);
+        self.emit_disp_imm(rm.mode, imm);
+    }
 }
 
 impl JitMemory {

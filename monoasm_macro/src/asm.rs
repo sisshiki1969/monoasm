@@ -21,6 +21,31 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Subq(op1, op2) => binary_op("SUB", 0x81, 0x29, 0x2b, 5, op1, op2),
         Inst::Xorq(op1, op2) => binary_op("XOR", 0x81, 0x31, 0x33, 6, op1, op2),
         Inst::Cmpq(op1, op2) => binary_op("CMP", 0x81, 0x39, 0x3b, 7, op1, op2),
+        Inst::Cmpb(op1, op2) => {
+            match (op1, op2) {
+                // cmp r/m8, imm8
+                // REX 80 /7 ib
+                (op1, RmiOperand::Imm(i)) => {
+                    quote! {
+                        let imm = (#i) as i64;
+                        if let Ok(imm) = i8::try_from(imm) {
+                            jit.enc_rex_digit(&[0x80], #op1, 7, Imm::B(imm));
+                        } else {
+                            panic!("{} is out of 8bit.", #i);
+                        }
+                    }
+                }
+                // cmp r/m8, r8
+                // REX 38 /r
+                // MR
+                (op1, RmiOperand::Reg(expr)) => quote! ( jit.enc_rex_mr(&[0x38], #expr, #op1); ),
+                // cmp r8, r/m8
+                // REX 3A /r
+                // RM
+                (RmOperand::Reg(expr), op2) => quote! ( jit.enc_rex_mr(&[0x3a], #expr, #op2); ),
+                (op1, op2) => unimplemented!("cmp {}, {}", op1, op2),
+            }
+        }
 
         Inst::Setcc(flag, op) => {
             let flag: u8 = match flag {
