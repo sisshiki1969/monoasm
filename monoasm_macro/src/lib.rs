@@ -7,7 +7,7 @@ extern crate quote;
 extern crate syn;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::parse_macro_input;
+use syn::{parse_macro_input, parse_quote};
 mod asm;
 mod inst;
 mod parse;
@@ -24,11 +24,6 @@ pub fn monoasm(tokens: TokenStream) -> TokenStream {
     let stmts = parse_macro_input!(tokens as inst::Stmts);
     let base = stmts.base;
     let mut ts = quote!(let mut jit = &mut #base;);
-    ts.extend(stmts.contents.into_iter().map(|stmt| {
-        let item = compile(stmt);
-        //#[cfg(debug_assertions)]
-        //eprintln!("{}", item);
-        item
-    }));
+    ts.extend(stmts.contents.into_iter().map(compile));
     ts.into()
 }
