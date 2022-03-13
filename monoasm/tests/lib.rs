@@ -15,7 +15,9 @@ mod tests {
         let data = jit.const_f64(3.5);
         let data2 = jit.const_i64(100);
         let label = jit.label();
+        let func = jit.label();
         monoasm!(jit,
+            func:
                 cmpb r15, 13;
                 cmpb r14, [r15];
                 cmpb [r15], r14;
@@ -85,15 +87,18 @@ mod tests {
                 //divsd xmm(0), [rax + 4];
                 ret;
         );
-        let func = jit.finalize::<f64, f64>();
+        jit.finalize();
+        let func = jit.get_label_addr(func);
         assert_eq!(3.5 * 2.3 * 100f64, func(2.3));
     }
 }
 
-fn syscall() -> fn(()) -> u64 {
+fn syscall() -> extern "C" fn(()) -> u64 {
     let hello = "こんにちは世界\n\0";
     let mut jit: JitMemory = JitMemory::new();
+    let func = jit.label();
     monoasm!(jit,
+    func:
         movq rdi, 1;
         movq rsi, (hello.as_ptr() as u64);
         movq rdx, (hello.len() as u64);
@@ -102,14 +107,17 @@ fn syscall() -> fn(()) -> u64 {
         ret;
     );
 
-    jit.finalize()
+    jit.finalize();
+    jit.get_label_addr(func)
 }
 
-fn hello() -> fn(()) -> () {
+fn hello() -> extern "C" fn(()) -> () {
     let hello = "hello world!\n\0";
     let mut jit: JitMemory = JitMemory::new();
     let label = jit.label();
+    let func = jit.label();
     monoasm!(jit,
+    func:
         // prologue
         pushq rbp;
         movq rbp, rsp;
@@ -132,26 +140,32 @@ fn hello() -> fn(()) -> () {
         popq rbp;
         ret;
     );
-    jit.finalize()
+    jit.finalize();
+    jit.get_label_addr(func)
 }
 
-fn div1() -> fn(u64) -> u64 {
+fn div1() -> extern "C" fn(u64) -> u64 {
     let mut jit: JitMemory = JitMemory::new();
+    let func = jit.label();
     monoasm!(jit,
+    func:
         movq rax, 63;
         movq rdx, 0;
         //movq rdi, 9;
         idiv rdi;
         ret;
     );
-    jit.finalize()
+    jit.finalize();
+    jit.get_label_addr(func)
 }
 
-fn div2() -> fn(u64) -> u64 {
+fn div2() -> extern "C" fn(u64) -> u64 {
     let mut jit: JitMemory = JitMemory::new();
     let divider = 7i64;
     let divider_ptr = &divider as *const i64;
+    let func = jit.label();
     monoasm!(jit,
+    func:
         movq rax, rdi;
         movq rdx, 0;
         movq rdi, (divider_ptr);
@@ -159,7 +173,8 @@ fn div2() -> fn(u64) -> u64 {
         idiv rdi;
         ret;
     );
-    jit.finalize()
+    jit.finalize();
+    jit.get_label_addr(func)
 }
 
 #[test]
@@ -170,12 +185,15 @@ fn div_test() {
     assert_eq!(9, func(63));
 }
 
-fn float() -> fn(f64) -> f64 {
+fn float() -> extern "C" fn(f64) -> f64 {
     let mut jit: JitMemory = JitMemory::new();
+    let func = jit.label();
     monoasm!(jit,
+    func:
         ret;
     );
-    jit.finalize()
+    jit.finalize();
+    jit.get_label_addr(func)
 }
 
 #[test]

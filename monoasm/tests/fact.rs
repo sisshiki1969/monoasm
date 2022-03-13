@@ -10,7 +10,7 @@ fn factorial() {
     assert_eq!(3628800, ret);
 }
 
-fn fac() -> fn(u64) -> u64 {
+fn fac() -> extern "C" fn(u64) -> u64 {
     let fmt = "%d\n\0";
     let mut jit: JitMemory = JitMemory::new();
     let printf_addr = libc::printf as u64;
@@ -73,5 +73,6 @@ fn fac() -> fn(u64) -> u64 {
         ret;
     );
 
-    jit.finalize()
+    jit.finalize();
+    jit.get_label_addr(fac)
 }

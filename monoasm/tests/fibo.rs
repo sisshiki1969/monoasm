@@ -10,7 +10,7 @@ fn fibonacci() {
     assert_eq!(9227465, ret);
 }
 
-fn fibo() -> fn(u64) -> u64 {
+fn fibo() -> extern "C" fn(u64) -> u64 {
     let mut jit: JitMemory = JitMemory::new();
     let putint_addr = test::PUTINT as u64;
     let fibo = jit.label();
@@ -77,5 +77,6 @@ fn fibo() -> fn(u64) -> u64 {
         ret;
     );
 
-    jit.finalize()
+    jit.finalize();
+    jit.get_label_addr(fibo)
 }

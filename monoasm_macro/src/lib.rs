@@ -7,7 +7,7 @@ extern crate quote;
 extern crate syn;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, parse_quote};
+use syn::parse_macro_input;
 mod asm;
 mod inst;
 mod parse;
