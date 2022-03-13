@@ -156,7 +156,7 @@ impl Reloc {
 }
 
 /// Relocation tabla.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Relocations(Vec<Reloc>);
 
 impl Relocations {

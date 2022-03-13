@@ -7,7 +7,10 @@
 use crate::*;
 //use monoasm_inst::Reg;
 use region::{protect, Protection};
-use std::alloc::{alloc, Layout};
+use std::{
+    alloc::{alloc, Layout},
+    io::Write,
+};
 
 /// Memory manager.
 #[derive(Debug)]
@@ -101,11 +104,13 @@ impl JitMemory {
     }
 
     /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
-    pub fn finalize<T, U>(&mut self) -> fn(T) -> U {
+    pub fn finalize(&mut self) {
         self.code_len = self.counter.0;
         self.resolve_constants();
         self.fill_relocs();
-        unsafe { mem::transmute(self.contents) }
+
+        #[cfg(debug_assertions)]
+        self.dump_code();
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
@@ -174,22 +179,26 @@ impl JitMemory {
 
     /// Resolve and fill all relocations.
     pub fn fill_relocs(&mut self) {
-        for rel in self.reloc.clone() {
+        let mut reloc = std::mem::take(&mut self.reloc);
+        for rel in reloc.iter() {
             if let Some(pos) = rel.loc {
-                for (size, dest) in rel.disp {
-                    let disp = pos.0 as i64 - dest.0 as i64 - size as i64;
+                for (size, dest) in &rel.disp {
+                    let disp = pos.0 as i64 - dest.0 as i64 - *size as i64;
                     if i32::min_value() as i64 > disp || disp > i32::max_value() as i64 {
                         panic!("Relocation overflow");
                     }
-                    self.write32(dest, disp as i32);
+                    self.write32(*dest, disp as i32);
                 }
             }
         }
+        reloc.iter_mut().for_each(|reloc| reloc.disp = vec![]);
+        self.reloc = reloc;
     }
 
     /// Resolve labels for constant data, and emit them to `contents`.
     fn resolve_constants(&mut self) {
-        for (val, label) in self.constants.clone() {
+        let constants = std::mem::take(&mut self.constants);
+        for (val, label) in constants {
             self.bind_label(label);
             self.emitq(val);
         }
@@ -476,5 +485,32 @@ impl JitMemory {
             Imm::L(l) => self.emitl(l as u32),
             Imm::Q(q) => self.emitq(q as u64),
         }
+    }
+}
+impl JitMemory {
+    /// Dump generated code.
+    fn dump_code(&self) {
+        use std::fs::File;
+        use std::process::Command;
+        let asm = self.to_vec();
+        let mut file = File::create("tmp.bin").unwrap();
+        file.write_all(&asm).unwrap();
+
+        let output = Command::new("objdump")
+            .args(&[
+                "-D",
+                "-Mintel,x86-64",
+                "-b",
+                "binary",
+                "-m",
+                "i386",
+                "tmp.bin",
+            ])
+            .output();
+        let asm = match &output {
+            Ok(output) => std::str::from_utf8(&output.stdout).unwrap().to_string(),
+            Err(err) => err.to_string(),
+        };
+        eprintln!("{}", asm);
     }
 }
