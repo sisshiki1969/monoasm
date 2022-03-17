@@ -213,6 +213,15 @@ impl JitMemory {
         unsafe { mem::transmute(adr.add(counter)) }
     }
 
+    pub fn get_label_u64(&mut self, label: DestLabel) -> u64 {
+        let counter = self.reloc[label]
+            .loc
+            .expect("The DestLabel has no position binding.")
+            .0;
+        let adr = self.contents;
+        unsafe { mem::transmute(adr.add(counter)) }
+    }
+
     /// Emit bytes.
     pub fn emit(&mut self, slice: &[u8]) {
         slice.iter().for_each(|b| self.emitb(*b));
