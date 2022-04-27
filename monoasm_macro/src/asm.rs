@@ -47,6 +47,8 @@ pub fn compile(inst: Inst) -> TokenStream {
             }
         }
 
+        Inst::Shlq(op1, op2) => shift_op(op1, op2),
+
         Inst::Setcc(flag, op) => {
             let flag: u8 = match flag {
                 Flag::Eq => 0x94,
@@ -336,6 +338,43 @@ fn binary_op(
         // RM
         (RmOperand::Reg(expr), op2) => quote! ( jit.enc_rexw_mr(&[#op_rm], #expr, #op2); ),
         (op1, op2) => unimplemented!("{} {}, {}", op_name, op1, op2),
+    }
+}
+
+// Shl r/m64, imm8
+// REX.W C1 /4 ib
+//
+// Shl r/m64, 1
+// REX.W D1 /4
+//
+// Shl r/m64, Cl
+// REX.W D3 /4
+fn shift_op(op1: RmOperand, op2: RiOperand) -> TokenStream {
+    match (op1, op2) {
+        (op1, RiOperand::Imm(i)) => {
+            let op1_str = format!("{}", op1);
+            // Shl r/m64, imm8
+            // REX.W C1 /4 ib
+            quote! {
+                let imm = (#i) as i64;
+                if let Ok(imm) = i8::try_from(imm) {
+                    jit.enc_rexw_digit(&[0xc1], #op1, 4, Imm::B(imm));
+                } else {
+                    panic!("'shl {}, imm' imm should be 8 bit.", #op1_str);
+                }
+            }
+        }
+        // Shl r/m64, Cl
+        // REX.W D3 /4
+        (op1, RiOperand::Reg(reg)) => {
+            let op1_str = format!("{}", op1);
+            quote! {
+                if !#reg.is_cl() {
+                    panic!("'shl {}, reg' reg should be CL.", #op1_str);
+                };
+                jit.enc_rexw_digit(&[0xd3], #op1, 4, Imm::None);
+            }
+        }
     }
 }
 

@@ -92,6 +92,10 @@ impl Reg {
     pub fn is_rip(&self) -> bool {
         self.0 == 16
     }
+
+    pub fn is_cl(&self) -> bool {
+        self.0 == 1
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]

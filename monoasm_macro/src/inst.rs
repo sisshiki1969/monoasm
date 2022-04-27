@@ -65,6 +65,8 @@ pub enum Inst {
     Cmpb(RmOperand, RmiOperand),
     Negq(RmOperand),
 
+    Shlq(RmOperand, RiOperand),
+
     Imul(RmiOperand, RmiOperand),
     Idiv(RmOperand),
 
@@ -191,6 +193,8 @@ impl Parse for Inst {
                 "setb" => parse_set!(Setcc, B),
                 "setbe" => parse_set!(Setcc, Be),
                 "cqo" => parse_0op!(Cqo),
+
+                "shlq" => parse_2op!(Shlq),
 
                 "movsd" => parse_2op!(Movsd),
                 "addsd" => parse_2op!(Addsd),
@@ -347,6 +351,66 @@ impl ToTokens for RmiOperand {
 }
 
 impl RmiOperand {
+    pub fn reg(reg: Register) -> Self {
+        Self::Reg(reg)
+    }
+
+    pub fn imm(imm: impl ToTokens) -> Self {
+        Self::Imm(quote! { #imm })
+    }
+}
+
+///----------------------------------------------------------------------
+///
+///  General register / immediate Operands.
+///
+///----------------------------------------------------------------------
+#[derive(Clone, Debug)]
+pub enum RiOperand {
+    Imm(TokenStream),
+    Reg(Register),
+}
+
+impl Parse for RiOperand {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        if input.peek(Ident) {
+            // e.g. "rax"
+            let reg = input.parse::<Register>()?;
+            Ok(RiOperand::reg(reg))
+        } else if input.peek(LitInt) && is_single(input) {
+            // e.g. "42"
+            let imm = input.parse::<LitInt>()?;
+            Ok(RiOperand::imm(imm))
+        } else if input.peek(token::Paren) {
+            // e.g. "(42)"
+            let gr = input.parse::<Group>()?;
+            Ok(RiOperand::Imm(gr.stream()))
+        } else {
+            Err(input.error("Expected register name, integer literal, memory reference, or Rust expression with parenthesis."))
+        }
+    }
+}
+
+impl std::fmt::Display for RiOperand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RiOperand::Imm(i) => write!(f, "{}", i),
+            RiOperand::Reg(reg) => write!(f, "{}", reg),
+        }
+    }
+}
+
+impl ToTokens for RiOperand {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let ts = match self {
+            RiOperand::Imm(_) => unreachable!("immediate"),
+            RiOperand::Reg(ts) => quote!(Or::reg(#ts)),
+        };
+        tokens.extend(ts);
+    }
+}
+
+impl RiOperand {
     pub fn reg(reg: Register) -> Self {
         Self::Reg(reg)
     }

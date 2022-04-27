@@ -72,6 +72,7 @@ impl Reg {
         let reg = match string.as_str() {
             "rax" => Reg::Rax,
             "rcx" => Reg::Rcx,
+            "cl" => Reg::Rcx,
             "rdx" => Reg::Rdx,
             "rbx" => Reg::Rbx,
             "rsp" => Reg::Rsp,
