@@ -3,5 +3,4 @@
 members = [
     "monoasm",
     "monoasm_macro",
-    "monoruby",
 ]
