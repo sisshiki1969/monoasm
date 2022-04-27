@@ -357,6 +357,9 @@ fn shift_op(op1: RmOperand, op2: RiOperand) -> TokenStream {
             // REX.W C1 /4 ib
             quote! {
                 let imm = (#i) as i64;
+                if imm == 1 {
+                    jit.enc_rexw_digit(&[0xd1], #op1, 4, Imm::None);
+                } else
                 if let Ok(imm) = i8::try_from(imm) {
                     jit.enc_rexw_digit(&[0xc1], #op1, 4, Imm::B(imm));
                 } else {
