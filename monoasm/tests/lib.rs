@@ -18,6 +18,17 @@ mod tests {
         let func = jit.label();
         monoasm!(jit,
             func:
+                seteq rax;
+                seteq rcx;
+                seteq rdx;
+                seteq rbx;
+                seteq rsp;
+                seteq rbp;
+                seteq rsi;
+                seteq rdi;
+                seteq r8;
+                seteq r9;
+                seteq r10;
                 shlq rax, 1;
                 shlq r14, 1;
                 shlq rax, 4;
