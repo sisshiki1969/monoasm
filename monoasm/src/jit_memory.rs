@@ -370,6 +370,42 @@ impl JitMemory {
         }
     }
 
+    /// This is used in "setcc r/m8".
+    pub fn enc_rex_mr2(&mut self, op: &[u8], rm: Or) {
+        if rm.base.is_rip() {
+            // For rip, only indirect addressing with disp32 ([rip + disp32]) is allowed.
+            // [rip] and [rip + disp8] are to be converted to [rip + disp32].
+            let rm = Or::rip_ind_from(rm);
+            self.emit_rex(Reg::from(0), rm.base, Reg(0));
+            self.emit(op);
+            self.modrm(Reg::from(0), 0, rm.base);
+        } else if rm.mode != Mode::Reg && (rm.base.0 & 0b111) == 4 {
+            // If mode != Reg and r/m == 4/12 (rsp/r12), use SIB.
+            match rm.mode {
+                Mode::Ind | Mode::InD8(_) | Mode::InD32(_) => {
+                    let index = Reg(4); // magic number
+                    let scale = 0;
+                    let base = rm.base;
+                    self.emit_rex(Reg::from(0), base, index);
+                    self.emit(op);
+                    self.modrm(Reg::from(0), rm.mode.encode(), base);
+                    self.sib(scale, index, base);
+                }
+                _ => unimplemented!(),
+            }
+        } else if rm.mode == Mode::Ind && (rm.base.0 & 0b111) == 5 {
+            // If mode == Ind and r/m == 5/13 (rbp/r13), use [rbp/r13 + 0(disp8)].
+            self.emit_rex(Reg::from(0), rm.base, Reg(0));
+            let mode = Mode::InD8(0);
+            self.emit(op);
+            self.modrm(Reg::from(0), mode.encode(), rm.base);
+        } else {
+            self.emit_rex(Reg::from(0), rm.base, Reg(0));
+            self.emit(op);
+            self.modrm(Reg::from(0), rm.mode.encode(), rm.base);
+        }
+    }
+
     /// Encoding: D  
     /// Op cd
     pub fn enc_d(&mut self, op: &[u8], dest: DestLabel) {
@@ -441,10 +477,14 @@ impl JitMemory {
 
     fn rex(&mut self, reg: Reg, base: Reg, index: Reg) {
         if reg.0 > 7 || base.0 > 7 || index.0 > 7 {
-            let rex_prefix =
-                0x40 | (reg.0 & 0b1000) >> 1 | (index.0 & 0b1000) >> 2 | (base.0 & 0b1000) >> 3;
-            self.emitb(rex_prefix);
+            self.emit_rex(reg, base, index);
         };
+    }
+
+    fn emit_rex(&mut self, reg: Reg, base: Reg, index: Reg) {
+        let rex_prefix =
+            0x40 | (reg.0 & 0b1000) >> 1 | (index.0 & 0b1000) >> 2 | (base.0 & 0b1000) >> 3;
+        self.emitb(rex_prefix);
     }
 
     fn op_with_rd(&mut self, op: u8, reg: Reg) {
