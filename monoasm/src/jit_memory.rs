@@ -12,23 +12,6 @@ use std::{
     io::Write,
 };
 
-/// Memory manager.
-#[derive(Debug)]
-pub struct JitMemory {
-    /// Pointer to the heap.
-    contents: *mut u8,
-    /// Current position
-    counter: Pos,
-    /// Current label id.
-    label_count: usize,
-    /// Relocation information.
-    reloc: Relocations,
-    /// Constants section.
-    constants: Vec<(u64, DestLabel)>,
-    /// Machine code length
-    code_len: usize,
-}
-
 pub enum Imm {
     None,
     B(i8),
@@ -47,6 +30,23 @@ impl Imm {
             Self::Q(_) => 8,
         }
     }
+}
+
+/// Memory manager.
+#[derive(Debug)]
+pub struct JitMemory {
+    /// Pointer to the heap.
+    contents: *mut u8,
+    /// Current position
+    counter: Pos,
+    /// Current label id.
+    label_count: usize,
+    /// Relocation information.
+    reloc: Relocations,
+    /// Constants section.
+    constants: Vec<(u64, DestLabel)>,
+    /// Machine code length
+    code_len: usize,
 }
 
 impl Index<Pos> for JitMemory {
@@ -165,11 +165,15 @@ impl JitMemory {
     }
 
     /// Bind the current location to `label`.
-    pub fn get_label_pos(&mut self, label: DestLabel) -> usize {
+    pub fn get_label_pos(&self, label: DestLabel) -> usize {
         self.reloc[label]
             .loc
             .expect("The DestLabel has no position binding.")
             .0
+    }
+
+    pub fn get_label_absolute_address(&self, label: DestLabel) -> *const u8 {
+        unsafe { self.contents.add(self.get_label_pos(label)) }
     }
 
     /// Save relocaton slot for `DestLabel`.
