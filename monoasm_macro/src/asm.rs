@@ -13,6 +13,7 @@ pub fn compile(inst: Inst) -> TokenStream {
         }
 
         Inst::Movq(op1, op2) => movq(op1, op2),
+        Inst::Movl(op1, op2) => movl(op1, op2),
         Inst::Addq(op1, op2) => binary_op("ADD", 0x81, 0x01, 0x03, 0, op1, op2),
         Inst::Orq(op1, op2) => binary_op("OR", 0x81, 0x09, 0x0b, 1, op1, op2),
         Inst::Adcq(op1, op2) => binary_op("ADC", 0x81, 0x11, 0x13, 2, op1, op2),
@@ -285,6 +286,49 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
         // REX.W + 8B /r
         // RM
         (MovOperand::Reg(op1), op2) => quote!( jit.enc_rexw_mr(&[0x8b], #op1, #op2); ),
+        (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
+    }
+}
+
+fn movl(op1: RmOperand, op2: RmiOperand) -> TokenStream {
+    match (op1, op2) {
+        // MOV r32, imm32
+        // B8+ rd id
+        // OI
+        (RmOperand::Reg(expr), RmiOperand::Imm(i)) => {
+            quote!(
+                let imm = (#i) as i64;
+                if let Ok(imm) = i32::try_from(imm) {
+                    // MOV r32, imm32
+                    jit.enc_oi(0xb8, #expr);
+                    jit.emitl(imm as u32);
+                } else {
+                    panic!("'MOVL {:?}, imm64' does not exists.", #expr);
+                };
+            )
+        }
+        // MOV r/m32, imm32
+        // C7 /0 id
+        // MI
+        (op1, RmiOperand::Imm(i)) => {
+            let op1_str = format!("{}", op1);
+            quote! {
+                let imm = (#i) as i64;
+                if let Ok(imm) = i32::try_from(imm)  {
+                    jit.enc_rex_mi(0xc7, #op1, Imm::L(imm));
+                } else {
+                    panic!("'MOVL {}, imm64' does not exists.", #op1_str);
+                }
+            }
+        }
+        // MOV r/m32, r32
+        // 89 /r
+        // MR
+        (op1, RmiOperand::Reg(expr)) => quote!( jit.enc_rex_mr(&[0x89], #expr, #op1); ),
+        // MOV r32, m32
+        // 8B /r
+        // RM
+        (RmOperand::Reg(op1), op2) => quote!( jit.enc_rex_mr(&[0x8b], #op1, #op2); ),
         (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
     }
 }

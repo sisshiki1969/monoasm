@@ -283,6 +283,14 @@ impl JitMemory {
     }
 
     /// Encoding: Opcode +rd  
+    /// Op+ rd
+    pub fn enc_oi(&mut self, op: u8, reg: Reg) {
+        assert!(!reg.is_rip());
+        self.rex(Reg(0), reg, Reg(0));
+        self.op_with_rd(op, reg);
+    }
+
+    /// Encoding: Opcode +rd  
     /// REX.W Op+ rd
     pub fn enc_rexw_o(&mut self, op: u8, reg: Reg) {
         assert!(!reg.is_rip());
@@ -294,6 +302,12 @@ impl JitMemory {
     /// REX.W Op ModRM:r/m
     pub fn enc_rexw_mi(&mut self, op: u8, rm_op: Or, imm: Imm) {
         self.enc_mr_main(&[op], true, Reg(0), rm_op, imm);
+    }
+
+    /// Encoding: MI  
+    /// Op ModRM:r/m
+    pub fn enc_rex_mi(&mut self, op: u8, rm_op: Or, imm: Imm) {
+        self.enc_mr_main(&[op], false, Reg(0), rm_op, imm);
     }
 
     /// REX.W Op ModRM

@@ -54,6 +54,7 @@ pub enum Inst {
     I64(i64),
 
     Movq(MovOperand, MovOperand),
+    Movl(RmOperand, RmiOperand),
     Addq(RmOperand, RmiOperand),
     Orq(RmOperand, RmiOperand),
     Adcq(RmOperand, RmiOperand),
@@ -172,6 +173,7 @@ impl Parse for Inst {
         } else {
             match ident.to_string().as_str() {
                 "movq" => parse_2op!(Movq),
+                "movl" => parse_2op!(Movl),
                 "addq" => parse_2op!(Addq),
                 "orq" => parse_2op!(Orq),
                 "adcq" => parse_2op!(Adcq),
