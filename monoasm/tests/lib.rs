@@ -18,6 +18,13 @@ mod tests {
         let func = jit.label();
         monoasm!(jit,
             func:
+                lea rax, [rip + func];
+                lea rax, [rip + 0];
+                lea r15, [r15 + 8];
+                lea r15, [r15 + 0];
+                leave;
+                movq [rip + 8], 100;
+                //movl rax, 0xffff_ffff; this raise runtime error.
                 movl rax, 0x7fff_ffff;
                 movl r13, 3;
                 movl [rax + 5], 0x7fff_ffff;

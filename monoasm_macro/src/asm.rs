@@ -115,6 +115,15 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Mulsd(op1, op2) => binary_sd_op(0x59, op1, op2),
         Inst::Divsd(op1, op2) => binary_sd_op(0x5e, op1, op2),
 
+        Inst::Lea(op1, op2) => match (op1, op2) {
+            (RmOperand::Reg(op1), RmOperand::Ind(op2)) => quote! {
+                jit.enc_rexw_mr(&[0x8d], #op1, #op2);
+            },
+            (op1, op2) => {
+                panic!("'Lea {}, {}' does not exists.", op1, op2)
+            }
+        },
+
         Inst::Cvtsi2sdq(Xmm(op1), op2) => {
             quote! {
                 jit.emitb(0xf2);
@@ -206,9 +215,6 @@ pub fn compile(inst: Inst) -> TokenStream {
             quote!( jit.enc_d(&[0x0f, #cond], #dest); )
         }
 
-        Inst::Syscall => quote!(
-            jit.emit(&[0x0f, 0x05]);
-        ),
         Inst::UComIsd(op1, op2) => {
             let op1 = op1.0;
             quote!(
@@ -216,6 +222,13 @@ pub fn compile(inst: Inst) -> TokenStream {
                 jit.enc_rex_mr(&[0x0f, 0x2e], Reg::from(#op1), #op2);
             )
         }
+
+        Inst::Syscall => quote!(
+            jit.emit(&[0x0f, 0x05]);
+        ),
+        Inst::Leave => quote!(
+            jit.emitb(0xc9);
+        ),
     }
 }
 
@@ -303,7 +316,7 @@ fn movl(op1: RmOperand, op2: RmiOperand) -> TokenStream {
                     jit.enc_oi(0xb8, #expr);
                     jit.emitl(imm as u32);
                 } else {
-                    panic!("'MOVL {:?}, imm64' does not exists.", #expr);
+                    panic!("'MOVL {}, imm64' does not exists.", #expr);
                 };
             )
         }
@@ -439,6 +452,6 @@ fn push_pop(opcode: u8, op: RmiOperand) -> TokenStream {
         // 50 +rd       58 +rd
         // O            O
         RmiOperand::Reg(reg) => quote! ( jit.enc_o(#opcode, #reg); ),
-        op => unimplemented!("PUSH/POP {:?}", op),
+        op => unimplemented!("PUSH/POP {}", op),
     }
 }

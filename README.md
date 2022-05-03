@@ -19,6 +19,8 @@ The assembly code is assembled in compile time, and embedded as a code generator
 
 ### general register operation
 
+#### quad word operation
+
 - movq
 - addq
 - orq
@@ -35,12 +37,22 @@ The assembly code is assembled in compile time, and embedded as a code generator
 
 - negq
 
+- shlq
+
 - seteq
 - setne
 - setgt
 - setge
 - setlt
 - setle
+
+#### double word operation
+
+- movl
+
+#### byte operation
+
+- cmpb
 
 ### floating point operation
 
@@ -50,6 +62,7 @@ The assembly code is assembled in compile time, and embedded as a code generator
 - mulsd
 - divsd
 - cvtsi2sdq
+- ucomisd
 
 ### stack operation
 
@@ -71,6 +84,7 @@ The assembly code is assembled in compile time, and embedded as a code generator
 ### misc
 
 - syscall
+- leave
 
 ### constant data
 

@@ -71,6 +71,8 @@ pub enum Inst {
     Imul(RmiOperand, RmiOperand),
     Idiv(RmOperand),
 
+    Lea(RmOperand, RmOperand),
+
     Setcc(Flag, RmOperand),
     Cqo,
 
@@ -90,6 +92,7 @@ pub enum Inst {
     Jcc(Cond, Ident),
 
     Call(Dest),
+    Leave,
     Ret,
     Syscall,
 }
@@ -184,6 +187,9 @@ impl Parse for Inst {
                 "negq" => parse_1op!(Negq),
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
+
+                "lea" => parse_2op!(Lea),
+
                 "seteq" => parse_set!(Setcc, Eq),
                 "setne" => parse_set!(Setcc, Ne),
                 "setgt" => parse_set!(Setcc, Gt),
@@ -225,6 +231,7 @@ impl Parse for Inst {
                 "jbe" => parse_jcc!(Be),
                 "jb" => parse_jcc!(B),
                 "syscall" => parse_0op!(Syscall),
+                "leave" => parse_0op!(Leave),
 
                 "dq" => {
                     if input.peek(LitFloat) {
