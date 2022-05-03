@@ -362,14 +362,14 @@ impl JitMemory {
         self.encode(op, Rex::None, ModRM::Digit(digit), rm, Imm::None);
     }
 
+    pub fn enc_m_digit_imm(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {
+        self.encode(op, Rex::None, ModRM::Digit(digit), rm, imm);
+    }
+
     /// Encoding: /n  
     /// REX.W Op /n
     pub fn enc_rexw_digit(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {
         self.encode(op, Rex::REXW, ModRM::Digit(digit), rm, imm);
-    }
-
-    pub fn enc_rex_digit(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {
-        self.encode(op, Rex::None, ModRM::Digit(digit), rm, imm);
     }
 
     fn encode(&mut self, op: &[u8], rex: Rex, modrm_mode: ModRM, rm: Rm, imm: Imm) {

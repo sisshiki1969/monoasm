@@ -30,7 +30,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                     quote! {
                         let imm = (#i) as i64;
                         if let Ok(imm) = i8::try_from(imm) {
-                            jit.enc_rex_digit(&[0x80], #op1, 7, Imm::B(imm));
+                            jit.enc_m_digit_imm(&[0x80], #op1, 7, Imm::B(imm));
                         } else {
                             panic!("{} is out of 8bit.", #i);
                         }
