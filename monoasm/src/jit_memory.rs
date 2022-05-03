@@ -121,7 +121,7 @@ impl JitMemory {
         self.fill_relocs();
 
         #[cfg(debug_assertions)]
-        self.dump_code();
+        eprintln!("{}", self.dump_code().unwrap());
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
@@ -130,6 +130,10 @@ impl JitMemory {
         let slice = unsafe { std::slice::from_raw_parts(self.contents, self.code_len) };
         v.extend_from_slice(slice);
         v
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.contents, self.code_len) }
     }
 
     pub fn get_current(&self) -> usize {
@@ -522,14 +526,14 @@ impl JitMemory {
 }
 impl JitMemory {
     /// Dump generated code.
-    fn dump_code(&self) {
+    pub fn dump_code(&self) -> Result<String, std::io::Error> {
         use std::fs::File;
         use std::process::Command;
         let asm = self.to_vec();
         let mut file = File::create("tmp.bin").unwrap();
         file.write_all(&asm).unwrap();
 
-        let output = Command::new("objdump")
+        Command::new("objdump")
             .args(&[
                 "-D",
                 "-Mintel,x86-64",
@@ -539,11 +543,19 @@ impl JitMemory {
                 "i386",
                 "tmp.bin",
             ])
-            .output();
-        let asm = match &output {
-            Ok(output) => std::str::from_utf8(&output.stdout).unwrap().to_string(),
-            Err(err) => err.to_string(),
-        };
-        eprintln!("{}", asm);
+            .output()
+            .map(|o| {
+                std::str::from_utf8(&o.stdout)
+                    .unwrap()
+                    .to_string()
+                    .split_inclusive('\n')
+                    .filter(|s| {
+                        s.len() > 1
+                            && !s.contains("file format binary")
+                            && !s.contains("Disassembly of section")
+                            && !s.contains("<.data>")
+                    })
+                    .collect()
+            })
     }
 }

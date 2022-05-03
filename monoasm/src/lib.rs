@@ -5,7 +5,7 @@ mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
 
-const PAGE_SIZE: usize = 4096;
+const PAGE_SIZE: usize = 4096 * 256;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Mode {

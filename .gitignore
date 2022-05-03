@@ -3,4 +3,4 @@
 **/*.rs.bk
 a.out
 *.s
-tmp.bin
+*.bin
