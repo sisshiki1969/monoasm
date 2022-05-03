@@ -63,7 +63,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                 Flag::B => 0x92,
                 Flag::Be => 0x96,
             };
-            quote!( jit.enc_rex_mr2(&[0x0f, #flag], #op); )
+            quote!( jit.enc_rex_m(&[0x0f, #flag], #op); )
         }
 
         Inst::Cqo => {
