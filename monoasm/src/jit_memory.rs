@@ -301,38 +301,34 @@ impl JitMemory {
     /// Encoding: MI  
     /// REX.W Op ModRM:r/m
     pub fn enc_rexw_mi(&mut self, op: u8, rm_op: Or, imm: Imm) {
-        self.enc_mr_main(&[op], true, Reg(0), rm_op, imm);
+        self.enc_mr_main(&[op], true, ModRMMode::Reg(Reg(0)), rm_op, imm);
     }
 
     /// Encoding: MI  
     /// Op ModRM:r/m
     pub fn enc_rex_mi(&mut self, op: u8, rm_op: Or, imm: Imm) {
-        self.enc_mr_main(&[op], false, Reg(0), rm_op, imm);
+        self.enc_mr_main(&[op], false, ModRMMode::Reg(Reg(0)), rm_op, imm);
     }
 
     /// REX.W Op ModRM
     /// MR-> ModRM:r/m(w) ModRM:reg(r)
     /// RM-> ModRM:reg(r) ModRM:r/m(w)
     pub fn enc_rexw_mr(&mut self, op: &[u8], reg: Reg, rm_op: Or) {
-        self.enc_mr_main(op, true, reg, rm_op, Imm::None);
+        self.enc_mr_main(op, true, ModRMMode::Reg(reg), rm_op, Imm::None);
     }
 
     /// REX Op ModRM
     /// MR-> ModRM:r/m(w) ModRM:reg(r)
     /// RM-> ModRM:reg(r) ModRM:r/m(w)
     pub fn enc_rex_mr(&mut self, op: &[u8], reg: Reg, rm_op: Or) {
-        self.enc_mr_main(op, false, reg, rm_op, Imm::None);
+        self.enc_mr_main(op, false, ModRMMode::Reg(reg), rm_op, Imm::None);
     }
 
-    pub fn enc_mr_main(
-        &mut self,
-        op: &[u8],
-        //rex: fn(&mut Self, Reg, Reg, Reg),
-        is_rexw: bool,
-        reg: Reg,
-        rm: Or,
-        imm: Imm,
-    ) {
+    fn enc_mr_main(&mut self, op: &[u8], is_rexw: bool, modrm_mode: ModRMMode, rm: Or, imm: Imm) {
+        let reg = match modrm_mode {
+            ModRMMode::Digit(_) => Reg(0),
+            ModRMMode::Reg(r) => r,
+        };
         assert!(!reg.is_rip());
         if rm.base.is_rip() {
             // For rip, only indirect addressing with disp32 ([rip + disp32]) is allowed.
@@ -344,7 +340,7 @@ impl JitMemory {
                 self.rex(reg, rm.base, Reg(0));
             }
             self.emit(op);
-            self.modrm(reg, 0, rm.base);
+            self.modrm_generic(modrm_mode, 0, rm.base);
             self.emit_disp_imm(rm.mode, imm);
         } else if rm.mode != Mode::Reg && (rm.base.0 & 0b111) == 4 {
             // If mode != Reg and r/m == 4/12 (rsp/r12), use SIB.
@@ -359,7 +355,7 @@ impl JitMemory {
                         self.rex(reg, base, index);
                     }
                     self.emit(op);
-                    self.modrm(reg, rm.mode.encode(), base);
+                    self.modrm_generic(modrm_mode, rm.mode.encode(), base);
                     self.sib(scale, index, base);
                     self.emit_disp_imm(rm.mode, imm);
                 }
@@ -374,7 +370,7 @@ impl JitMemory {
             }
             let mode = Mode::InD8(0);
             self.emit(op);
-            self.modrm(reg, mode.encode(), rm.base);
+            self.modrm_generic(modrm_mode, mode.encode(), rm.base);
             self.emit_disp_imm(mode, imm);
         } else {
             if is_rexw {
@@ -383,7 +379,7 @@ impl JitMemory {
                 self.rex(reg, rm.base, Reg(0));
             }
             self.emit(op);
-            self.modrm(reg, rm.mode.encode(), rm.base);
+            self.modrm_generic(modrm_mode, rm.mode.encode(), rm.base);
             self.emit_disp_imm(rm.mode, imm);
         }
     }
@@ -457,6 +453,11 @@ impl JitMemory {
     }
 }
 
+enum ModRMMode {
+    Reg(Reg),
+    Digit(u8),
+}
+
 impl JitMemory {
     /// ModRM
     /// +-------+---+---+---+---+---+---+---+---+
@@ -467,12 +468,21 @@ impl JitMemory {
     /// |  rex  |       |     r     |     b     |
     /// +-------+-------+-----------+-----------+
     fn modrm_digit(&mut self, digit: u8, mode: u8, base: Reg) {
-        let modrm = mode << 6 | (digit & 0b111) << 3 | (base.0 & 0b111);
-        self.emitb(modrm);
+        self.modrm_generic(ModRMMode::Digit(digit), mode, base)
     }
 
     fn modrm(&mut self, reg: Reg, mode: u8, base: Reg) {
-        let modrm = mode << 6 | (reg.0 & 0b111) << 3 | (base.0 & 0b111);
+        self.modrm_generic(ModRMMode::Reg(reg), mode, base)
+    }
+
+    fn modrm_generic(&mut self, modrm_mode: ModRMMode, mode: u8, base: Reg) {
+        let modrm = mode << 6
+            | (match modrm_mode {
+                ModRMMode::Digit(d) => d,
+                ModRMMode::Reg(r) => r.0,
+            } & 0b111)
+                << 3
+            | (base.0 & 0b111);
         self.emitb(modrm);
     }
 
