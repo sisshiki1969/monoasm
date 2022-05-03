@@ -48,6 +48,41 @@ pub fn compile(inst: Inst) -> TokenStream {
             }
         }
 
+        Inst::Testq(op1, op2) => match (op1, op2) {
+            (op1, RmiOperand::Imm(i)) => {
+                let op1_str = format!("{}", op1);
+                match &op1 {
+                    RmOperand::Reg(reg) => {
+                        quote! {
+                            let imm = (#i) as i64;
+                            if let Ok(imm) = i32::try_from(imm)  {
+                                if #reg.is_rax() {
+                                    jit.emit(&[0x48, 0xa9]);
+                                    jit.emitl(imm as u32)
+                                } else {
+                                    jit.enc_rexw_mi(0xf7, #op1, Imm::L(imm));
+                                }
+                            } else {
+                                panic!("'TEST {}, imm64' does not exists.", #op1_str);
+                            }
+                        }
+                    }
+                    _ => {
+                        quote! {
+                            let imm = (#i) as i64;
+                            if let Ok(imm) = i32::try_from(imm)  {
+                                jit.enc_rexw_mi(0xf7, #op1, Imm::L(imm));
+                            } else {
+                                panic!("'TEST {}, imm64' does not exists.", #op1_str);
+                            }
+                        }
+                    }
+                }
+            }
+            (op1, RmiOperand::Reg(expr)) => quote!( jit.enc_rexw_mr(&[0x85], #expr, #op1); ),
+            _ => unimplemented!(),
+        },
+
         Inst::Shlq(op1, op2) => shift_op(op1, op2),
 
         Inst::Setcc(flag, op) => {

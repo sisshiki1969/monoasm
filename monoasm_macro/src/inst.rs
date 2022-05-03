@@ -73,6 +73,8 @@ pub enum Inst {
 
     Lea(RmOperand, RmOperand),
 
+    Testq(RmOperand, RmiOperand),
+
     Setcc(Flag, RmOperand),
     Cqo,
 
@@ -188,6 +190,7 @@ impl Parse for Inst {
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
 
+                "testq" => parse_2op!(Testq),
                 "lea" => parse_2op!(Lea),
 
                 "seteq" => parse_set!(Setcc, Eq),

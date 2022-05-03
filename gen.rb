@@ -68,7 +68,7 @@ EOS
     end.join + "\n"
   end
 
-  def self.r_i
+  def self.rm_i
     @monoasm += REG.map do |r|
       "\t#{@inst} #{r}, 16;\n" +
       "\t#{@inst} [#{r}], 16;\n" +
@@ -86,7 +86,21 @@ EOS
     @monoasm += REG.map do |r1|
       REG.map do |r2|
         "\t#{@inst} [#{r1}], #{r2};\n" +
-        "\t#{@inst} [#{r1} + 16], #{r2};\n" +
+        "\t#{@inst} [#{r1} + 16], #{r2};\n"
+      end.join + "\n"
+    end.join + "\n"
+
+    @asm += REG.map do |r1|
+      REG.map do |r2|
+        "\t#{@asm_inst} QWORD PTR [#{r1}], #{r2};\n" +
+        "\t#{@asm_inst} QWORD PTR [#{r1} + 16], #{r2};\n"
+      end.join + "\n"
+    end.join + "\n"
+  end
+
+  def self.r_m
+    @monoasm += REG.map do |r1|
+      REG.map do |r2|
         "\t#{@inst} #{r1}, [#{r2}];\n" +
         "\t#{@inst} #{r1}, [#{r2} + 16];\n"
       end.join + "\n"
@@ -94,8 +108,6 @@ EOS
 
     @asm += REG.map do |r1|
       REG.map do |r2|
-        "\t#{@asm_inst} QWORD PTR [#{r1}], #{r2};\n" +
-        "\t#{@asm_inst} QWORD PTR [#{r1} + 16], #{r2};\n" +
         "\t#{@asm_inst} #{r1}, QWORD PTR [#{r2}];\n" +
         "\t#{@asm_inst} #{r1}, QWORD PTR [#{r2} + 16];\n"
       end.join + "\n"
@@ -104,8 +116,9 @@ EOS
 
   def self.gen
     r_r
-    r_i
+    rm_i
     m_r
+    r_m
   end
 
   def self.make_file
@@ -179,7 +192,18 @@ class Cmp < Inst
   @asm_inst = "cmp"
 end
 
-instructions = [Mov, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp]
+class Test < Inst
+  @inst = "testq"
+  @asm_inst = "test"
+
+  def self.gen
+    r_r
+    rm_i
+    m_r
+  end
+end
+
+instructions = [Mov, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Test]
 instructions.map do |inst|
   inst.make_file
 end
