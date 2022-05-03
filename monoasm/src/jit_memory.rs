@@ -335,6 +335,11 @@ impl JitMemory {
         self.encode(op, Rex::None, ModRM::Reg(reg), rm_op, Imm::None);
     }
 
+    /// This is used in "setcc r/m8".
+    pub fn enc_rex_m(&mut self, op: &[u8], rm: Or) {
+        self.encode(op, Rex::REX, ModRM::Reg(Reg(0)), rm, Imm::None);
+    }
+
     /// Encoding: D  
     /// Op cd
     pub fn enc_d(&mut self, op: &[u8], dest: DestLabel) {
@@ -408,44 +413,6 @@ impl JitMemory {
             self.modrm(modrm_mode, rm.mode.encode(), rm.base);
             self.emit_disp_imm(rm.mode, imm);
         }
-    }
-
-    /// This is used in "setcc r/m8".
-    pub fn enc_rex_m(&mut self, op: &[u8], rm: Or) {
-        self.encode(op, Rex::REX, ModRM::Reg(Reg(0)), rm, Imm::None);
-        /*
-        if rm.base.is_rip() {
-            // For rip, only indirect addressing with disp32 ([rip + disp32]) is allowed.
-            // [rip] and [rip + disp8] are to be converted to [rip + disp32].
-            let rm = Or::rip_ind_from(rm);
-            self.rex(Reg(0), rm.base, Reg(0));
-            self.emit(op);
-            self.modrm(ModRM::Reg(Reg(0)), 0, rm.base);
-        } else if rm.mode != Mode::Reg && (rm.base.0 & 0b111) == 4 {
-            // If mode != Reg and r/m == 4/12 (rsp/r12), use SIB.
-            match rm.mode {
-                Mode::Ind | Mode::InD8(_) | Mode::InD32(_) => {
-                    let index = Reg(4); // magic number
-                    let scale = 0;
-                    let base = rm.base;
-                    self.rex(Reg(0), base, index);
-                    self.emit(op);
-                    self.modrm(ModRM::Reg(Reg(0)), rm.mode.encode(), base);
-                    self.sib(scale, index, base);
-                }
-                _ => unimplemented!(),
-            }
-        } else if rm.mode == Mode::Ind && (rm.base.0 & 0b111) == 5 {
-            // If mode == Ind and r/m == 5/13 (rbp/r13), use [rbp/r13 + 0(disp8)].
-            self.rex(Reg(0), rm.base, Reg(0));
-            let mode = Mode::InD8(0);
-            self.emit(op);
-            self.modrm(ModRM::Reg(Reg(0)), mode.encode(), rm.base);
-        } else {
-            self.rex(Reg(0), rm.base, Reg(0));
-            self.emit(op);
-            self.modrm(ModRM::Reg(Reg(0)), rm.mode.encode(), rm.base);
-        }*/
     }
 }
 
