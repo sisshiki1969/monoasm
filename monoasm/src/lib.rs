@@ -7,13 +7,6 @@ pub use jit_memory::*;
 
 const PAGE_SIZE: usize = 4096;
 
-/// Operands.
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub struct Or {
-    base: Reg,
-    mode: Mode,
-}
-
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Mode {
     Reg,
@@ -49,7 +42,14 @@ impl Mode {
     }
 }
 
-impl Or {
+/// Operands.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Rm {
+    base: Reg,
+    mode: Mode,
+}
+
+impl Rm {
     pub fn reg(base: Reg) -> Self {
         Self {
             base,
@@ -61,7 +61,7 @@ impl Or {
         Self { base, mode }
     }
 
-    pub fn rip_ind_from(rm: Or) -> Self {
+    pub fn rip_ind_from(rm: Rm) -> Self {
         let disp = match rm.mode {
             Mode::Reg => unimplemented!(),
             Mode::InD32(d) => d,

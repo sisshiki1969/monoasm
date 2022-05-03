@@ -224,7 +224,7 @@ impl std::fmt::Display for Xmm {
 impl ToTokens for Xmm {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let r = &self.0;
-        let ts = quote!(Or::reg(Reg::from(#r)));
+        let ts = quote!(Rm::reg(Reg::from(#r)));
         tokens.extend(ts);
     }
 }
@@ -265,7 +265,7 @@ impl std::fmt::Display for IndAddr {
 impl ToTokens for IndAddr {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let Self { base, disp } = self;
-        tokens.extend(quote!( Or::new(#base, #disp) ));
+        tokens.extend(quote!( Rm::new(#base, #disp) ));
     }
 }
 

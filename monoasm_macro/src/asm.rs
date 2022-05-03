@@ -131,8 +131,8 @@ pub fn compile(inst: Inst) -> TokenStream {
             }
         }
 
-        Inst::Pushq(op) => push_pop(0x50, op),
-        Inst::Popq(op) => push_pop(0x58, op),
+        Inst::Pushq(op) => push_pop(0x50, (0xff, 6), op),
+        Inst::Popq(op) => push_pop(0x58, (0x8f, 0), op),
 
         Inst::Call(dest) => match dest {
             Dest::Reg(r) => {
@@ -237,7 +237,7 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
         (MovOperand::Xmm(op1), op2) => match &op2 {
             MovOperand::Imm(_) => panic!("'MOV xmm, Imm' does not exists."),
             MovOperand::Reg(op2) => quote! {
-                let op2 = Or::reg(#op2);
+                let op2 = Rm::reg(#op2);
                 jit.emitb(0x66);
                 jit.enc_rexw_mr(&[0x0f, 0x6e],  Reg::from(#op1), op2);
             },
@@ -257,7 +257,7 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
         (MovOperand::Reg(expr), MovOperand::Imm(i)) => {
             quote!(
                 let imm = (#i) as i64;
-                let rm_op = Or::reg(#expr);
+                let rm_op = Rm::reg(#expr);
                 if let Ok(imm) = i32::try_from(imm) {
                     // MOV r/m64, imm32
                     jit.enc_rexw_mi(0xc7, rm_op, Imm::L(imm));
@@ -287,7 +287,7 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
         // MR
         (op1, MovOperand::Reg(expr)) => quote!( jit.enc_rexw_mr(&[0x89], #expr, #op1); ),
         (MovOperand::Reg(op1), MovOperand::Xmm(op2)) => quote! {
-            let op1 = Or::reg(#op1);
+            let op1 = Rm::reg(#op1);
             jit.emitb(0x66);
             jit.enc_rexw_mr(&[0x0f, 0x7e],  Reg::from(#op2), op1);
         },
@@ -368,7 +368,7 @@ fn binary_op(
             quote! {
                 let imm = (#i) as i64;
                 if let Ok(imm) = i32::try_from(imm) {
-                    let rm_op = Or::reg(#expr);
+                    let rm_op = Rm::reg(#expr);
                     jit.enc_rexw_digit(&[#op_imm], rm_op, #digit, Imm::L(imm));
                 } else {
                     panic!("{} {:?}, imm64' does not exists.", #op_name, #expr);
@@ -446,12 +446,18 @@ fn binary_sd_op(operand: u8, op1: Xmm, op2: XmOperand) -> TokenStream {
     }
 }
 
-fn push_pop(opcode: u8, op: RmiOperand) -> TokenStream {
+fn push_pop(opcode_r: u8, opcode_m: (u8, u8), op: RmOperand) -> TokenStream {
     match op {
         // PUSH r64     POP r64
         // 50 +rd       58 +rd
         // O            O
-        RmiOperand::Reg(reg) => quote! ( jit.enc_o(#opcode, #reg); ),
-        op => unimplemented!("PUSH/POP {}", op),
+        RmOperand::Reg(reg) => quote! ( jit.enc_o(#opcode_r, #reg); ),
+        // PUSH r/m64   POP r/m64
+        // ff /6        8f /0
+        // M            M
+        op => {
+            let (opcode, digit) = opcode_m;
+            quote! ( jit.enc_m_digit(&[#opcode], #op, #digit); )
+        }
     }
 }

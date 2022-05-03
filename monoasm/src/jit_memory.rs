@@ -311,32 +311,32 @@ impl JitMemory {
 
     /// Encoding: MI  
     /// REX.W Op ModRM:r/m
-    pub fn enc_rexw_mi(&mut self, op: u8, rm_op: Or, imm: Imm) {
+    pub fn enc_rexw_mi(&mut self, op: u8, rm_op: Rm, imm: Imm) {
         self.encode(&[op], Rex::REXW, ModRM::Reg(Reg(0)), rm_op, imm);
     }
 
     /// Encoding: MI  
     /// Op ModRM:r/m
-    pub fn enc_rex_mi(&mut self, op: u8, rm_op: Or, imm: Imm) {
+    pub fn enc_rex_mi(&mut self, op: u8, rm_op: Rm, imm: Imm) {
         self.encode(&[op], Rex::None, ModRM::Reg(Reg(0)), rm_op, imm);
     }
 
     /// REX.W Op ModRM
     /// MR-> ModRM:r/m(w) ModRM:reg(r)
     /// RM-> ModRM:reg(r) ModRM:r/m(w)
-    pub fn enc_rexw_mr(&mut self, op: &[u8], reg: Reg, rm_op: Or) {
+    pub fn enc_rexw_mr(&mut self, op: &[u8], reg: Reg, rm_op: Rm) {
         self.encode(op, Rex::REXW, ModRM::Reg(reg), rm_op, Imm::None);
     }
 
     /// REX Op ModRM
     /// MR-> ModRM:r/m(w) ModRM:reg(r)
     /// RM-> ModRM:reg(r) ModRM:r/m(w)
-    pub fn enc_rex_mr(&mut self, op: &[u8], reg: Reg, rm_op: Or) {
+    pub fn enc_rex_mr(&mut self, op: &[u8], reg: Reg, rm_op: Rm) {
         self.encode(op, Rex::None, ModRM::Reg(reg), rm_op, Imm::None);
     }
 
     /// This is used in "setcc r/m8".
-    pub fn enc_rex_m(&mut self, op: &[u8], rm: Or) {
+    pub fn enc_rex_m(&mut self, op: &[u8], rm: Rm) {
         self.encode(op, Rex::REX, ModRM::Reg(Reg(0)), rm, Imm::None);
     }
 
@@ -356,17 +356,23 @@ impl JitMemory {
         self.modrm(ModRM::Digit(digit), Mode::Reg.encode(), reg);
     }
 
+    /// Encoding: M  
+    /// Op /n
+    pub fn enc_m_digit(&mut self, op: &[u8], rm: Rm, digit: u8) {
+        self.encode(op, Rex::None, ModRM::Digit(digit), rm, Imm::None);
+    }
+
     /// Encoding: /n  
     /// REX.W Op /n
-    pub fn enc_rexw_digit(&mut self, op: &[u8], rm: Or, digit: u8, imm: Imm) {
+    pub fn enc_rexw_digit(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {
         self.encode(op, Rex::REXW, ModRM::Digit(digit), rm, imm);
     }
 
-    pub fn enc_rex_digit(&mut self, op: &[u8], rm: Or, digit: u8, imm: Imm) {
+    pub fn enc_rex_digit(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {
         self.encode(op, Rex::None, ModRM::Digit(digit), rm, imm);
     }
 
-    fn encode(&mut self, op: &[u8], rex: Rex, modrm_mode: ModRM, rm: Or, imm: Imm) {
+    fn encode(&mut self, op: &[u8], rex: Rex, modrm_mode: ModRM, rm: Rm, imm: Imm) {
         let reg = match modrm_mode {
             ModRM::Digit(_) => Reg(0),
             ModRM::Reg(r) => r,
@@ -380,7 +386,7 @@ impl JitMemory {
         if rm.base.is_rip() {
             // For rip, only indirect addressing with disp32 ([rip + disp32]) is allowed.
             // [rip] and [rip + disp8] are to be converted to [rip + disp32].
-            let rm = Or::rip_ind_from(rm);
+            let rm = Rm::rip_ind_from(rm);
             rex_fn(self, reg, rm.base, Reg(0));
             self.emit(op);
             self.modrm(modrm_mode, 0, rm.base);

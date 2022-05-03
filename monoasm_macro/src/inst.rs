@@ -85,8 +85,8 @@ pub enum Inst {
 
     Cvtsi2sdq(Xmm, RmOperand),
 
-    Pushq(RmiOperand),
-    Popq(RmiOperand),
+    Pushq(RmOperand),
+    Popq(RmOperand),
 
     Jmp(Dest),
     Jcc(Cond, Ident),
@@ -290,7 +290,7 @@ impl std::fmt::Display for RmOperand {
 impl ToTokens for RmOperand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
-            Self::Reg(ts) => quote!(Or::reg(#ts)),
+            Self::Reg(ts) => quote!(Rm::reg(#ts)),
             Self::Ind(ind) => quote!(#ind),
         };
         tokens.extend(ts);
@@ -352,7 +352,7 @@ impl ToTokens for RmiOperand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
             RmiOperand::Imm(_) => unreachable!("immediate"),
-            RmiOperand::Reg(ts) => quote!(Or::reg(#ts)),
+            RmiOperand::Reg(ts) => quote!(Rm::reg(#ts)),
             RmiOperand::Ind(ind) => quote!(#ind),
         };
         tokens.extend(ts);
@@ -413,7 +413,7 @@ impl ToTokens for RiOperand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
             RiOperand::Imm(_) => unreachable!("immediate"),
-            RiOperand::Reg(ts) => quote!(Or::reg(#ts)),
+            RiOperand::Reg(ts) => quote!(Rm::reg(#ts)),
         };
         tokens.extend(ts);
     }
@@ -494,7 +494,7 @@ impl std::fmt::Display for XmOperand {
 impl ToTokens for XmOperand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
-            Self::Xmm(ts) => quote!(Or::reg(Reg::from(#ts))),
+            Self::Xmm(ts) => quote!(Rm::reg(Reg::from(#ts))),
             Self::Ind(ind) => quote!(#ind),
         };
         tokens.extend(ts);
@@ -555,8 +555,8 @@ impl ToTokens for MovOperand {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
             Self::Imm(_) => unreachable!("immediate"),
-            Self::Reg(r) => quote!(Or::reg(#r)),
-            Self::Xmm(ts) => quote!(Or::reg(Reg::from(#ts))),
+            Self::Reg(r) => quote!(Rm::reg(#r)),
+            Self::Xmm(ts) => quote!(Rm::reg(Reg::from(#ts))),
             Self::Ind(ind) => quote!(#ind),
         };
         tokens.extend(ts);
