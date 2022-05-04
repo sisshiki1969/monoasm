@@ -13,7 +13,7 @@ The assembly code is assembled in compile time, and embedded as a code generator
 |:----------------:|:--------------------------------------------:|
 |register direct   |  rax, R(_expr_), xmm0, xmm(_expr_)           |
 |indirect          | [rax], [R(_expr_)]                           |
-|indirect with disp| [rax + 100], [rax + (_expr_)], [rip + label] |
+|indirect with disp| [rax + 100], [rax + (_expr_)], [rip + _label_] |
 
 ## supported instructions
 

@@ -1,0 +1,84 @@
+  extern crate monoasm;
+  extern crate monoasm_macro;
+  use std::io::Write;
+
+  use monoasm::*;
+  use monoasm_macro::monoasm;
+
+  #[test]
+  fn popq() {
+      let mut jit: JitMemory = JitMemory::new();
+      monoasm!(
+          jit,
+	popq rax;
+	popq rcx;
+	popq rdx;
+	popq rbx;
+	popq rsp;
+	popq rbp;
+	popq rsi;
+	popq rdi;
+	popq r8;
+	popq r9;
+	popq r10;
+	popq r11;
+	popq r12;
+	popq r13;
+	popq r14;
+	popq r15;
+	popq [rax];
+	popq [rax + 16];
+	popq [rax + 512];
+	popq [rcx];
+	popq [rcx + 16];
+	popq [rcx + 512];
+	popq [rdx];
+	popq [rdx + 16];
+	popq [rdx + 512];
+	popq [rbx];
+	popq [rbx + 16];
+	popq [rbx + 512];
+	popq [rsp];
+	popq [rsp + 16];
+	popq [rsp + 512];
+	popq [rbp];
+	popq [rbp + 16];
+	popq [rbp + 512];
+	popq [rsi];
+	popq [rsi + 16];
+	popq [rsi + 512];
+	popq [rdi];
+	popq [rdi + 16];
+	popq [rdi + 512];
+	popq [r8];
+	popq [r8 + 16];
+	popq [r8 + 512];
+	popq [r9];
+	popq [r9 + 16];
+	popq [r9 + 512];
+	popq [r10];
+	popq [r10 + 16];
+	popq [r10 + 512];
+	popq [r11];
+	popq [r11 + 16];
+	popq [r11 + 512];
+	popq [r12];
+	popq [r12 + 16];
+	popq [r12 + 512];
+	popq [r13];
+	popq [r13 + 16];
+	popq [r13 + 512];
+	popq [r14];
+	popq [r14 + 16];
+	popq [r14 + 512];
+	popq [r15];
+	popq [r15 + 16];
+	popq [r15 + 512];
+	popq [rip];
+	popq [rip + 16];
+	popq [rip + 512];
+      );
+      jit.finalize();
+      let mut buf = std::fs::File::create("tests/popq_monoasm.bin").unwrap();
+      buf.write_all(jit.as_slice()).unwrap();
+  }

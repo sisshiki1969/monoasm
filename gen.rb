@@ -2,7 +2,7 @@
 # Automatic verification tool for monoasm
 #
 
-REG = [
+REG_TEMPLATE = [
   "rax", 
   "rcx", 
   "rdx", 
@@ -20,12 +20,61 @@ REG = [
   "r14", 
   "r15", 
 ]
+
+INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
+  [ 
+    "[#{r}]",
+    "[#{r} + 16]",
+    "[#{r} + 512]"
+  ]
+end.flatten
+
+ASM_INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
+  [
+    "QWORD PTR [#{r}]", 
+    "QWORD PTR [#{r} + 16]",
+    "QWORD PTR [#{r} + 512]"
+  ]
+end.flatten
+
+IMM_TEMPLATE = ["18"]
+
 ASM_HEADER = <<EOS
 .intel_syntax noprefix
 .text
 EOS
 
 class Inst
+  MODE_REG = 0
+  MODE_INDIRECT = 1
+  MODE_IMMIDIATE = 2
+
+  def self.make_file
+    @monoasm = header
+    @asm = ""
+
+    gen
+
+    f = File.open "monoasm/tests/#{@inst}.rs", "w"
+    f.write @monoasm + footer
+    f.close
+
+
+    f = File.open "monoasm/tests/#{@asm_inst}.s", "w"
+    f.write ASM_HEADER + @asm
+    f.close
+
+    `as monoasm/tests/#{@asm_inst}.s -o monoasm/tests/#{@asm_inst}`
+    `objcopy -O binary --only-section=.text monoasm/tests/#{@asm_inst} monoasm/tests/#{@asm_inst}.bin`
+    `rm monoasm/tests/#{@asm_inst}`
+  end
+
+  def self.compare
+    puts `diff -s monoasm/tests/#{@asm_inst}.bin monoasm/tests/#{@inst}_monoasm.bin`
+    #`rm monoasm/tests/*.bin`
+  end
+
+  private
 
   def self.header
 <<EOS
@@ -54,64 +103,69 @@ EOS
 EOS
   end
 
-  def self.r_r
-    @monoasm += REG.map do |r1|
-      REG.map do |r2|
-        "\t#{@inst} #{r1}, #{r2};\n"
-      end.join + "\n"
-    end.join + "\n"
+  def self.template(mode)
+    case mode
+    when MODE_REG
+      [REG_TEMPLATE, REG_TEMPLATE]
+    when MODE_INDIRECT
+      [INDIRECT_TEMPLATE, ASM_INDIRECT_TEMPLATE]
+    when MODE_IMMIDIATE
+      [IMM_TEMPLATE, IMM_TEMPLATE]
+    end
+  end
 
-    @asm += REG.map do |r1|
-      REG.map do |r2|
-        "\t#{@asm_inst} #{r1}, #{r2};\n"
-      end.join + "\n"
-    end.join + "\n"
+  def self.operand(mode1, mode2=nil)
+    if mode2.nil?
+
+      templ = template(mode1)
+      
+      templ[0].each do |op|
+        @monoasm += "\t#{@inst} #{op};\n"
+      end
+      
+      templ[1].each do |op|
+        @asm += "\t#{@inst} #{op};\n"
+      end
+      
+    else
+      
+      templ1 = template(mode1)
+      templ2 = template(mode2)
+
+      templ1[0].each do |op1|
+        templ2[0].each do |op2|
+          @monoasm += "\t#{@inst} #{op1}, #{op2};\n"
+        end
+      end
+
+      templ1[1].each do |op1|
+        templ2[1].each do |op2|
+          @asm += "\t#{@asm_inst} #{op1}, #{op2};\n"
+        end
+      end
+    end
+  end
+
+  def self.rm
+    operand(MODE_REG)
+    operand(MODE_INDIRECT)
+  end
+
+  def self.r_r
+    operand(MODE_REG, MODE_REG)
   end
 
   def self.rm_i
-    @monoasm += REG.map do |r|
-      "\t#{@inst} #{r}, 16;\n" +
-      "\t#{@inst} [#{r}], 16;\n" +
-      "\t#{@inst} [#{r} + 16], 16;\n"
-    end.join() + "\n"
-
-    @asm += REG.map do |r|
-      "\t#{@asm_inst} #{r}, 16;\n" +
-      "\t#{@asm_inst} QWORD PTR [#{r}], 16;\n" +
-      "\t#{@asm_inst} QWORD PTR [#{r} + 16], 16;\n"
-    end.join() + "\n"
+    operand(MODE_REG, MODE_IMMIDIATE)
+    operand(MODE_INDIRECT, MODE_IMMIDIATE)
   end
 
   def self.m_r
-    @monoasm += REG.map do |r1|
-      REG.map do |r2|
-        "\t#{@inst} [#{r1}], #{r2};\n" +
-        "\t#{@inst} [#{r1} + 16], #{r2};\n"
-      end.join + "\n"
-    end.join + "\n"
-
-    @asm += REG.map do |r1|
-      REG.map do |r2|
-        "\t#{@asm_inst} QWORD PTR [#{r1}], #{r2};\n" +
-        "\t#{@asm_inst} QWORD PTR [#{r1} + 16], #{r2};\n"
-      end.join + "\n"
-    end.join + "\n"
+    operand(MODE_INDIRECT, MODE_REG)
   end
 
   def self.r_m
-    @monoasm += REG.map do |r1|
-      REG.map do |r2|
-        "\t#{@inst} #{r1}, [#{r2}];\n" +
-        "\t#{@inst} #{r1}, [#{r2} + 16];\n"
-      end.join + "\n"
-    end.join + "\n"
-
-    @asm += REG.map do |r1|
-      REG.map do |r2|
-        "\t#{@asm_inst} #{r1}, QWORD PTR [#{r2}];\n" +
-        "\t#{@asm_inst} #{r1}, QWORD PTR [#{r2} + 16];\n"
-      end.join + "\n"
-    end.join + "\n"
+    operand(MODE_REG, MODE_INDIRECT)
   end
 
   def self.gen
@@ -121,30 +175,6 @@ EOS
     r_m
   end
 
-  def self.make_file
-    @monoasm = header
-    @asm = ""
-
-    gen
-
-    f = File.open "monoasm/tests/#{@inst}.rs", "w"
-    f.write @monoasm + footer
-    f.close
-
-
-    f = File.open "monoasm/tests/#{@asm_inst}.s", "w"
-    f.write ASM_HEADER + @asm
-    f.close
-
-    `as monoasm/tests/#{@asm_inst}.s -o monoasm/tests/#{@asm_inst}`
-    `objcopy -O binary --only-section=.text monoasm/tests/#{@asm_inst} monoasm/tests/#{@asm_inst}.bin`
-    `rm monoasm/tests/#{@asm_inst}`
-  end
-
-  def self.compare
-    puts `diff -s monoasm/tests/#{@asm_inst}.bin monoasm/tests/#{@inst}_monoasm.bin`
-    #`rm monoasm/tests/*.bin`
-  end
 end
 
 class Mov < Inst
@@ -203,7 +233,34 @@ class Test < Inst
   end
 end
 
-instructions = [Mov, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Test]
+class Push < Inst
+  @inst = "pushq"
+  @asm_inst = "push"
+
+  def self.gen
+    rm
+  end
+end
+
+class Pop < Inst
+  @inst = "popq"
+  @asm_inst = "pop"
+
+  def self.gen
+    rm
+  end
+end
+
+class Neg < Inst
+  @inst = "negq"
+  @asm_inst = "neg"
+
+  def self.gen
+    rm
+  end
+end
+
+instructions = [Mov, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Test, Push, Pop, Neg]
 instructions.map do |inst|
   inst.make_file
 end

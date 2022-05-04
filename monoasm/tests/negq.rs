@@ -1,0 +1,84 @@
+  extern crate monoasm;
+  extern crate monoasm_macro;
+  use std::io::Write;
+
+  use monoasm::*;
+  use monoasm_macro::monoasm;
+
+  #[test]
+  fn negq() {
+      let mut jit: JitMemory = JitMemory::new();
+      monoasm!(
+          jit,
+	negq rax;
+	negq rcx;
+	negq rdx;
+	negq rbx;
+	negq rsp;
+	negq rbp;
+	negq rsi;
+	negq rdi;
+	negq r8;
+	negq r9;
+	negq r10;
+	negq r11;
+	negq r12;
+	negq r13;
+	negq r14;
+	negq r15;
+	negq [rax];
+	negq [rax + 16];
+	negq [rax + 512];
+	negq [rcx];
+	negq [rcx + 16];
+	negq [rcx + 512];
+	negq [rdx];
+	negq [rdx + 16];
+	negq [rdx + 512];
+	negq [rbx];
+	negq [rbx + 16];
+	negq [rbx + 512];
+	negq [rsp];
+	negq [rsp + 16];
+	negq [rsp + 512];
+	negq [rbp];
+	negq [rbp + 16];
+	negq [rbp + 512];
+	negq [rsi];
+	negq [rsi + 16];
+	negq [rsi + 512];
+	negq [rdi];
+	negq [rdi + 16];
+	negq [rdi + 512];
+	negq [r8];
+	negq [r8 + 16];
+	negq [r8 + 512];
+	negq [r9];
+	negq [r9 + 16];
+	negq [r9 + 512];
+	negq [r10];
+	negq [r10 + 16];
+	negq [r10 + 512];
+	negq [r11];
+	negq [r11 + 16];
+	negq [r11 + 512];
+	negq [r12];
+	negq [r12 + 16];
+	negq [r12 + 512];
+	negq [r13];
+	negq [r13 + 16];
+	negq [r13 + 512];
+	negq [r14];
+	negq [r14 + 16];
+	negq [r14 + 512];
+	negq [r15];
+	negq [r15 + 16];
+	negq [r15 + 512];
+	negq [rip];
+	negq [rip + 16];
+	negq [rip + 512];
+      );
+      jit.finalize();
+      let mut buf = std::fs::File::create("tests/negq_monoasm.bin").unwrap();
+      buf.write_all(jit.as_slice()).unwrap();
+  }
