@@ -119,13 +119,9 @@ impl JitMemory {
         self.code_len = self.counter.0;
         self.resolve_constants();
         self.fill_relocs();
-
-        #[cfg(debug_assertions)]
-        eprintln!("{}", self.dump_code().unwrap());
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
-        //let len = self.counter.0;
         let mut v = vec![];
         let slice = unsafe { std::slice::from_raw_parts(self.contents, self.code_len) };
         v.extend_from_slice(slice);
@@ -203,10 +199,10 @@ impl JitMemory {
             if let Some(pos) = rel.loc {
                 for (size, dest) in &rel.disp {
                     let disp = pos.0 as i64 - dest.0 as i64 - *size as i64;
-                    if i32::min_value() as i64 > disp || disp > i32::max_value() as i64 {
-                        panic!("Relocation overflow");
+                    match i32::try_from(disp) {
+                        Ok(disp) => self.write32(*dest, disp as i32),
+                        Err(_) => panic!("Relocation overflow"),
                     }
-                    self.write32(*dest, disp as i32);
                 }
             }
         }
