@@ -232,6 +232,15 @@ impl JitMemory {
         unsafe { mem::transmute(adr.add(counter)) }
     }
 
+    pub fn get_label_addr2<S, T, U>(&mut self, label: DestLabel) -> extern "C" fn(S, T) -> U {
+        let counter = self.reloc[label]
+            .loc
+            .expect("The DestLabel has no position binding.")
+            .0;
+        let adr = self.contents;
+        unsafe { mem::transmute(adr.add(counter)) }
+    }
+
     pub fn get_label_u64(&mut self, label: DestLabel) -> u64 {
         let counter = self.reloc[label]
             .loc
