@@ -60,8 +60,8 @@ pub struct JitMemory {
     code_len: usize,
     /// The top pos of the current code block.
     code_block_top: Pos,
-    /// Code blocks.
-    code_block: Vec<(Pos, Pos, Pos)>, // (start_pos, code_end, end_pos)
+    /// Code blocks. (start_pos, code_end, end_pos)
+    code_block: Vec<(Pos, Pos, Pos)>,
 }
 
 impl Index<Pos> for JitMemory {
@@ -128,6 +128,7 @@ impl JitMemory {
         self.resolve_constants();
         let end_pos = self.counter;
         self.fill_relocs();
+        self.code_block_top = self.counter;
         self.code_block.push((start_pos, code_end, end_pos));
     }
 
