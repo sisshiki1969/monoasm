@@ -58,6 +58,10 @@ pub struct JitMemory {
     constants: Vec<(u64, DestLabel)>,
     /// Machine code length
     code_len: usize,
+    /// The top pos of the current code block.
+    code_block_top: Pos,
+    /// Code blocks.
+    code_block: Vec<(Pos, Pos, Pos)>, // (start_pos, code_end, end_pos)
 }
 
 impl Index<Pos> for JitMemory {
@@ -108,6 +112,8 @@ impl JitMemory {
             reloc: Relocations::new(),
             constants: vec![],
             code_len: 0usize,
+            code_block_top: Pos(0),
+            code_block: vec![],
         };
         res.emitb(0xc3);
         res.counter = Pos(0);
@@ -116,16 +122,13 @@ impl JitMemory {
 
     /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
     pub fn finalize(&mut self) {
+        let start_pos = self.code_block_top;
+        let code_end = self.counter;
         self.code_len = self.counter.0;
         self.resolve_constants();
+        let end_pos = self.counter;
         self.fill_relocs();
-    }
-
-    pub fn to_vec(&self) -> Vec<u8> {
-        let mut v = vec![];
-        let slice = unsafe { std::slice::from_raw_parts(self.contents, self.code_len) };
-        v.extend_from_slice(slice);
-        v
+        self.code_block.push((start_pos, code_end, end_pos));
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -534,9 +537,10 @@ impl JitMemory {
     pub fn dump_code(&self) -> Result<String, std::io::Error> {
         use std::fs::File;
         use std::process::Command;
-        let asm = self.to_vec();
+        let asm = self.as_slice();
         let mut file = File::create("tmp.bin").unwrap();
-        file.write_all(&asm).unwrap();
+        let (start_pos, code_end, _end_pos) = self.code_block.last().unwrap();
+        file.write_all(&asm[start_pos.0..code_end.0]).unwrap();
 
         Command::new("objdump")
             .args(&[
