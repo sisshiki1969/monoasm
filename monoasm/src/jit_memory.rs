@@ -61,7 +61,7 @@ pub struct JitMemory {
     /// The top pos of the current code block.
     code_block_top: Pos,
     /// Code blocks. (start_pos, code_end, end_pos)
-    code_block: Vec<(Pos, Pos, Pos)>,
+    pub code_block: Vec<(Pos, Pos, Pos)>,
 }
 
 impl Index<Pos> for JitMemory {
