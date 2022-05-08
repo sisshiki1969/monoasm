@@ -146,7 +146,7 @@ impl Sub<Pos> for Pos {
     type Output = usize;
 
     fn sub(self, other: Pos) -> Self::Output {
-        other.0 - self.0
+        self.0 - other.0
     }
 }
 
