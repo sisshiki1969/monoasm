@@ -1,6 +1,6 @@
 extern crate libc;
 use std::mem;
-use std::ops::{Add, Deref, DerefMut, Index, IndexMut};
+use std::ops::{Add, Deref, DerefMut, Index, IndexMut, Sub};
 mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
@@ -139,6 +139,14 @@ impl Add<i32> for Pos {
 
     fn add(self, other: i32) -> Self {
         Pos((self.0 as i64 + other as i64) as usize)
+    }
+}
+
+impl Sub<Pos> for Pos {
+    type Output = usize;
+
+    fn sub(self, other: Pos) -> Self::Output {
+        other.0 - self.0
     }
 }
 
