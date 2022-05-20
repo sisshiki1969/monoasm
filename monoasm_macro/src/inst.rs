@@ -67,6 +67,7 @@ pub enum Inst {
     Negq(RmOperand),
 
     Shlq(RmOperand, RiOperand),
+    Shrq(RmOperand, RiOperand),
 
     Imul(RmiOperand, RmiOperand),
     Idiv(RmOperand),
@@ -206,6 +207,7 @@ impl Parse for Inst {
                 "cqo" => parse_0op!(Cqo),
 
                 "shlq" => parse_2op!(Shlq),
+                "shrq" => parse_2op!(Shrq),
 
                 "movsd" => parse_2op!(Movsd),
                 "addsd" => parse_2op!(Addsd),

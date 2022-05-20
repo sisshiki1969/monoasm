@@ -37,7 +37,7 @@ ASM_INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
   ]
 end.flatten
 
-IMM_TEMPLATE = ["18"]
+IMM_TEMPLATE = ["1", "18"]
 
 ASM_HEADER = <<EOS
 .intel_syntax noprefix
@@ -160,6 +160,11 @@ EOS
     operand(MODE_INDIRECT, MODE_IMMIDIATE)
   end
 
+  def self.rm_1
+    operand(MODE_REG, MODE_IMMIDIATE)
+    operand(MODE_INDIRECT, MODE_IMMIDIATE)
+  end
+
   def self.m_r
     operand(MODE_INDIRECT, MODE_REG)
   end
@@ -260,7 +265,27 @@ class Neg < Inst
   end
 end
 
-instructions = [Mov, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Test, Push, Pop, Neg]
+class Shl < Inst
+  @inst = "shlq"
+  @asm_inst = "shl"
+
+  def self.gen
+    rm_i
+    rm_1
+  end
+end
+
+class Shr < Inst
+  @inst = "shrq"
+  @asm_inst = "shr"
+
+  def self.gen
+    rm_i
+    rm_1
+  end
+end
+
+instructions = [Mov, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Test, Push, Pop, Neg, Shl, Shr]
 instructions.map do |inst|
   inst.make_file
 end
