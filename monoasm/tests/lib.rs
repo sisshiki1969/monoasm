@@ -18,12 +18,19 @@ mod tests {
         let func = jit.label();
         monoasm!(jit,
             func:
+                movq rax, 0;
+                movq r8, (-1);
+                movsxw rax, r8;
+                movsxw rax, [rip + data2];
+                movq rax, 0;
+                movsxb rax, r8;
+                movsxb rax, [rip + data2];
                 movq rax, (-1);
-                movzxw rax, r15;
-                movzxw rax, [r15];
+                movzxw rax, r8;
+                movzxw rax, [rip + data2];
                 movq rax, (-1);
-                movzxb rax, r15;
-                movzxb rax, [r15];
+                movzxb rax, r8;
+                movzxb rax, [rip + data2];
                 testq rax, 16;
                 testq [rax], 16;
                 testq [rax + 16], 16;
