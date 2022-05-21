@@ -55,6 +55,8 @@ pub enum Inst {
 
     Movq(MovOperand, MovOperand),
     Movl(RmOperand, RmiOperand),
+    Movzxw(Register, RmOperand),
+    Movzxb(Register, RmOperand),
     Addq(RmOperand, RmiOperand),
     Orq(RmOperand, RmiOperand),
     Adcq(RmOperand, RmiOperand),
@@ -180,6 +182,8 @@ impl Parse for Inst {
             match ident.to_string().as_str() {
                 "movq" => parse_2op!(Movq),
                 "movl" => parse_2op!(Movl),
+                "movzxw" => parse_2op!(Movzxw),
+                "movzxb" => parse_2op!(Movzxb),
                 "addq" => parse_2op!(Addq),
                 "orq" => parse_2op!(Orq),
                 "adcq" => parse_2op!(Adcq),
