@@ -93,12 +93,12 @@ impl std::default::Default for JitMemory {
 impl JitMemory {
     /// Create new JitMemory.
     ///
-    /// This function try to allocate heap memory of 4KB for JIT assemble.
+    /// This function try to allocate heap memory of 64KB for JIT assemble.
     ///
     /// ### panic
     /// Panic if Layout::from_size_align() or region::protect() returned Err.
     pub fn new() -> JitMemory {
-        let size = 4096;
+        let size = 64 * 1024;
         let layout = Layout::from_size_align(size, PAGE_SIZE).expect("Bad Layout.");
         let contents = unsafe { alloc(layout) };
 
