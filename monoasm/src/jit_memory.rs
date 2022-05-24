@@ -102,12 +102,11 @@ impl JitMemory {
     /// ### panic
     /// Panic if Layout::from_size_align() or region::protect() returned Err.
     pub fn new() -> JitMemory {
-        let size = 64 * 1024;
-        let layout = Layout::from_size_align(size, PAGE_SIZE).expect("Bad Layout.");
+        let layout = Layout::from_size_align(PAGE_SIZE, 4096).expect("Bad Layout.");
         let contents = unsafe { alloc(layout) };
 
         unsafe {
-            protect(contents, size, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
+            protect(contents, PAGE_SIZE, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
         }
         let mut res = JitMemory {
             contents,
@@ -178,13 +177,13 @@ impl JitMemory {
         self.reloc[label].loc = Some(self.counter);
     }
 
-    /// Bind the current location to `label`.
+    /*/// Bind the current location to `label`.
     pub fn bind_label_to_pos(&mut self, label: DestLabel, pos: usize) {
         self.reloc[label].loc = Some(Pos::from(pos));
-    }
+    }*/
 
     /// Bind the current location to `label`.
-    pub fn get_label_pos(&self, label: DestLabel) -> usize {
+    fn get_label_pos(&self, label: DestLabel) -> usize {
         self.reloc[label]
             .loc
             .expect("The DestLabel has no position binding.")
@@ -196,8 +195,9 @@ impl JitMemory {
         CodePtr(ptr as u64)
     }
 
-    pub fn get_label_absolute_address(&self, label: DestLabel) -> *const u8 {
-        unsafe { self.contents.add(self.get_label_pos(label)) }
+    pub fn get_label_address(&self, label: DestLabel) -> CodePtr {
+        let ptr = unsafe { self.contents.add(self.get_label_pos(label)) };
+        CodePtr(ptr as u64)
     }
 
     /// Save relocaton slot for `DestLabel`.

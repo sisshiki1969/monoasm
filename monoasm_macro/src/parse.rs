@@ -304,8 +304,7 @@ impl Parse for Dest {
         let lookahead = input.lookahead1();
         if lookahead.peek(Ident) && is_single(input) {
             let dest: Ident = input.parse()?;
-            let reg = Reg::from_str(&dest.to_string());
-            match reg {
+            match Reg::from_str(&dest.to_string()) {
                 Some(reg) => Ok(Dest::Reg(reg)),
                 None => Ok(Dest::Rel(dest)),
             }
