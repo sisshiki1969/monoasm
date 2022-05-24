@@ -187,6 +187,10 @@ impl JitMemory {
             .0
     }
 
+    pub fn get_current_address(&self) -> *const u8 {
+        unsafe { self.contents.add(self.counter.0) }
+    }
+
     pub fn get_label_absolute_address(&self, label: DestLabel) -> *const u8 {
         unsafe { self.contents.add(self.get_label_pos(label)) }
     }
