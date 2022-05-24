@@ -43,6 +43,10 @@ enum Rex {
     None,
 }
 
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct CodePtr(pub u64);
+
 /// Memory manager.
 #[derive(Debug)]
 pub struct JitMemory {
@@ -187,8 +191,9 @@ impl JitMemory {
             .0
     }
 
-    pub fn get_current_address(&self) -> *const u8 {
-        unsafe { self.contents.add(self.counter.0) }
+    pub fn get_current_address(&self) -> CodePtr {
+        let ptr = unsafe { self.contents.add(self.counter.0) };
+        CodePtr(ptr as u64)
     }
 
     pub fn get_label_absolute_address(&self, label: DestLabel) -> *const u8 {
