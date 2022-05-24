@@ -54,8 +54,6 @@ pub struct JitMemory {
     contents: *mut u8,
     /// Current position
     counter: Pos,
-    /// Current label id.
-    label_count: usize,
     /// Relocation information.
     reloc: Relocations,
     /// Constants section.
@@ -111,7 +109,6 @@ impl JitMemory {
         let mut res = JitMemory {
             contents,
             counter: Pos(0),
-            label_count: 0,
             reloc: Relocations::new(),
             constants: vec![],
             code_len: 0usize,
@@ -152,8 +149,7 @@ impl JitMemory {
 
     /// Create a new label and returns `DestLabel`.
     pub fn label(&mut self) -> DestLabel {
-        let label = self.label_count;
-        self.label_count += 1;
+        let label = self.reloc.len();
         self.reloc.push(Reloc::new());
         DestLabel(label)
     }
