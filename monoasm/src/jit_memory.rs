@@ -43,7 +43,7 @@ enum Rex {
     None,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[repr(transparent)]
 pub struct CodePtr(pub u64);
 
