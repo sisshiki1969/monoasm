@@ -9,11 +9,36 @@ The assembly code is assembled in compile time, and embedded as a code generator
 
 ## operand syntax
 
-|addressing mode   |     syntex                                   |
-|:----------------:|:--------------------------------------------:|
-|register direct   |  rax, R(_expr_), xmm0, xmm(_expr_)           |
-|indirect          | [rax], [R(_expr_)]                           |
-|indirect with disp| [rax + 100], [rax + (_expr_)], [rip + _label_] |
+|      addressing mode       |                     syntex                     |
+| :------------------------: | :--------------------------------------------: |
+|      register direct       |       rax, R(_expr_), xmm0, xmm(_expr_)        |
+|          indirect          |               [rax], [R(_expr_)]               |
+| indirect with displacement | [rax + 100], [rax + (_expr_)], [rip + _label_] |
+
+- You can write Rust expression in parenthesis as a immediate value.
+
+```Rust
+    let mut jit: JitMemory = JitMemory::new();
+    let a = 100;
+
+    monoasm!{ jit,
+        movq rax, (a * 10);
+    };
+```
+
+- You can use _DestLabel_ for jump destination operand.
+
+```Rust
+    let mut jit: JitMemory = JitMemory::new();
+    let label = jit.label();
+    monoasm!(jit,
+        cmpq rax, 10;
+        jne label;
+    label:
+        movq rax, 10;
+        ret;
+    );
+```
 
 ## supported instructions
 
@@ -22,6 +47,8 @@ The assembly code is assembled in compile time, and embedded as a code generator
 #### quad word operation
 
 - movq
+- lea
+
 - addq
 - orq
 - adcq
@@ -29,15 +56,18 @@ The assembly code is assembled in compile time, and embedded as a code generator
 - andq
 - subq
 - xorq
-- cmpq
+- negq
 
 - imul
 - idiv
 - cqo
 
-- negq
-
 - shlq
+- shrq
+
+- cmpq
+
+- testq
 
 - seteq
 - setne
@@ -45,13 +75,24 @@ The assembly code is assembled in compile time, and embedded as a code generator
 - setge
 - setlt
 - setle
+- seta
+- setae
+- setb
+- setbe
 
 #### double word operation
 
 - movl
 
+#### double word operation
+
+- movzxw
+- movsxw
+
 #### byte operation
 
+- movzxb
+- movsxb
 - cmpb
 
 ### floating point operation
@@ -80,6 +121,10 @@ The assembly code is assembled in compile time, and embedded as a code generator
 - jge
 - jlt
 - jle
+- ja
+- jae
+- jb
+- jbe
 
 ### misc
 
