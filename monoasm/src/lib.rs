@@ -10,35 +10,35 @@ const PAGE_SIZE: usize = 4096 * 256;
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Mode {
     Reg,
-    Ind,                 // [reg]
-    InD8(i8),            // [reg + disp8]
-    InD32(i32),          // [reg + disp32]
-    IndLabel(DestLabel), // [reg + label]
+    Ind(Disp), // [reg + disp]
 }
 
 impl Mode {
     pub fn encode(&self) -> u8 {
         match self {
             Mode::Reg => 3,
-            Mode::Ind => 0,
-            Mode::InD8(_) => 1,
-            Mode::InD32(_) => 2,
-            Mode::IndLabel(_) => 2,
+            Mode::Ind(Disp::None) => 0,
+            Mode::Ind(Disp::D8(_)) => 1,
+            Mode::Ind(Disp::D32(_)) => 2,
+            Mode::Ind(Disp::Label(_)) => 2,
         }
     }
 
     pub fn from_disp(disp: i32) -> Self {
         match disp {
-            0 => Self::Ind,
-            disp if std::i8::MIN as i32 <= disp && disp <= std::i8::MAX as i32 => {
-                Self::InD8(disp as i8)
+            0 => Self::Ind(Disp::None),
+            disp => {
+                if let Ok(disp) = i8::try_from(disp) {
+                    Self::Ind(Disp::D8(disp))
+                } else {
+                    Self::Ind(Disp::D32(disp))
+                }
             }
-            disp => Self::InD32(disp),
         }
     }
 
     pub fn from_label(label: DestLabel) -> Self {
-        Self::IndLabel(label)
+        Self::Ind(Disp::Label(label))
     }
 }
 
@@ -64,19 +64,19 @@ impl Rm {
     pub fn rip_ind_from(rm: Rm) -> Self {
         let disp = match rm.mode {
             Mode::Reg => unimplemented!(),
-            Mode::InD32(d) => d,
-            Mode::InD8(d) => d as i32,
-            Mode::IndLabel(label) => {
+            Mode::Ind(Disp::D8(d)) => d as i32,
+            Mode::Ind(Disp::D32(d)) => d,
+            Mode::Ind(Disp::None) => 0,
+            Mode::Ind(Disp::Label(label)) => {
                 return Self {
                     base: Reg::from(5),
-                    mode: Mode::IndLabel(label),
+                    mode: Mode::Ind(Disp::Label(label)),
                 }
             }
-            Mode::Ind => 0i32,
         };
         Self {
             base: Reg::from(5),
-            mode: Mode::InD32(disp),
+            mode: Mode::Ind(Disp::D32(disp)),
         }
     }
 }
