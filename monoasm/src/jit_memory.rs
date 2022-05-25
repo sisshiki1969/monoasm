@@ -437,7 +437,21 @@ impl JitMemory {
             self.modrm(modrm_mode, mode.encode(), rm.base);
             self.emit_disp_imm(mode.disp(), imm);
         } else {
-            rex_fn(self, reg, rm.base, Reg(0));
+            rex_fn(
+                self,
+                reg,
+                rm.base,
+                match rm.mode {
+                    Mode::Reg => Reg(0),
+                    Mode::Ind(scale, _) => match scale {
+                        Scale::None => Reg(0),
+                        Scale::S1(index) => index,
+                        Scale::S2(index) => index,
+                        Scale::S4(index) => index,
+                        Scale::S8(index) => index,
+                    },
+                },
+            );
             self.emit(op);
             self.modrm(modrm_mode, rm.mode.encode(), rm.base);
             match rm.mode {

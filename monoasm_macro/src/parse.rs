@@ -2,6 +2,7 @@ use proc_macro2::Group;
 use proc_macro2::Punct;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
+use syn::parse::ParseBuffer;
 use syn::{
     parse::{Parse, ParseStream},
     Expr,
@@ -152,6 +153,25 @@ impl Register {
         self.0
     }
 
+    fn check_register(input: &ParseBuffer, ident: &Ident) -> Result<Option<Register>, Error> {
+        if ident == "R" {
+            // e.g. "R(13)"
+            let content;
+            syn::parenthesized!(content in input);
+            let s = content.parse::<Expr>()?;
+            Ok(Some(Register::new(quote!(#s))))
+        } else {
+            // e.g. "rax"
+            match Reg::from_str(ident.to_string()) {
+                Some(reg) => {
+                    let reg = reg as u64;
+                    Ok(Some(Register::new(quote!(#reg))))
+                }
+                None => Ok(None),
+            }
+        }
+    }
+
     pub fn parse_register(input: ParseStream, ident: &String) -> Result<Register, Error> {
         if ident == "R" {
             // e.g. "R(13)"
@@ -237,12 +257,13 @@ impl ToTokens for Xmm {
 #[derive(Clone, Debug)]
 pub struct IndAddr {
     pub base: Register,
+    pub scale: Scale,
     pub disp: Disp,
 }
 
 impl IndAddr {
-    pub fn new(base: Register, disp: Disp) -> Self {
-        Self { base, disp }
+    pub fn new(base: Register, scale: Scale, disp: Disp) -> Self {
+        Self { base, scale, disp }
     }
 }
 
@@ -251,8 +272,60 @@ impl Parse for IndAddr {
         let content;
         syn::bracketed!(content in input);
         let base = content.parse::<Register>()?;
-        let disp = content.parse::<Disp>()?;
-        Ok(IndAddr { base, disp })
+        if content.peek(Token![-]) || content.peek(Token![+]) {
+            let negate = match content.parse::<Punct>()?.as_char() {
+                '-' => true,
+                '+' => false,
+                _ => unreachable!(),
+            };
+
+            if negate {
+                let disp = content.parse::<Disp>()?;
+                let scale = Scale::None;
+                Ok(IndAddr {
+                    base,
+                    scale,
+                    disp: disp.neg(),
+                })
+            } else if content.peek(Ident) {
+                let ident = content.parse::<Ident>().unwrap();
+                match Register::check_register(&content, &ident)? {
+                    Some(reg) => {
+                        content.parse::<Token![*]>()?;
+                        let scale = match content.parse::<LitInt>()?.base10_parse::<u8>()? {
+                            1 => Scale::S1(reg),
+                            2 => Scale::S2(reg),
+                            4 => Scale::S4(reg),
+                            8 => Scale::S8(reg),
+                            _ => unreachable!("invalid scale number."),
+                        };
+                        Ok(IndAddr {
+                            base,
+                            scale,
+                            disp: Disp::Imm(quote!(0)),
+                        })
+                    }
+                    None => Ok(IndAddr {
+                        base,
+                        scale: Scale::None,
+                        disp: Disp::Label(ident),
+                    }),
+                }
+            } else {
+                let disp = content.parse::<Disp>()?;
+                Ok(IndAddr {
+                    base,
+                    scale: Scale::None,
+                    disp,
+                })
+            }
+        } else {
+            Ok(IndAddr {
+                base,
+                scale: Scale::None,
+                disp: Disp::Imm(quote!(0i32)),
+            })
+        }
     }
 }
 
@@ -264,8 +337,29 @@ impl std::fmt::Display for IndAddr {
 
 impl ToTokens for IndAddr {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let Self { base, disp } = self;
-        tokens.extend(quote!( Rm::new(#base, #disp) ));
+        let Self { base, disp, scale } = self;
+        tokens.extend(quote!( Rm::ind(#base, #disp, #scale) ));
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum Scale {
+    None,
+    S1(Register),
+    S2(Register),
+    S4(Register),
+    S8(Register),
+}
+
+impl ToTokens for Scale {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        tokens.extend(match self {
+            Self::None => quote!(Scale::None),
+            Self::S1(reg) => quote!( Scale::S1(#reg) ),
+            Self::S2(reg) => quote!( Scale::S2(#reg) ),
+            Self::S4(reg) => quote!( Scale::S4(#reg) ),
+            Self::S8(reg) => quote!( Scale::S8(#reg) ),
+        });
     }
 }
 
@@ -329,14 +423,23 @@ pub enum Disp {
     Label(Ident),
 }
 
+impl Disp {
+    fn neg(self) -> Self {
+        match self {
+            Disp::Imm(ts) => Disp::Imm(quote!(-(#ts))),
+            disp => disp,
+        }
+    }
+}
+
 impl ToTokens for Disp {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
             Disp::Label(label) => quote!(
-                Mode::from_label(#label)
+                Disp::from_label(#label)
             ),
             Disp::Imm(ts) => quote!(
-                Mode::from_disp(#ts)
+                Disp::from_disp(#ts)
             ),
         };
         tokens.extend(ts);
@@ -354,45 +457,23 @@ impl std::fmt::Display for Disp {
 
 impl Parse for Disp {
     fn parse(input: ParseStream) -> Result<Self, Error> {
-        let lookahead = input.lookahead1();
-        if input.is_empty() {
-            // e.g. "[rax]"
-            Ok(Disp::Imm(quote!(0i32)))
-        } else if lookahead.peek(Token![-]) || lookahead.peek(Token![+]) {
-            let sign = match input.parse::<Punct>()?.as_char() {
-                '-' => -1,
-                '+' => 1,
-                _ => return Err(lookahead.error()),
-            };
-            let lookahead = input.lookahead1();
-            if lookahead.peek(token::Paren) {
-                // e.g. "[rax - (4)]"
-                let content;
-                syn::parenthesized!(content in input);
-                let expr = content.parse::<Expr>()?;
-                let expr = if sign == 1 {
-                    quote!(#expr as i32)
-                } else {
-                    quote!(-(#expr) as i32)
-                };
-                Ok(Disp::Imm(expr))
-            } else if lookahead.peek(LitInt) {
-                // e.g. "[rax + 4]"
-                let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
-                let expr = if sign == 1 {
-                    quote!(#ofs as i32)
-                } else {
-                    quote!(-(#ofs) as i32)
-                };
-                Ok(Disp::Imm(expr))
-            } else if lookahead.peek(Ident) {
-                let label = input.parse::<Ident>().unwrap();
-                Ok(Disp::Label(label))
-            } else {
-                Err(lookahead.error())
-            }
+        if input.peek(token::Paren) {
+            // e.g. "[rax - (4)]"
+            let content;
+            syn::parenthesized!(content in input);
+            let expr = content.parse::<Expr>()?;
+            let expr = quote!(#expr as i32);
+            Ok(Disp::Imm(expr))
+        } else if input.peek(LitInt) {
+            // e.g. "[rax + 4]"
+            let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
+            let expr = quote!(#ofs as i32);
+            Ok(Disp::Imm(expr))
+        } else if input.peek(Ident) {
+            let label = input.parse::<Ident>().unwrap();
+            Ok(Disp::Label(label))
         } else {
-            Err(lookahead.error())
+            Err(input.error("invalid displacement expression."))
         }
     }
 }

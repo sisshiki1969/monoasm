@@ -44,6 +44,25 @@ pub enum Disp {
     Label(DestLabel),
 }
 
+impl Disp {
+    pub fn from_disp(disp: i32) -> Self {
+        match disp {
+            0 => Disp::None,
+            disp => {
+                if let Ok(disp) = i8::try_from(disp) {
+                    Disp::D8(disp)
+                } else {
+                    Disp::D32(disp)
+                }
+            }
+        }
+    }
+
+    pub fn from_label(label: DestLabel) -> Self {
+        Disp::Label(label)
+    }
+}
+
 /// Scale index for indirect addressing.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Scale {
@@ -87,23 +106,6 @@ impl Mode {
             Mode::Ind(_, disp) => *disp,
         }
     }
-
-    pub fn from_disp(disp: i32) -> Self {
-        match disp {
-            0 => Self::Ind(Scale::None, Disp::None),
-            disp => {
-                if let Ok(disp) = i8::try_from(disp) {
-                    Self::Ind(Scale::None, Disp::D8(disp))
-                } else {
-                    Self::Ind(Scale::None, Disp::D32(disp))
-                }
-            }
-        }
-    }
-
-    pub fn from_label(label: DestLabel) -> Self {
-        Self::Ind(Scale::None, Disp::Label(label))
-    }
 }
 
 /// Register / Memory reference Operands.
@@ -121,7 +123,8 @@ impl Rm {
         }
     }
 
-    pub fn new(base: Reg, mode: Mode) -> Self {
+    pub fn ind(base: Reg, disp: Disp, scale: Scale) -> Self {
+        let mode = Mode::Ind(scale, disp);
         Self { base, mode }
     }
 
