@@ -7,80 +7,7 @@ pub use jit_memory::*;
 
 const PAGE_SIZE: usize = 4096 * 256;
 
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum Mode {
-    Reg,
-    Ind(Disp), // [reg + disp]
-}
-
-impl Mode {
-    pub fn encode(&self) -> u8 {
-        match self {
-            Mode::Reg => 3,
-            Mode::Ind(Disp::None) => 0,
-            Mode::Ind(Disp::D8(_)) => 1,
-            Mode::Ind(Disp::D32(_)) => 2,
-            Mode::Ind(Disp::Label(_)) => 2,
-        }
-    }
-
-    pub fn from_disp(disp: i32) -> Self {
-        match disp {
-            0 => Self::Ind(Disp::None),
-            disp => {
-                if let Ok(disp) = i8::try_from(disp) {
-                    Self::Ind(Disp::D8(disp))
-                } else {
-                    Self::Ind(Disp::D32(disp))
-                }
-            }
-        }
-    }
-
-    pub fn from_label(label: DestLabel) -> Self {
-        Self::Ind(Disp::Label(label))
-    }
-}
-
-/// Operands.
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub struct Rm {
-    base: Reg,
-    mode: Mode,
-}
-
-impl Rm {
-    pub fn reg(base: Reg) -> Self {
-        Self {
-            base,
-            mode: Mode::Reg,
-        }
-    }
-
-    pub fn new(base: Reg, mode: Mode) -> Self {
-        Self { base, mode }
-    }
-
-    pub fn rip_ind_from(rm: Rm) -> Self {
-        let disp = match rm.mode {
-            Mode::Reg => unimplemented!(),
-            Mode::Ind(Disp::D8(d)) => d as i32,
-            Mode::Ind(Disp::D32(d)) => d,
-            Mode::Ind(Disp::None) => 0,
-            Mode::Ind(Disp::Label(label)) => {
-                return Self {
-                    base: Reg::from(5),
-                    mode: Mode::Ind(Disp::Label(label)),
-                }
-            }
-        };
-        Self {
-            base: Reg::from(5),
-            mode: Mode::Ind(Disp::D32(disp)),
-        }
-    }
-}
-
+/// Register.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Reg(u8);
 
@@ -101,12 +28,14 @@ impl Reg {
         self.0 == 0
     }
 }
+
 impl std::fmt::Display for Reg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "R({})", self.0)
     }
 }
 
+/// Displacement for indirect addressing.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Disp {
     None,
@@ -115,13 +44,99 @@ pub enum Disp {
     Label(DestLabel),
 }
 
-/// Destination.
+/// Scale index for indirect addressing.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Scale {
+    None,
+    S1(Reg),
+    S2(Reg),
+    S4(Reg),
+    S8(Reg),
+}
+
+/// Destination for jump and call instructions.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Dest {
     /// Register
     Reg(Reg),
     /// Relative
     Rel(usize),
+}
+
+/// Adressing modes.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Mode {
+    Reg,
+    Ind(Scale, Disp), // [reg + disp]
+}
+
+impl Mode {
+    pub fn encode(&self) -> u8 {
+        match self {
+            Mode::Reg => 3,
+            Mode::Ind(_, Disp::None) => 0,
+            Mode::Ind(_, Disp::D8(_)) => 1,
+            Mode::Ind(_, Disp::D32(_)) => 2,
+            Mode::Ind(_, Disp::Label(_)) => 2,
+        }
+    }
+
+    pub fn from_disp(disp: i32) -> Self {
+        match disp {
+            0 => Self::Ind(Scale::None, Disp::None),
+            disp => {
+                if let Ok(disp) = i8::try_from(disp) {
+                    Self::Ind(Scale::None, Disp::D8(disp))
+                } else {
+                    Self::Ind(Scale::None, Disp::D32(disp))
+                }
+            }
+        }
+    }
+
+    pub fn from_label(label: DestLabel) -> Self {
+        Self::Ind(Scale::None, Disp::Label(label))
+    }
+}
+
+/// Register / Memory reference Operands.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Rm {
+    base: Reg,
+    mode: Mode,
+}
+
+impl Rm {
+    pub fn reg(base: Reg) -> Self {
+        Self {
+            base,
+            mode: Mode::Reg,
+        }
+    }
+
+    pub fn new(base: Reg, mode: Mode) -> Self {
+        Self { base, mode }
+    }
+
+    pub fn rip_ind_from(rm: Rm) -> Self {
+        let disp = match rm.mode {
+            Mode::Reg => unimplemented!("register direct addression is not allowed for RIP."),
+            Mode::Ind(Scale::None, Disp::D8(d)) => d as i32,
+            Mode::Ind(Scale::None, Disp::D32(d)) => d,
+            Mode::Ind(Scale::None, Disp::None) => 0,
+            Mode::Ind(Scale::None, Disp::Label(label)) => {
+                return Self {
+                    base: Reg::from(5),
+                    mode: Mode::Ind(Scale::None, Disp::Label(label)),
+                }
+            }
+            _ => unimplemented!("scale index is not allowed for RIP."),
+        };
+        Self {
+            base: Reg::from(5),
+            mode: Mode::Ind(Scale::None, Disp::D32(disp)),
+        }
+    }
 }
 
 /// Position in JitMemory.

@@ -412,7 +412,7 @@ impl JitMemory {
         } else if rm.mode != Mode::Reg && (rm.base.0 & 0b111) == 4 {
             // If mode != Reg and r/m == 4/12 (rsp/r12), use SIB.
             match rm.mode {
-                Mode::Ind(_) => {
+                Mode::Ind(_, _) => {
                     let index = Reg(4); // magic number
                     let scale = 0;
                     let base = rm.base;
@@ -424,10 +424,10 @@ impl JitMemory {
                 }
                 _ => unimplemented!(),
             }
-        } else if rm.mode == Mode::Ind(Disp::None) && (rm.base.0 & 0b111) == 5 {
+        } else if rm.mode == Mode::Ind(Scale::None, Disp::None) && (rm.base.0 & 0b111) == 5 {
             // If mode == Ind and r/m == 5/13 (rbp/r13), use [rbp/r13 + 0(disp8)].
             rex_fn(self, reg, rm.base, Reg(0));
-            let mode = Mode::Ind(Disp::D8(0));
+            let mode = Mode::Ind(Scale::None, Disp::D8(0));
             self.emit(op);
             self.modrm(modrm_mode, mode.encode(), rm.base);
             self.emit_disp_imm(mode, imm);
@@ -521,9 +521,9 @@ impl JitMemory {
 
     fn emit_disp_imm(&mut self, mode: Mode, imm: Imm) {
         match mode {
-            Mode::Ind(Disp::D8(d)) => self.emitb(d as u8),
-            Mode::Ind(Disp::D32(d)) => self.emitl(d as u32),
-            Mode::Ind(Disp::Label(label)) => {
+            Mode::Ind(_, Disp::D8(d)) => self.emitb(d as u8),
+            Mode::Ind(_, Disp::D32(d)) => self.emitl(d as u32),
+            Mode::Ind(_, Disp::Label(label)) => {
                 self.save_reloc(label, 4 + imm.offset());
                 self.emitl(0);
             }
