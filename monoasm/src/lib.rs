@@ -81,6 +81,13 @@ impl Mode {
         }
     }
 
+    pub fn disp(&self) -> Disp {
+        match self {
+            Mode::Reg => Disp::None,
+            Mode::Ind(_, disp) => *disp,
+        }
+    }
+
     pub fn from_disp(disp: i32) -> Self {
         match disp {
             0 => Self::Ind(Scale::None, Disp::None),
