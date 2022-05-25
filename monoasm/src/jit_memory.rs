@@ -43,6 +43,10 @@ enum Rex {
     None,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(transparent)]
+pub struct CodePtr(pub u64);
+
 /// Memory manager.
 #[derive(Debug)]
 pub struct JitMemory {
@@ -50,8 +54,6 @@ pub struct JitMemory {
     contents: *mut u8,
     /// Current position
     counter: Pos,
-    /// Current label id.
-    label_count: usize,
     /// Relocation information.
     reloc: Relocations,
     /// Constants section.
@@ -93,22 +95,20 @@ impl std::default::Default for JitMemory {
 impl JitMemory {
     /// Create new JitMemory.
     ///
-    /// This function try to allocate heap memory of 4KB for JIT assemble.
+    /// This function try to allocate heap memory of 64KB for JIT assemble.
     ///
     /// ### panic
     /// Panic if Layout::from_size_align() or region::protect() returned Err.
     pub fn new() -> JitMemory {
-        let size = 4096;
-        let layout = Layout::from_size_align(size, PAGE_SIZE).expect("Bad Layout.");
+        let layout = Layout::from_size_align(PAGE_SIZE, 4096).expect("Bad Layout.");
         let contents = unsafe { alloc(layout) };
 
         unsafe {
-            protect(contents, size, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
+            protect(contents, PAGE_SIZE, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
         }
         let mut res = JitMemory {
             contents,
             counter: Pos(0),
-            label_count: 0,
             reloc: Relocations::new(),
             constants: vec![],
             code_len: 0usize,
@@ -149,8 +149,7 @@ impl JitMemory {
 
     /// Create a new label and returns `DestLabel`.
     pub fn label(&mut self) -> DestLabel {
-        let label = self.label_count;
-        self.label_count += 1;
+        let label = self.reloc.len();
         self.reloc.push(Reloc::new());
         DestLabel(label)
     }
@@ -174,21 +173,27 @@ impl JitMemory {
         self.reloc[label].loc = Some(self.counter);
     }
 
-    /// Bind the current location to `label`.
+    /*/// Bind the current location to `label`.
     pub fn bind_label_to_pos(&mut self, label: DestLabel, pos: usize) {
         self.reloc[label].loc = Some(Pos::from(pos));
-    }
+    }*/
 
     /// Bind the current location to `label`.
-    pub fn get_label_pos(&self, label: DestLabel) -> usize {
+    fn get_label_pos(&self, label: DestLabel) -> usize {
         self.reloc[label]
             .loc
             .expect("The DestLabel has no position binding.")
             .0
     }
 
-    pub fn get_label_absolute_address(&self, label: DestLabel) -> *const u8 {
-        unsafe { self.contents.add(self.get_label_pos(label)) }
+    pub fn get_current_address(&self) -> CodePtr {
+        let ptr = unsafe { self.contents.add(self.counter.0) };
+        CodePtr(ptr as u64)
+    }
+
+    pub fn get_label_address(&self, label: DestLabel) -> CodePtr {
+        let ptr = unsafe { self.contents.add(self.get_label_pos(label)) };
+        CodePtr(ptr as u64)
     }
 
     /// Save relocaton slot for `DestLabel`.

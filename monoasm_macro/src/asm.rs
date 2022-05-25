@@ -14,6 +14,7 @@ pub fn compile(inst: Inst) -> TokenStream {
 
         Inst::Movq(op1, op2) => movq(op1, op2),
         Inst::Movl(op1, op2) => movl(op1, op2),
+        Inst::Movsxl(op1, op2) => quote!( jit.enc_rexw_mr(&[0x63], #op1, #op2); ),
         Inst::Movzxw(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xb7], #op1, #op2); ),
         Inst::Movsxw(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xbf], #op1, #op2); ),
         Inst::Movzxb(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xb6], #op1, #op2); ),
