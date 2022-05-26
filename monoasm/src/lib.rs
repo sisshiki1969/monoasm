@@ -73,6 +73,15 @@ pub enum Scale {
     S8(Reg),
 }
 
+impl Scale {
+    fn index(&self) -> Reg {
+        match self {
+            Self::None => Reg(0),
+            Self::S1(r) | Self::S2(r) | Self::S4(r) | Self::S8(r) => *r,
+        }
+    }
+}
+
 /// Destination for jump and call instructions.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Dest {
@@ -90,7 +99,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    pub fn encode(&self) -> u8 {
+    fn encode(&self) -> u8 {
         match self {
             Mode::Reg => 3,
             Mode::Ind(_, Disp::None) => 0,
@@ -100,10 +109,24 @@ impl Mode {
         }
     }
 
-    pub fn disp(&self) -> Disp {
+    fn scale(&self) -> Scale {
+        match self {
+            Mode::Reg => Scale::None,
+            Mode::Ind(scale, _) => *scale,
+        }
+    }
+
+    fn disp(&self) -> Disp {
         match self {
             Mode::Reg => Disp::None,
             Mode::Ind(_, disp) => *disp,
+        }
+    }
+
+    fn is_indirect_no_disp(&self) -> bool {
+        match self {
+            Mode::Ind(_, Disp::None) => true,
+            _ => false,
         }
     }
 }

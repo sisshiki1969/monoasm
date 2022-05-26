@@ -429,12 +429,20 @@ impl JitMemory {
                 }
                 _ => unreachable!(),
             }
-        } else if rm.mode == Mode::Ind(Scale::None, Disp::None) && (rm.base.0 & 0b111) == 5 {
+        } else if rm.mode.is_indirect_no_disp() && (rm.base.0 & 0b111) == 5 {
             // If mode == Ind and r/m == 5/13 (rbp/r13), use [rbp/r13 + 0(disp8)].
-            rex_fn(self, reg, rm.base, Reg(0));
-            let mode = Mode::Ind(Scale::None, Disp::D8(0));
+            let scale = rm.mode.scale();
+            rex_fn(self, reg, rm.base, scale.index());
+            let mode = Mode::Ind(scale, Disp::D8(0));
             self.emit(op);
             self.modrm(modrm_mode, mode, rm.base);
+            match scale {
+                Scale::None => {}
+                Scale::S1(index) => self.sib(0, index, rm.base),
+                Scale::S2(index) => self.sib(1, index, rm.base),
+                Scale::S4(index) => self.sib(2, index, rm.base),
+                Scale::S8(index) => self.sib(3, index, rm.base),
+            }
             self.emit_disp_imm(mode.disp(), imm);
         } else {
             rex_fn(
@@ -452,6 +460,7 @@ impl JitMemory {
                     },
                 },
             );
+            // index != Reg::RIP
             self.emit(op);
             self.modrm(modrm_mode, rm.mode, rm.base);
             match rm.mode {

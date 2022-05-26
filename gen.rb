@@ -27,6 +27,18 @@ INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
     "[#{r} + 16]",
     "[#{r} + 512]"
   ]
+end.flatten +
+REG_TEMPLATE.map do |r|
+  [ 
+    "[#{r} + rax * 1]",
+    "[#{r} + rax * 2]",
+    "[#{r} + rax * 4]",
+    "[#{r} + rax * 8]",
+    "[#{r} + r15 * 1]",
+    "[#{r} + r15 * 2]",
+    "[#{r} + r15 * 4]",
+    "[#{r} + r15 * 8]",
+  ]
 end.flatten
 
 ASM_INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
@@ -34,6 +46,18 @@ ASM_INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
     "QWORD PTR [#{r}]", 
     "QWORD PTR [#{r} + 16]",
     "QWORD PTR [#{r} + 512]"
+  ]
+end.flatten +
+REG_TEMPLATE.map do |r|
+  [
+    "QWORD PTR [#{r} + rax * 1]", 
+    "QWORD PTR [#{r} + rax * 2]", 
+    "QWORD PTR [#{r} + rax * 4]", 
+    "QWORD PTR [#{r} + rax * 8]", 
+    "QWORD PTR [#{r} + r15 * 1]", 
+    "QWORD PTR [#{r} + r15 * 2]", 
+    "QWORD PTR [#{r} + r15 * 4]", 
+    "QWORD PTR [#{r} + r15 * 8]", 
   ]
 end.flatten
 

@@ -281,10 +281,9 @@ impl Parse for IndAddr {
 
             if negate {
                 let disp = content.parse::<Disp>()?;
-                let scale = Scale::None;
                 Ok(IndAddr {
                     base,
-                    scale,
+                    scale: Scale::None,
                     disp: disp.neg(),
                 })
             } else if content.peek(Ident) {
