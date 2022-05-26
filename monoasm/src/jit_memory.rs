@@ -371,7 +371,7 @@ impl JitMemory {
     pub fn enc_digit(&mut self, op: &[u8], reg: Reg, digit: u8) {
         self.rex_none(Reg(0), reg, Reg(0));
         self.emit(op);
-        self.modrm(ModRM::Digit(digit), Mode::Reg.encode(), reg);
+        self.modrm(ModRM::Digit(digit), Mode::Reg, reg);
     }
 
     /// Encoding: M  
@@ -407,7 +407,7 @@ impl JitMemory {
             let rm = Rm::rip_ind_from(rm);
             rex_fn(self, reg, rm.base, Reg(0));
             self.emit(op);
-            self.modrm(modrm_mode, 0, rm.base);
+            self.modrm(modrm_mode, Mode::Ind(Scale::None, Disp::None), rm.base);
             self.emit_disp_imm(rm.mode.disp(), imm);
         } else if rm.mode != Mode::Reg && (rm.base.0 & 0b111) == 4 {
             // If mode != Reg and r/m == 4/12 (rsp/r12), use SIB.
@@ -423,7 +423,7 @@ impl JitMemory {
                     let base = rm.base;
                     rex_fn(self, reg, base, index);
                     self.emit(op);
-                    self.modrm(modrm_mode, rm.mode.encode(), base);
+                    self.modrm(modrm_mode, rm.mode, base);
                     self.sib(scale, index, base);
                     self.emit_disp_imm(disp, imm);
                 }
@@ -434,7 +434,7 @@ impl JitMemory {
             rex_fn(self, reg, rm.base, Reg(0));
             let mode = Mode::Ind(Scale::None, Disp::D8(0));
             self.emit(op);
-            self.modrm(modrm_mode, mode.encode(), rm.base);
+            self.modrm(modrm_mode, mode, rm.base);
             self.emit_disp_imm(mode.disp(), imm);
         } else {
             rex_fn(
@@ -453,7 +453,7 @@ impl JitMemory {
                 },
             );
             self.emit(op);
-            self.modrm(modrm_mode, rm.mode.encode(), rm.base);
+            self.modrm(modrm_mode, rm.mode, rm.base);
             match rm.mode {
                 Mode::Reg => {}
                 Mode::Ind(scale, _) => match scale {
@@ -482,7 +482,12 @@ impl JitMemory {
     /// +-------+-------+-----------+-----------+
     /// ~~~~
     ///
-    fn modrm(&mut self, modrm_mode: ModRM, mode: u8, base: Reg) {
+    fn modrm(&mut self, modrm_mode: ModRM, mode: Mode, base: Reg) {
+        let base = match mode {
+            Mode::Reg | Mode::Ind(Scale::None, _) => base,
+            Mode::Ind(_, _) => Reg(4),
+        };
+        let mode = mode.encode();
         let modrm = mode << 6
             | (match modrm_mode {
                 ModRM::Digit(d) => d,
