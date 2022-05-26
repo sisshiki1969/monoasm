@@ -287,18 +287,37 @@ impl Parse for IndAddr {
                 let ident = content.parse::<Ident>().unwrap();
                 match Register::check_register(&content, &ident)? {
                     Some(reg) => {
-                        content.parse::<Token![*]>()?;
-                        let scale = match content.parse::<LitInt>()?.base10_parse::<u8>()? {
-                            1 => 0,
-                            2 => 1,
-                            4 => 2,
-                            8 => 3,
-                            _ => unreachable!("invalid scale number."),
+                        let scale = if !content.peek(Token![*]) {
+                            0
+                        } else {
+                            content.parse::<Token![*]>()?;
+                            match content.parse::<LitInt>()?.base10_parse::<u8>()? {
+                                1 => 0,
+                                2 => 1,
+                                4 => 2,
+                                8 => 3,
+                                _ => unreachable!("invalid scale number."),
+                            }
+                        };
+                        let disp = if content.peek(Token![-]) || content.peek(Token![+]) {
+                            let negate = match content.parse::<Punct>()?.as_char() {
+                                '-' => true,
+                                '+' => false,
+                                _ => unreachable!(),
+                            };
+                            let disp = content.parse::<Disp>()?;
+                            if negate {
+                                disp.neg()
+                            } else {
+                                disp
+                            }
+                        } else {
+                            Disp::Imm(0)
                         };
                         Ok(IndAddr {
                             base,
                             scale: Scale::S1(scale, reg),
-                            disp: Disp::Imm(0),
+                            disp,
                         })
                     }
                     None => Ok(IndAddr {
@@ -308,11 +327,10 @@ impl Parse for IndAddr {
                     }),
                 }
             } else {
-                let disp = content.parse::<Disp>()?;
                 Ok(IndAddr {
                     base,
                     scale: Scale::None,
-                    disp,
+                    disp: content.parse::<Disp>()?,
                 })
             }
         } else {
