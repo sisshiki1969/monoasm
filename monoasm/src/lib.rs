@@ -5,7 +5,7 @@ mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
 
-const PAGE_SIZE: usize = 4096 * 256;
+const PAGE_SIZE: usize = 1024 * 1024;
 
 /// Register.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -67,17 +67,14 @@ impl Disp {
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Scale {
     None,
-    S1(Reg),
-    S2(Reg),
-    S4(Reg),
-    S8(Reg),
+    S1(u8, Reg),
 }
 
 impl Scale {
     fn index(&self) -> Reg {
         match self {
             Self::None => Reg(0),
-            Self::S1(r) | Self::S2(r) | Self::S4(r) | Self::S8(r) => *r,
+            Self::S1(_, r) => *r,
         }
     }
 }

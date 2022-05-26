@@ -21,6 +21,11 @@ REG_TEMPLATE = [
   "r15", 
 ]
 
+INDEX_TEMPLATE = [
+  "rax", 
+  "r15", 
+]
+
 INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
   [ 
     "[#{r}]",
@@ -29,16 +34,11 @@ INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
   ]
 end.flatten +
 REG_TEMPLATE.map do |r|
-  [ 
-    "[#{r} + rax * 1]",
-    "[#{r} + rax * 2]",
-    "[#{r} + rax * 4]",
-    "[#{r} + rax * 8]",
-    "[#{r} + r15 * 1]",
-    "[#{r} + r15 * 2]",
-    "[#{r} + r15 * 4]",
-    "[#{r} + r15 * 8]",
-  ]
+  INDEX_TEMPLATE.map do |i|
+    ["1", "2", "4", "8"].map do |s|
+      "[#{r} + #{i} * #{s}]"
+    end
+  end
 end.flatten
 
 ASM_INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
@@ -49,16 +49,11 @@ ASM_INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
   ]
 end.flatten +
 REG_TEMPLATE.map do |r|
-  [
-    "QWORD PTR [#{r} + rax * 1]", 
-    "QWORD PTR [#{r} + rax * 2]", 
-    "QWORD PTR [#{r} + rax * 4]", 
-    "QWORD PTR [#{r} + rax * 8]", 
-    "QWORD PTR [#{r} + r15 * 1]", 
-    "QWORD PTR [#{r} + r15 * 2]", 
-    "QWORD PTR [#{r} + r15 * 4]", 
-    "QWORD PTR [#{r} + r15 * 8]", 
-  ]
+  INDEX_TEMPLATE.map do |i|
+    ["1", "2", "4", "8"].map do |s|
+      "QWORD PTR [#{r} + #{i} * #{s}]"
+    end
+  end
 end.flatten
 
 IMM_TEMPLATE = ["1", "18"]

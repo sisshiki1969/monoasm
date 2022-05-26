@@ -36,11 +36,11 @@ pub enum Reg {
 }
 
 impl Reg {
-    pub fn none() -> Self {
+    /*pub fn none() -> Self {
         Reg::Rax
-    }
+    }*/
 
-    pub fn is_rip(&self) -> bool {
+    fn is_rip(&self) -> bool {
         *self == Reg::RIP
     }
 
@@ -292,16 +292,16 @@ impl Parse for IndAddr {
                     Some(reg) => {
                         content.parse::<Token![*]>()?;
                         let scale = match content.parse::<LitInt>()?.base10_parse::<u8>()? {
-                            1 => Scale::S1(reg),
-                            2 => Scale::S2(reg),
-                            4 => Scale::S4(reg),
-                            8 => Scale::S8(reg),
+                            1 => 0,
+                            2 => 1,
+                            4 => 2,
+                            8 => 3,
                             _ => unreachable!("invalid scale number."),
                         };
                         Ok(IndAddr {
                             base,
-                            scale,
-                            disp: Disp::Imm(quote!(0)),
+                            scale: Scale::S1(scale, reg),
+                            disp: Disp::Imm(0),
                         })
                     }
                     None => Ok(IndAddr {
@@ -322,7 +322,7 @@ impl Parse for IndAddr {
             Ok(IndAddr {
                 base,
                 scale: Scale::None,
-                disp: Disp::Imm(quote!(0i32)),
+                disp: Disp::Imm(0),
             })
         }
     }
@@ -344,20 +344,14 @@ impl ToTokens for IndAddr {
 #[derive(Clone, Debug)]
 pub enum Scale {
     None,
-    S1(Register),
-    S2(Register),
-    S4(Register),
-    S8(Register),
+    S1(u8, Register),
 }
 
 impl ToTokens for Scale {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.extend(match self {
             Self::None => quote!(Scale::None),
-            Self::S1(reg) => quote!( Scale::S1(#reg) ),
-            Self::S2(reg) => quote!( Scale::S2(#reg) ),
-            Self::S4(reg) => quote!( Scale::S4(#reg) ),
-            Self::S8(reg) => quote!( Scale::S8(#reg) ),
+            Self::S1(scale, reg) => quote!( Scale::S1(#scale, #reg) ),
         });
     }
 }
@@ -418,14 +412,16 @@ pub fn is_single(input: ParseStream) -> bool {
 ///----------------------------------------------------------------------
 #[derive(Clone, Debug)]
 pub enum Disp {
-    Imm(TokenStream),
+    Imm(i32),
+    Expr(TokenStream),
     Label(Ident),
 }
 
 impl Disp {
     fn neg(self) -> Self {
         match self {
-            Disp::Imm(ts) => Disp::Imm(quote!(-(#ts))),
+            Disp::Imm(disp) => Disp::Imm(-disp),
+            Disp::Expr(ts) => Disp::Expr(quote!(-(#ts))),
             disp => disp,
         }
     }
@@ -434,11 +430,14 @@ impl Disp {
 impl ToTokens for Disp {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ts = match self {
+            Disp::Imm(disp) => quote!(
+                Disp::from_disp(#disp)
+            ),
+            Disp::Expr(ts) => quote!(
+                Disp::from_disp(#ts)
+            ),
             Disp::Label(label) => quote!(
                 Disp::from_label(#label)
-            ),
-            Disp::Imm(ts) => quote!(
-                Disp::from_disp(#ts)
             ),
         };
         tokens.extend(ts);
@@ -448,7 +447,8 @@ impl ToTokens for Disp {
 impl std::fmt::Display for Disp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Imm(ts) => write!(f, "{}", ts),
+            Self::Imm(disp) => write!(f, "{}", disp),
+            Self::Expr(ts) => write!(f, "{}", ts),
             Self::Label(label) => write!(f, "{}", label),
         }
     }
@@ -462,12 +462,11 @@ impl Parse for Disp {
             syn::parenthesized!(content in input);
             let expr = content.parse::<Expr>()?;
             let expr = quote!(#expr as i32);
-            Ok(Disp::Imm(expr))
+            Ok(Disp::Expr(expr))
         } else if input.peek(LitInt) {
             // e.g. "[rax + 4]"
-            let ofs: i32 = input.parse::<LitInt>()?.base10_parse()?;
-            let expr = quote!(#ofs as i32);
-            Ok(Disp::Imm(expr))
+            let disp: i32 = input.parse::<LitInt>()?.base10_parse()?;
+            Ok(Disp::Imm(disp))
         } else if input.peek(Ident) {
             let label = input.parse::<Ident>().unwrap();
             Ok(Disp::Label(label))

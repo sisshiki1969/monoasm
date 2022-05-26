@@ -415,10 +415,7 @@ impl JitMemory {
                 Mode::Ind(scale, disp) => {
                     let (scale, index) = match scale {
                         Scale::None => (0, Reg(4)), // magic number
-                        Scale::S1(index) => (0, index),
-                        Scale::S2(index) => (1, index),
-                        Scale::S4(index) => (2, index),
-                        Scale::S8(index) => (3, index),
+                        Scale::S1(scale, index) => (scale, index),
                     };
                     let base = rm.base;
                     rex_fn(self, reg, base, index);
@@ -438,10 +435,7 @@ impl JitMemory {
             self.modrm(modrm_mode, mode, rm.base);
             match scale {
                 Scale::None => {}
-                Scale::S1(index) => self.sib(0, index, rm.base),
-                Scale::S2(index) => self.sib(1, index, rm.base),
-                Scale::S4(index) => self.sib(2, index, rm.base),
-                Scale::S8(index) => self.sib(3, index, rm.base),
+                Scale::S1(scale, index) => self.sib(scale, index, rm.base),
             }
             self.emit_disp_imm(mode.disp(), imm);
         } else {
@@ -453,10 +447,7 @@ impl JitMemory {
                     Mode::Reg => Reg(0),
                     Mode::Ind(scale, _) => match scale {
                         Scale::None => Reg(0),
-                        Scale::S1(index) => index,
-                        Scale::S2(index) => index,
-                        Scale::S4(index) => index,
-                        Scale::S8(index) => index,
+                        Scale::S1(_, index) => index,
                     },
                 },
             );
@@ -467,10 +458,7 @@ impl JitMemory {
                 Mode::Reg => {}
                 Mode::Ind(scale, _) => match scale {
                     Scale::None => {}
-                    Scale::S1(index) => self.sib(0, index, rm.base),
-                    Scale::S2(index) => self.sib(1, index, rm.base),
-                    Scale::S4(index) => self.sib(2, index, rm.base),
-                    Scale::S8(index) => self.sib(3, index, rm.base),
+                    Scale::S1(scale, index) => self.sib(scale, index, rm.base),
                 },
             };
             self.emit_disp_imm(rm.mode.disp(), imm);
