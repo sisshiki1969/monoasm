@@ -122,7 +122,10 @@ pub enum Mode {
 ///
 ///----------------------------------------------------------------------
 #[derive(Clone, Debug)]
-pub struct Register(TokenStream);
+pub enum Register {
+    Reg(u8),
+    Expr(TokenStream),
+}
 
 impl Parse for Register {
     fn parse(input: ParseStream) -> Result<Self, Error> {
@@ -132,41 +135,35 @@ impl Parse for Register {
 
 impl ToTokens for Register {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let reg = self.0.clone();
-        let ts = quote! ( Reg::from(#reg) );
+        let ts = match self {
+            Self::Reg(n) => quote! ( Reg::from(#n as u64) ),
+            Self::Expr(ts) => quote! ( Reg::from(#ts) ),
+        };
         tokens.extend(ts);
     }
 }
 
 impl std::fmt::Display for Register {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "R({})", self.0)
+        match self {
+            Self::Reg(n) => write!(f, "R({})", n),
+            Self::Expr(ts) => write!(f, "R({})", ts),
+        }
     }
 }
 
 impl Register {
-    pub fn new(ts: TokenStream) -> Self {
-        Self(ts)
-    }
-
-    pub fn get(self) -> TokenStream {
-        self.0
-    }
-
     fn check_register(input: &ParseBuffer, ident: &Ident) -> Result<Option<Register>, Error> {
         if ident == "R" {
             // e.g. "R(13)"
             let content;
             syn::parenthesized!(content in input);
             let s = content.parse::<Expr>()?;
-            Ok(Some(Register::new(quote!(#s))))
+            Ok(Some(Register::Expr(quote!(#s))))
         } else {
             // e.g. "rax"
             match Reg::from_str(ident.to_string()) {
-                Some(reg) => {
-                    let reg = reg as u64;
-                    Ok(Some(Register::new(quote!(#reg))))
-                }
+                Some(reg) => Ok(Some(Register::Reg(reg as u64 as u8))),
                 None => Ok(None),
             }
         }
@@ -178,11 +175,11 @@ impl Register {
             let content;
             syn::parenthesized!(content in input);
             let s = content.parse::<Expr>()?;
-            Ok(Register::new(quote!(#s)))
+            Ok(Register::Expr(quote!(#s)))
         } else {
             // e.g. "rax"
-            let reg = Reg::from_str(ident).ok_or(input.error("Expected register name."))? as u64;
-            Ok(Register::new(quote!(#reg)))
+            let reg = Reg::from_str(ident).ok_or(input.error("Expected register name."))? as u8;
+            Ok(Register::Reg(reg))
         }
     }
 }
