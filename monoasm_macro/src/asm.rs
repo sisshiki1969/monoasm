@@ -105,6 +105,8 @@ pub fn compile(inst: Inst) -> TokenStream {
                 Flag::Ae => 0x93,
                 Flag::B => 0x92,
                 Flag::Be => 0x96,
+                Flag::S => 0x98,
+                Flag::Ns => 0x99,
             };
             quote!( jit.enc_rex_m(&[0x0f, #flag], #op); )
         }
@@ -254,6 +256,14 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // 0F 82 cd
                 // TODO: support rel8
                 Cond::B => 0x82,
+                // JS rel32
+                // 0F 88 cd
+                // TODO: support rel8
+                Cond::S => 0x88,
+                // JNS rel32
+                // 0F 89 cd
+                // TODO: support rel8
+                Cond::Ns => 0x89,
             };
             quote!( jit.enc_d(&[0x0f, #cond], #dest); )
         }
