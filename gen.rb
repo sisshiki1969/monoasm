@@ -72,7 +72,7 @@ EOS
 class Inst
   MODE_REG = 0
   MODE_INDIRECT = 1
-  MODE_IMMIDIATE = 2
+  MODE_IMMEDIATE = 2
 
   def self.make_file
     @monoasm = header
@@ -134,7 +134,7 @@ EOS
       [REG_TEMPLATE, REG_TEMPLATE]
     when MODE_INDIRECT
       [INDIRECT_TEMPLATE, ASM_INDIRECT_TEMPLATE]
-    when MODE_IMMIDIATE
+    when MODE_IMMEDIATE
       [IMM_TEMPLATE, IMM_TEMPLATE]
     end
   end
@@ -181,13 +181,13 @@ EOS
   end
 
   def self.rm_i
-    operand(MODE_REG, MODE_IMMIDIATE)
-    operand(MODE_INDIRECT, MODE_IMMIDIATE)
+    operand(MODE_REG, MODE_IMMEDIATE)
+    operand(MODE_INDIRECT, MODE_IMMEDIATE)
   end
 
   def self.rm_1
-    operand(MODE_REG, MODE_IMMIDIATE)
-    operand(MODE_INDIRECT, MODE_IMMIDIATE)
+    operand(MODE_REG, MODE_IMMEDIATE)
+    operand(MODE_INDIRECT, MODE_IMMEDIATE)
   end
 
   def self.m_r
@@ -290,27 +290,34 @@ class Neg < Inst
   end
 end
 
-class Shl < Inst
+class Shift < Inst
+  def self.gen
+    rm_i
+    rm_1
+  end
+end
+
+class Shl < Shift
   @inst = "shlq"
   @asm_inst = "shl"
-
-  def self.gen
-    rm_i
-    rm_1
-  end
 end
 
-class Shr < Inst
+class Shr < Shift
   @inst = "shrq"
   @asm_inst = "shr"
-
-  def self.gen
-    rm_i
-    rm_1
-  end
 end
 
-instructions = [Mov, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Test, Push, Pop, Neg, Shl, Shr]
+class Sal < Shift
+  @inst = "salq"
+  @asm_inst = "sal"
+end
+
+class Sar < Shift
+  @inst = "sarq"
+  @asm_inst = "sar"
+end
+
+instructions = [Mov, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Test, Push, Pop, Neg, Shl, Shr, Sal, Sar]
 instructions.map do |inst|
   inst.make_file
 end

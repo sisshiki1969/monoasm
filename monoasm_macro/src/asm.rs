@@ -90,6 +90,8 @@ pub fn compile(inst: Inst) -> TokenStream {
 
         Inst::Shlq(op1, op2) => shift_op(4, op1, op2),
         Inst::Shrq(op1, op2) => shift_op(5, op1, op2),
+        Inst::Salq(op1, op2) => shift_op(4, op1, op2),
+        Inst::Sarq(op1, op2) => shift_op(7, op1, op2),
 
         Inst::Setcc(flag, op) => {
             let flag: u8 = match flag {
