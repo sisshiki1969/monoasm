@@ -103,6 +103,9 @@ pub enum Inst {
     Leave,
     Ret,
     Syscall,
+
+    Lzcntq(Register, RmOperand),
+    Tzcntq(Register, RmOperand),
 }
 
 ///----------------------------------------------------------------------
@@ -247,6 +250,9 @@ impl Parse for Inst {
                 "jb" => parse_jcc!(B),
                 "syscall" => parse_0op!(Syscall),
                 "leave" => parse_0op!(Leave),
+
+                "lzcntq" => parse_2op!(Lzcntq),
+                "tzcntq" => parse_2op!(Tzcntq),
 
                 "dq" => {
                     if input.peek(LitFloat) {
