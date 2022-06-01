@@ -5,7 +5,7 @@ mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
 
-const PAGE_SIZE: usize = 4096 * 256;
+const PAGE_SIZE: usize = 1024 * 1024;
 
 /// Register.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -67,10 +67,16 @@ impl Disp {
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Scale {
     None,
-    S1(Reg),
-    S2(Reg),
-    S4(Reg),
-    S8(Reg),
+    S1(u8, Reg),
+}
+
+impl Scale {
+    fn index(&self) -> Reg {
+        match self {
+            Self::None => Reg(0),
+            Self::S1(_, r) => *r,
+        }
+    }
 }
 
 /// Destination for jump and call instructions.
@@ -90,7 +96,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    pub fn encode(&self) -> u8 {
+    fn encode(&self) -> u8 {
         match self {
             Mode::Reg => 3,
             Mode::Ind(_, Disp::None) => 0,
@@ -100,10 +106,24 @@ impl Mode {
         }
     }
 
-    pub fn disp(&self) -> Disp {
+    fn scale(&self) -> Scale {
+        match self {
+            Mode::Reg => Scale::None,
+            Mode::Ind(scale, _) => *scale,
+        }
+    }
+
+    fn disp(&self) -> Disp {
         match self {
             Mode::Reg => Disp::None,
             Mode::Ind(_, disp) => *disp,
+        }
+    }
+
+    fn is_indirect_no_disp(&self) -> bool {
+        match self {
+            Mode::Ind(_, Disp::None) => true,
+            _ => false,
         }
     }
 }

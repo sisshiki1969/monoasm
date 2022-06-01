@@ -9,13 +9,14 @@ The assembly code is assembled in compile time, and embedded as a code generator
 
 ## operand syntax
 
-|      addressing mode       |                     syntex                     |
-| :------------------------: | :--------------------------------------------: |
-|      register direct       |       rax, R(_expr_), xmm0, xmm(_expr_)        |
-|          indirect          |               [rax], [R(_expr_)]               |
-| indirect with displacement | [rax + 100], [rax + (_expr_)], [rip + _label_] |
+|      addressing mode       |                       syntax                      |
+| :------------------------: | :-----------------------------------------------: |
+|      register direct       |         rax, R(_expr_), xmm0, xmm(_expr_)         |
+|          indirect          |                 [rax], [R(_expr_)]                |
+| indirect with displacement |   [rax + 100], [rax + (_expr_)], [rip + _label_]  |
+|    scaled index indirect   | [rax + rdi], [rax + rdi * 4], [rax + rdi * 2 - 5] |
 
-- You can write Rust expression in parenthesis as a immediate value.
+- You can write Rust expression in parenthesis as an immediate value.
 
 ```Rust
     let mut jit: JitMemory = JitMemory::new();
@@ -30,7 +31,7 @@ The assembly code is assembled in compile time, and embedded as a code generator
 
 ```Rust
     let mut jit: JitMemory = JitMemory::new();
-    let label = jit.label();
+    let label: DestLabel = jit.label();
     monoasm!(jit,
         cmpq rax, 10;
         jne label;
@@ -136,7 +137,6 @@ The assembly code is assembled in compile time, and embedded as a code generator
 - dq
 
 ```Rust
-#![feature(proc_macro_hygiene)]
 extern crate monoasm;
 extern crate monoasm_macro;
 use monoasm::*;

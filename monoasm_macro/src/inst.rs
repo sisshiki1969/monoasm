@@ -73,6 +73,8 @@ pub enum Inst {
 
     Shlq(RmOperand, RiOperand),
     Shrq(RmOperand, RiOperand),
+    Salq(RmOperand, RiOperand),
+    Sarq(RmOperand, RiOperand),
 
     Imul(RmiOperand, RmiOperand),
     Idiv(RmOperand),
@@ -125,6 +127,8 @@ pub enum Cond {
     Ae,
     B,
     Be,
+    S,
+    Ns,
 }
 
 impl Parse for Inst {
@@ -217,10 +221,15 @@ impl Parse for Inst {
                 "setae" => parse_set!(Setcc, Ae),
                 "setb" => parse_set!(Setcc, B),
                 "setbe" => parse_set!(Setcc, Be),
+                "sets" => parse_set!(Setcc, S),
+                "setns" => parse_set!(Setcc, Ns),
+
                 "cqo" => parse_0op!(Cqo),
 
                 "shlq" => parse_2op!(Shlq),
                 "shrq" => parse_2op!(Shrq),
+                "salq" => parse_2op!(Salq),
+                "sarq" => parse_2op!(Sarq),
 
                 "movsd" => parse_2op!(Movsd),
                 "addsd" => parse_2op!(Addsd),
@@ -247,7 +256,8 @@ impl Parse for Inst {
                 "jae" => parse_jcc!(Ae),
                 "ja" => parse_jcc!(A),
                 "jbe" => parse_jcc!(Be),
-                "jb" => parse_jcc!(B),
+                "js" => parse_jcc!(S),
+                "jns" => parse_jcc!(Ns),
                 "syscall" => parse_0op!(Syscall),
                 "leave" => parse_0op!(Leave),
 
