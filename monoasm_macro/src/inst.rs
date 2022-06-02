@@ -126,6 +126,8 @@ pub enum Cond {
     Be,
     S,
     Ns,
+    O,
+    No,
 }
 
 impl Parse for Inst {
@@ -255,6 +257,8 @@ impl Parse for Inst {
                 "jbe" => parse_jcc!(Be),
                 "js" => parse_jcc!(S),
                 "jns" => parse_jcc!(Ns),
+                "jo" => parse_jcc!(O),
+                "jno" => parse_jcc!(No),
                 "syscall" => parse_0op!(Syscall),
                 "leave" => parse_0op!(Leave),
 

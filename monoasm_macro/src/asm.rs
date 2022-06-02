@@ -264,6 +264,14 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // 0F 89 cd
                 // TODO: support rel8
                 Cond::Ns => 0x89,
+                // JO rel32
+                // 0F 80 cd
+                // TODO: support rel8
+                Cond::O => 0x80,
+                // JNO rel32
+                // 0F 81 cd
+                // TODO: support rel8
+                Cond::No => 0x81,
             };
             quote!( jit.enc_d(&[0x0f, #cond], #dest); )
         }
