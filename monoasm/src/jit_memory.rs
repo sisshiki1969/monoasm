@@ -10,6 +10,7 @@ use region::{protect, Protection};
 use std::{
     alloc::{alloc, Layout},
     io::Write,
+    ptr::NonNull,
 };
 
 pub enum Imm {
@@ -43,9 +44,15 @@ enum Rex {
     None,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(transparent)]
-pub struct CodePtr(pub u64);
+pub struct CodePtr(NonNull<u8>);
+
+impl CodePtr {
+    pub fn from(ptr: *mut u8) -> Self {
+        Self(NonNull::new(ptr).unwrap())
+    }
+}
 
 /// Memory manager.
 #[derive(Debug)]
@@ -188,12 +195,12 @@ impl JitMemory {
 
     pub fn get_current_address(&self) -> CodePtr {
         let ptr = unsafe { self.contents.add(self.counter.0) };
-        CodePtr(ptr as u64)
+        CodePtr::from(ptr)
     }
 
     pub fn get_label_address(&self, label: DestLabel) -> CodePtr {
         let ptr = unsafe { self.contents.add(self.get_label_pos(label)) };
-        CodePtr(ptr as u64)
+        CodePtr::from(ptr)
     }
 
     /// Save relocaton slot for `DestLabel`.
