@@ -52,6 +52,10 @@ impl CodePtr {
     pub fn from(ptr: *mut u8) -> Self {
         Self(NonNull::new(ptr).unwrap())
     }
+
+    pub fn as_ptr(&self) -> *mut u8 {
+        self.0.as_ptr()
+    }
 }
 
 /// Memory manager.
