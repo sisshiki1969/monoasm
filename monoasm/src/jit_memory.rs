@@ -170,14 +170,25 @@ impl JitMemory {
 
     /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
     pub fn finalize(&mut self) {
-        let start_pos = self.code_block_top;
-        let code_end = self.counter;
-        self.code_len = self.counter.0;
+        let mut info = vec![];
+        for p in 0..self.pages.len() {
+            self.select(p);
+            let start_pos = self.code_block_top;
+            let code_end = self.counter;
+            self.code_len = self.counter.0;
+            info.push((start_pos, code_end, Pos(0)));
+        }
         self.resolve_constants();
-        let end_pos = self.counter;
+        for p in 0..self.pages.len() {
+            self.select(p);
+            info[p].2 = self.counter;
+        }
         self.fill_relocs();
-        self.code_block_top = self.counter;
-        self.code_block.push((start_pos, code_end, end_pos));
+        for p in 0..self.pages.len() {
+            self.select(p);
+            self.code_block_top = self.counter;
+            self.code_block.push(info[p].clone());
+        }
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -262,7 +273,10 @@ impl JitMemory {
                     let dest_ptr = self.pages[*dest_page].contents as i64;
                     let disp = (src_ptr + pos.0 as i64) - (dest_ptr + dest.0 as i64 + *size as i64);
                     match i32::try_from(disp) {
-                        Ok(disp) => self.write32(*dest, disp as i32),
+                        Ok(disp) => {
+                            self.select(*dest_page);
+                            self.write32(*dest, disp as i32)
+                        }
                         Err(_) => panic!("Relocation overflow"),
                     }
                 }
@@ -274,10 +288,13 @@ impl JitMemory {
 
     /// Resolve labels for constant data, and emit them to `contents`.
     fn resolve_constants(&mut self) {
-        let constants = std::mem::take(&mut self.constants);
-        for (val, label) in constants {
-            self.bind_label(label);
-            self.emitq(val);
+        for p in 0..self.pages.len() {
+            self.select(p);
+            let constants = std::mem::take(&mut self.constants);
+            for (val, label) in constants {
+                self.bind_label(label);
+                self.emitq(val);
+            }
         }
     }
 
