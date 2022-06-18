@@ -84,6 +84,24 @@ pub struct MemPage {
     pub code_block: Vec<(Pos, Pos, Pos)>,
 }
 
+impl MemPage {
+    fn new() -> Self {
+        let layout = Layout::from_size_align(PAGE_SIZE, 4096).expect("Bad Layout.");
+        let contents = unsafe { alloc(layout) };
+        unsafe {
+            protect(contents, PAGE_SIZE, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
+        }
+        MemPage {
+            contents,
+            counter: Pos(0),
+            constants: vec![],
+            code_len: 0usize,
+            code_block_top: Pos(0),
+            code_block: vec![],
+        }
+    }
+}
+
 impl std::ops::Deref for JitMemory {
     type Target = MemPage;
     fn deref(&self) -> &Self::Target {
@@ -131,22 +149,9 @@ impl JitMemory {
     /// ### panic
     /// Panic if Layout::from_size_align() or region::protect() returned Err.
     pub fn new() -> JitMemory {
-        let layout = Layout::from_size_align(PAGE_SIZE, 4096).expect("Bad Layout.");
-        let contents = unsafe { alloc(layout) };
-
-        unsafe {
-            protect(contents, PAGE_SIZE, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
-        }
         let mut res = JitMemory {
             page: 0,
-            pages: vec![MemPage {
-                contents,
-                counter: Pos(0),
-                constants: vec![],
-                code_len: 0usize,
-                code_block_top: Pos(0),
-                code_block: vec![],
-            }],
+            pages: vec![MemPage::new()],
             reloc: Relocations::new(),
         };
         res.emitb(0xc3);
@@ -154,7 +159,12 @@ impl JitMemory {
         res
     }
 
+    pub fn add_page(&mut self) {
+        self.pages.push(MemPage::new());
+    }
+
     pub fn select(&mut self, page: usize) {
+        assert!(page < self.pages.len());
         self.page = page;
     }
 
