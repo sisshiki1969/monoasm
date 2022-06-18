@@ -207,9 +207,9 @@ pub struct DestLabel(usize);
 pub struct Reloc {
     /// Destination position in JitMemory.
     /// None for not yet determined.
-    pub loc: Option<Pos>,
+    pub loc: Option<(usize, Pos)>,
     /// Source positions. (opcode size, position in JitMemory)
-    pub disp: Vec<(u8, Pos)>,
+    pub disp: Vec<(usize, u8, Pos)>,
 }
 
 impl Reloc {

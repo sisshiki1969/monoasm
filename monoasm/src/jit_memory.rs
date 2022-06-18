@@ -61,12 +61,19 @@ impl CodePtr {
 /// Memory manager.
 #[derive(Debug)]
 pub struct JitMemory {
+    page: usize,
+    pages: Vec<MemPage>,
+    /// Relocation information.
+    reloc: Relocations,
+}
+
+/// Memory manager.
+#[derive(Debug)]
+pub struct MemPage {
     /// Pointer to the heap.
     contents: *mut u8,
     /// Current position
     counter: Pos,
-    /// Relocation information.
-    reloc: Relocations,
     /// Constants section.
     constants: Vec<(u64, DestLabel)>,
     /// Machine code length
@@ -75,6 +82,19 @@ pub struct JitMemory {
     code_block_top: Pos,
     /// Code blocks. (start_pos, code_end, end_pos)
     pub code_block: Vec<(Pos, Pos, Pos)>,
+}
+
+impl std::ops::Deref for JitMemory {
+    type Target = MemPage;
+    fn deref(&self) -> &Self::Target {
+        &self.pages[self.page]
+    }
+}
+
+impl std::ops::DerefMut for JitMemory {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.pages[self.page]
+    }
 }
 
 impl Index<Pos> for JitMemory {
@@ -118,17 +138,24 @@ impl JitMemory {
             protect(contents, PAGE_SIZE, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
         }
         let mut res = JitMemory {
-            contents,
-            counter: Pos(0),
+            page: 0,
+            pages: vec![MemPage {
+                contents,
+                counter: Pos(0),
+                constants: vec![],
+                code_len: 0usize,
+                code_block_top: Pos(0),
+                code_block: vec![],
+            }],
             reloc: Relocations::new(),
-            constants: vec![],
-            code_len: 0usize,
-            code_block_top: Pos(0),
-            code_block: vec![],
         };
         res.emitb(0xc3);
         res.counter = Pos(0);
         res
+    }
+
+    pub fn select(&mut self, page: usize) {
+        self.page = page;
     }
 
     /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
@@ -181,7 +208,8 @@ impl JitMemory {
 
     /// Bind the current location to `label`.
     pub fn bind_label(&mut self, label: DestLabel) {
-        self.reloc[label].loc = Some(self.counter);
+        let p = self.page;
+        self.reloc[label].loc = Some((p, self.counter));
     }
 
     /*/// Bind the current location to `label`.
@@ -209,16 +237,20 @@ impl JitMemory {
 
     /// Save relocaton slot for `DestLabel`.
     pub fn save_reloc(&mut self, dest: DestLabel, offset: u8) {
-        self.reloc[dest].disp.push((offset, self.counter));
+        let p = self.page;
+        let pos = self.counter;
+        self.reloc[dest].disp.push((p, offset, pos));
     }
 
     /// Resolve and fill all relocations.
     pub fn fill_relocs(&mut self) {
         let mut reloc = std::mem::take(&mut self.reloc);
         for rel in reloc.iter() {
-            if let Some(pos) = rel.loc {
-                for (size, dest) in &rel.disp {
-                    let disp = pos.0 as i64 - dest.0 as i64 - *size as i64;
+            if let Some((src_page, pos)) = rel.loc {
+                for (dest_page, size, dest) in &rel.disp {
+                    let src_ptr = self.pages[src_page].contents as i64;
+                    let dest_ptr = self.pages[*dest_page].contents as i64;
+                    let disp = (src_ptr + pos.0 as i64) - (dest_ptr + dest.0 as i64 + *size as i64);
                     match i32::try_from(disp) {
                         Ok(disp) => self.write32(*dest, disp as i32),
                         Err(_) => panic!("Relocation overflow"),
