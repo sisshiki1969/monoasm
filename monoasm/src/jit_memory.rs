@@ -87,6 +87,26 @@ pub struct MemPage {
     pub code_block: Vec<(Pos, Pos, Pos)>,
 }
 
+impl Index<Pos> for MemPage {
+    type Output = u8;
+
+    fn index(&self, index: Pos) -> &u8 {
+        if index.0 >= PAGE_SIZE {
+            panic!("Page size overflow")
+        }
+        unsafe { &*self.contents.offset(index.0 as isize) }
+    }
+}
+
+impl IndexMut<Pos> for MemPage {
+    fn index_mut(&mut self, index: Pos) -> &mut u8 {
+        if index.0 >= PAGE_SIZE {
+            panic!("Page size overflow")
+        }
+        unsafe { &mut *self.contents.offset(index.0 as isize) }
+    }
+}
+
 impl MemPage {
     fn new() -> Self {
         let layout = Layout::from_size_align(PAGE_SIZE, 4096).expect("Bad Layout.");
@@ -102,6 +122,46 @@ impl MemPage {
             code_block_top: Pos(0),
             code_block: vec![],
         }
+    }
+
+    /// Emit a byte.
+    pub fn emitb(&mut self, val: u8) {
+        let c = self.counter;
+        self[c] = val;
+        self.counter = c + 1;
+    }
+
+    /// Emit a word.
+    pub fn emitw(&mut self, val: u16) {
+        let c = self.counter;
+        self[c] = val as u8;
+        self[c + 1] = (val >> 8) as u8;
+        self.counter = c + 2;
+    }
+
+    /// Emit a long word.
+    pub fn emitl(&mut self, val: u32) {
+        let c = self.counter;
+        self[c] = val as u8;
+        self[c + 1] = (val >> 8) as u8;
+        self[c + 2] = (val >> 16) as u8;
+        self[c + 3] = (val >> 24) as u8;
+        self.counter = c + 4;
+    }
+
+    /// Emit a quad word.
+    pub fn emitq(&mut self, val: u64) {
+        self.emitl(val as u32);
+        self.emitl((val >> 32) as u32);
+    }
+
+    /// Write 32bit data `val` on `loc`.
+    fn write32(&mut self, loc: Pos, val: i32) {
+        let val = val as u32;
+        self[loc] = val as u8;
+        self[loc + 1] = (val >> 8) as u8;
+        self[loc + 2] = (val >> 16) as u8;
+        self[loc + 3] = (val >> 24) as u8;
     }
 }
 
@@ -166,14 +226,14 @@ impl JitMemory {
     /// ### panic
     /// Panic if Layout::from_size_align() or region::protect() returned Err.
     pub fn new() -> JitMemory {
-        let mut res = JitMemory {
+        let mut initial_page = MemPage::new();
+        initial_page.emitb(0xc3);
+        initial_page.counter = Pos(0);
+        JitMemory {
             page: Page(0),
-            pages: vec![MemPage::new()],
+            pages: vec![initial_page],
             reloc: Relocations::new(),
-        };
-        res.emitb(0xc3);
-        res.counter = Pos(0);
-        res
+        }
     }
 
     pub fn add_page(&mut self) {
@@ -187,24 +247,19 @@ impl JitMemory {
 
     /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
     pub fn finalize(&mut self) {
-        let mut info = vec![];
-        for p in 0..self.pages.len() {
-            self.select(p);
-            let start_pos = self.code_block_top;
-            let code_end = self.counter;
-            self.code_len = self.counter.0;
-            info.push((start_pos, code_end, Pos(0)));
+        for page in &mut self.pages {
+            let start_pos = page.code_block_top;
+            let code_end = page.counter;
+            page.code_len = page.counter.0;
+            page.code_block.push((start_pos, code_end, Pos(0)));
         }
         self.resolve_constants();
-        for p in 0..self.pages.len() {
-            self.select(p);
-            info[p].2 = self.counter;
+        for page in &mut self.pages {
+            page.code_block.last_mut().unwrap().2 = page.counter;
         }
         self.fill_relocs();
-        for p in 0..self.pages.len() {
-            self.select(p);
-            self.code_block_top = self.counter;
-            self.code_block.push(info[p].clone());
+        for page in &mut self.pages {
+            page.code_block_top = page.counter;
         }
     }
 
@@ -250,6 +305,10 @@ impl JitMemory {
         self.reloc[label].loc = Some((p, self.counter));
     }
 
+    pub fn bind_label_with_page(&mut self, page: Page, label: DestLabel) {
+        self.reloc[label].loc = Some((page, self.counter));
+    }
+
     /*/// Bind the current location to `label`.
     pub fn bind_label_to_pos(&mut self, label: DestLabel, pos: usize) {
         self.reloc[label].loc = Some(Pos::from(pos));
@@ -291,10 +350,7 @@ impl JitMemory {
                     let dest_ptr = self[*dest_page].contents as usize + dest.0 + (*size as usize);
                     let disp = (src_ptr as i64) - (dest_ptr as i64);
                     match i32::try_from(disp) {
-                        Ok(disp) => {
-                            self.select(dest_page.0);
-                            self.write32(*dest, disp as i32)
-                        }
+                        Ok(disp) => self[*dest_page].write32(*dest, disp as i32),
                         Err(_) => panic!("Relocation overflow"),
                     }
                 }
@@ -306,12 +362,11 @@ impl JitMemory {
 
     /// Resolve labels for constant data, and emit them to `contents`.
     fn resolve_constants(&mut self) {
-        for p in 0..self.pages.len() {
-            self.select(p);
-            let constants = std::mem::take(&mut self.constants);
+        for id in 0..self.pages.len() {
+            let constants = std::mem::take(&mut self[Page(id)].constants);
             for (val, label) in constants {
-                self.bind_label(label);
-                self.emitq(val);
+                self.bind_label_with_page(Page(id), label);
+                self[Page(id)].emitq(val);
             }
         }
     }
@@ -343,46 +398,6 @@ impl JitMemory {
     /// Emit bytes.
     pub fn emit(&mut self, slice: &[u8]) {
         slice.iter().for_each(|b| self.emitb(*b));
-    }
-
-    /// Emit a byte.
-    pub fn emitb(&mut self, val: u8) {
-        let c = self.counter;
-        self[c] = val;
-        self.counter = c + 1;
-    }
-
-    /// Emit a word.
-    pub fn emitw(&mut self, val: u16) {
-        let c = self.counter;
-        self[c] = val as u8;
-        self[c + 1] = (val >> 8) as u8;
-        self.counter = c + 2;
-    }
-
-    /// Emit a long word.
-    pub fn emitl(&mut self, val: u32) {
-        let c = self.counter;
-        self[c] = val as u8;
-        self[c + 1] = (val >> 8) as u8;
-        self[c + 2] = (val >> 16) as u8;
-        self[c + 3] = (val >> 24) as u8;
-        self.counter = c + 4;
-    }
-
-    /// Write 32bit data `val` on `loc`.
-    fn write32(&mut self, loc: Pos, val: i32) {
-        let val = val as u32;
-        self[loc] = val as u8;
-        self[loc + 1] = (val >> 8) as u8;
-        self[loc + 2] = (val >> 16) as u8;
-        self[loc + 3] = (val >> 24) as u8;
-    }
-
-    /// Emit a quad word.
-    pub fn emitq(&mut self, val: u64) {
-        self.emitl(val as u32);
-        self.emitl((val >> 32) as u32);
     }
 }
 
