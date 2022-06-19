@@ -58,10 +58,13 @@ impl CodePtr {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Page(pub usize);
+
 /// Memory manager.
 #[derive(Debug)]
 pub struct JitMemory {
-    page: usize,
+    page: Page,
     pages: Vec<MemPage>,
     /// Relocation information.
     reloc: Relocations,
@@ -105,13 +108,27 @@ impl MemPage {
 impl std::ops::Deref for JitMemory {
     type Target = MemPage;
     fn deref(&self) -> &Self::Target {
-        &self.pages[self.page]
+        &self.pages[self.page.0]
     }
 }
 
 impl std::ops::DerefMut for JitMemory {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.pages[self.page]
+        &mut self.pages[self.page.0]
+    }
+}
+
+impl Index<Page> for JitMemory {
+    type Output = MemPage;
+
+    fn index(&self, index: Page) -> &MemPage {
+        &self.pages[index.0]
+    }
+}
+
+impl IndexMut<Page> for JitMemory {
+    fn index_mut(&mut self, index: Page) -> &mut MemPage {
+        &mut self.pages[index.0]
     }
 }
 
@@ -150,7 +167,7 @@ impl JitMemory {
     /// Panic if Layout::from_size_align() or region::protect() returned Err.
     pub fn new() -> JitMemory {
         let mut res = JitMemory {
-            page: 0,
+            page: Page(0),
             pages: vec![MemPage::new()],
             reloc: Relocations::new(),
         };
@@ -165,7 +182,7 @@ impl JitMemory {
 
     pub fn select(&mut self, page: usize) {
         assert!(page < self.pages.len());
-        self.page = page;
+        self.page = Page(page);
     }
 
     /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
@@ -243,7 +260,8 @@ impl JitMemory {
         self.reloc[label]
             .loc
             .expect("The DestLabel has no position binding.")
-            .0
+            .1
+             .0
     }
 
     pub fn get_current_address(&self) -> CodePtr {
@@ -268,14 +286,13 @@ impl JitMemory {
         let mut reloc = std::mem::take(&mut self.reloc);
         for rel in reloc.iter() {
             if let Some((src_page, pos)) = rel.loc {
-                let src_ptr = self.pages[src_page].contents as usize + pos.0;
+                let src_ptr = self[src_page].contents as usize + pos.0;
                 for (dest_page, size, dest) in &rel.disp {
-                    let dest_ptr =
-                        self.pages[*dest_page].contents as usize + dest.0 + (*size as usize);
+                    let dest_ptr = self[*dest_page].contents as usize + dest.0 + (*size as usize);
                     let disp = (src_ptr as i64) - (dest_ptr as i64);
                     match i32::try_from(disp) {
                         Ok(disp) => {
-                            self.select(*dest_page);
+                            self.select(dest_page.0);
                             self.write32(*dest, disp as i32)
                         }
                         Err(_) => panic!("Relocation overflow"),
@@ -303,7 +320,7 @@ impl JitMemory {
         let (page, counter) = self.reloc[label]
             .loc
             .expect("The DestLabel has no position binding.");
-        let adr = self.pages[page].contents;
+        let adr = self[page].contents;
         unsafe { mem::transmute(adr.add(counter.0)) }
     }
 
@@ -311,7 +328,7 @@ impl JitMemory {
         let (page, counter) = self.reloc[label]
             .loc
             .expect("The DestLabel has no position binding.");
-        let adr = self.pages[page].contents;
+        let adr = self[page].contents;
         unsafe { mem::transmute(adr.add(counter.0)) }
     }
 
@@ -319,7 +336,7 @@ impl JitMemory {
         let (page, counter) = self.reloc[label]
             .loc
             .expect("The DestLabel has no position binding.");
-        let adr = self.pages[page].contents;
+        let adr = self[page].contents;
         unsafe { mem::transmute(adr.add(counter.0)) }
     }
 
