@@ -13,6 +13,7 @@ fn factorial() {
 fn fac() -> extern "C" fn(u64) -> u64 {
     let fmt = "%d\n\0";
     let mut jit: JitMemory = JitMemory::new();
+    jit.add_page();
     let printf_addr = libc::printf as u64;
     let fac = jit.label();
     let l2 = jit.label();
@@ -42,8 +43,12 @@ fn fac() -> extern "C" fn(u64) -> u64 {
         popq r15;
         popq rbp;
         ret;
+    );
+
+    jit.select(1);
 
     // fac(arg:i64) -> rax
+    monoasm!(jit,
     fac:
         // prologue
         pushq rbp;

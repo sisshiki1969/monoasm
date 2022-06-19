@@ -208,7 +208,7 @@ pub struct Reloc {
     /// Destination position in JitMemory.
     /// None for not yet determined.
     pub loc: Option<(usize, Pos)>,
-    /// Source positions. (opcode size, position in JitMemory)
+    /// Source positions. (page, opcode size, position in JitMemory)
     pub disp: Vec<(usize, u8, Pos)>,
 }
 
