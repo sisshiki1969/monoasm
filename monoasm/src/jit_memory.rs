@@ -351,7 +351,10 @@ impl JitMemory {
                     let disp = (src_ptr as i64) - (dest_ptr as i64);
                     match i32::try_from(disp) {
                         Ok(disp) => self[*dest_page].write32(*dest, disp as i32),
-                        Err(_) => panic!("Relocation overflow"),
+                        Err(_) => panic!(
+                            "Relocation overflow. src:{:016x} dest:{:016x}",
+                            src_ptr, dest_ptr
+                        ),
                     }
                 }
             }
