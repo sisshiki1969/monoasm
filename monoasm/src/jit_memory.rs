@@ -124,6 +124,11 @@ impl MemPage {
         }
     }
 
+    /// Adjust cursor with 16 byte alignment.
+    pub fn align(&mut self) {
+        self.counter = Pos((self.counter.0 + 15) & !0b1111);
+    }
+
     /// Emit a byte.
     pub fn emitb(&mut self, val: u8) {
         let c = self.counter;
@@ -366,6 +371,7 @@ impl JitMemory {
     /// Resolve labels for constant data, and emit them to `contents`.
     fn resolve_constants(&mut self) {
         for id in 0..self.pages.len() {
+            self[Page(id)].align();
             let constants = std::mem::take(&mut self[Page(id)].constants);
             for (val, label) in constants {
                 self.bind_label_with_page(Page(id), label);

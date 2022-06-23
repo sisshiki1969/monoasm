@@ -5,7 +5,7 @@ mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
 
-const PAGE_SIZE: usize = 1024 * 1024;
+const PAGE_SIZE: usize = 1024 * 256;
 
 /// Register.
 #[derive(Copy, Clone, PartialEq, Debug)]
