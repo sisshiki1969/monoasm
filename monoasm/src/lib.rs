@@ -5,7 +5,7 @@ mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
 
-const PAGE_SIZE: usize = 1024 * 1024;
+const PAGE_SIZE: usize = 1024 * 256;
 
 /// Register.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -207,9 +207,9 @@ pub struct DestLabel(usize);
 pub struct Reloc {
     /// Destination position in JitMemory.
     /// None for not yet determined.
-    pub loc: Option<Pos>,
-    /// Source positions. (opcode size, position in JitMemory)
-    pub disp: Vec<(u8, Pos)>,
+    pub loc: Option<(Page, Pos)>,
+    /// Source positions. (page, opcode size, position in JitMemory)
+    pub disp: Vec<(Page, u8, Pos)>,
 }
 
 impl Reloc {
