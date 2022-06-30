@@ -14,6 +14,7 @@ pub fn compile(inst: Inst) -> TokenStream {
 
         Inst::Movq(op1, op2) => movq(op1, op2),
         Inst::Movl(op1, op2) => movl(op1, op2),
+        Inst::Movw(op1, op2) => movw(op1, op2),
         Inst::Movsxl(op1, op2) => quote!( jit.enc_rexw_mr(&[0x63], #op1, #op2); ),
         Inst::Movzxw(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xb7], #op1, #op2); ),
         Inst::Movsxw(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xbf], #op1, #op2); ),
@@ -381,7 +382,7 @@ fn movl(op1: RmOperand, op2: RmiOperand) -> TokenStream {
                     jit.enc_oi(0xb8, #expr);
                     jit.emitl(imm as u32);
                 } else {
-                    panic!("'MOVL {}, imm64' does not exists.", #expr);
+                    panic!("'MOVL {}, {}' does not exists.", #expr, imm);
                 };
             )
         }
@@ -407,6 +408,57 @@ fn movl(op1: RmOperand, op2: RmiOperand) -> TokenStream {
         // 8B /r
         // RM
         (RmOperand::Reg(op1), op2) => quote!( jit.enc_rex_mr(&[0x8b], #op1, #op2); ),
+        (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
+    }
+}
+
+fn movw(op1: RmOperand, op2: RmiOperand) -> TokenStream {
+    match (op1, op2) {
+        // MOV r16, imm16
+        // B8+ rw iw
+        // OI
+        (RmOperand::Reg(expr), RmiOperand::Imm(i)) => {
+            quote!(
+                let imm = (#i) as i64;
+                if let Ok(imm) = i16::try_from(imm) {
+                    // MOV r16, imm16
+                    jit.emitb(0x66);
+                    jit.enc_oi(0xb8, #expr);
+                    jit.emitw(imm as u16);
+                } else {
+                    panic!("'MOVW {}, {}' does not exists.", #expr, imm);
+                };
+            )
+        }
+        // MOV r/m16, imm16
+        // C7 /0 iw
+        // MI
+        (op1, RmiOperand::Imm(i)) => {
+            let op1_str = format!("{}", op1);
+            quote! {
+                let imm = (#i) as i64;
+                if let Ok(imm) = i16::try_from(imm)  {
+                    jit.emitb(0x66);
+                    jit.enc_rex_mi(0xc7, #op1, Imm::W(imm));
+                } else {
+                    panic!("'MOVW {}, {}' does not exists.", #op1_str, imm);
+                }
+            }
+        }
+        // MOV r/m16, r16
+        // 89 /r
+        // MR
+        (op1, RmiOperand::Reg(expr)) => quote!(
+            jit.emitb(0x66);
+            jit.enc_rex_mr(&[0x89], #expr, #op1);
+        ),
+        // MOV r16, m16
+        // 8B /r
+        // RM
+        (RmOperand::Reg(op1), op2) => quote!(
+            jit.emitb(0x66);
+            jit.enc_rex_mr(&[0x8b], #op1, #op2);
+        ),
         (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
     }
 }
