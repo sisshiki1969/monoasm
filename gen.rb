@@ -2,65 +2,71 @@
 # Automatic verification tool for monoasm
 #
 
-REG_TEMPLATE = [
-  "rax", 
-  "rcx", 
-  "rdx", 
-  "rbx", 
-  "rsp", 
-  "rbp", 
-  "rsi", 
-  "rdi", 
-  "r8", 
-  "r9", 
-  "r10", 
-  "r11", 
-  "r12", 
-  "r13", 
-  "r14", 
-  "r15", 
-]
+def reg_template(size)
+  if size ==8
+    ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
+  elsif size == 4
+    ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi", "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"]
+  else
+    raise "invalid size descriptor #{size}"
+  end
+end
 
 INDEX_TEMPLATE = [
   "rax", 
   "r15", 
 ]
 
-INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
-  [ 
-    "[#{r}]",
-    "[#{r} + 16]",
-    "[#{r} + 512]"
-  ]
-end.flatten +
-REG_TEMPLATE.map do |r|
-  INDEX_TEMPLATE.map do |i|
-    ["1", "8"].map do |s|
-      [
-        "[#{r} + #{i} * #{s}]",
-        "[#{r} + #{i} * #{s} + 20]"
-      ]
+def indirect_template(size)
+  (reg_template(8) + ["rip"]).map do |r|
+    [ 
+      "[#{r}]",
+      "[#{r} + 16]",
+      "[#{r} + 512]"
+    ]
+  end.flatten +
+  reg_template(8).map do |r|
+    INDEX_TEMPLATE.map do |i|
+      ["1", "8"].map do |s|
+        [
+          "[#{r} + #{i} * #{s}]",
+          "[#{r} + #{i} * #{s} + 20]"
+        ]
+      end
     end
-  end
-end.flatten
+  end.flatten
+end
 
-ASM_INDIRECT_TEMPLATE = (REG_TEMPLATE + ["rip"]).map do |r|
-  [
-    "QWORD PTR [#{r}]", 
-    "QWORD PTR [#{r} + 16]",
-    "QWORD PTR [#{r} + 512]"
-  ]
-end.flatten +
-REG_TEMPLATE.map do |r|
-  INDEX_TEMPLATE.map do |i|
-    ["1", "8"].map do |s|
-      [
-        "QWORD PTR [#{r} + #{i} * #{s}]",
-        "QWORD PTR [#{r} + #{i} * #{s} + 20]",
-      ]
-    end
+def asm_indirect_template(size)
+  prefix = if size == 8
+    "QWORD PTR"
+  elsif size == 4
+    "DWORD PTR"
+  elsif size == 2
+    "WORD PTR"
+  elsif size == 1
+    "BYTE PTR"
+  else
+    raise "invalid size descriptor #{size}"
   end
-end.flatten
+  (reg_template(8) + ["rip"]).map do |r|
+    [
+      "#{prefix} [#{r}]", 
+      "#{prefix} [#{r} + 16]",
+      "#{prefix} [#{r} + 512]"
+    ]
+  end.flatten +
+  reg_template(8).map do |r|
+    INDEX_TEMPLATE.map do |i|
+      ["1", "8"].map do |s|
+        [
+          "#{prefix} [#{r} + #{i} * #{s}]",
+          "#{prefix} [#{r} + #{i} * #{s} + 20]",
+        ]
+      end
+    end
+  end.flatten
+end
 
 IMM_TEMPLATE = ["1", "18"]
 
@@ -85,17 +91,17 @@ class Inst
     f.close
 
 
-    f = File.open "monoasm/tests/#{@asm_inst}.s", "w"
+    f = File.open "monoasm/tests/#{@inst}.s", "w"
     f.write ASM_HEADER + @asm
     f.close
 
-    `as monoasm/tests/#{@asm_inst}.s -o monoasm/tests/#{@asm_inst}`
-    `objcopy -O binary --only-section=.text monoasm/tests/#{@asm_inst} monoasm/tests/#{@asm_inst}.bin`
-    `rm monoasm/tests/#{@asm_inst}`
+    `as monoasm/tests/#{@inst}.s -o monoasm/tests/#{@inst}`
+    `objcopy -O binary --only-section=.text monoasm/tests/#{@inst} monoasm/tests/#{@inst}.bin`
+    `rm monoasm/tests/#{@inst}`
   end
 
   def self.compare
-    puts `diff -s monoasm/tests/#{@asm_inst}.bin monoasm/tests/#{@inst}_monoasm.bin`
+    puts `diff -s monoasm/tests/#{@inst}.bin monoasm/tests/#{@inst}_monoasm.bin`
     #`rm monoasm/tests/*.bin`
   end
 
@@ -131,9 +137,9 @@ EOS
   def self.template(mode)
     case mode
     when MODE_REG
-      [REG_TEMPLATE, REG_TEMPLATE]
+      [reg_template(8), reg_template(@size)]
     when MODE_INDIRECT
-      [INDIRECT_TEMPLATE, ASM_INDIRECT_TEMPLATE]
+      [indirect_template(@size), asm_indirect_template(@size)]
     when MODE_IMMEDIATE
       [IMM_TEMPLATE, IMM_TEMPLATE]
     end
@@ -207,54 +213,82 @@ EOS
 
 end
 
-class Mov < Inst
+class Movq < Inst
   @inst = "movq"
   @asm_inst = "mov"
+  @size = 8
 end
 
-class Add < Inst
+class Movl < Inst
+  @inst = "movl"
+  @asm_inst = "mov"
+  @size = 4
+end
+
+class Addq < Inst
   @inst = "addq"
   @asm_inst = "add"
+  @size = 8
 end
 
-class Sub < Inst
+class Addl < Inst
+  @inst = "addl"
+  @asm_inst = "add"
+  @size = 4
+end
+
+class Subq < Inst
   @inst = "subq"
   @asm_inst = "sub"
+  @size = 8
 end
 
-class Adc < Inst
+class Adcq < Inst
   @inst = "adcq"
   @asm_inst = "adc"
+  @size = 8
 end
 
-class Sbb < Inst
+class Sbbq < Inst
   @inst = "sbbq"
   @asm_inst = "sbb"
+  @size = 8
 end
 
-class And < Inst
+class Andq < Inst
   @inst = "andq"
   @asm_inst = "and"
+  @size = 8
 end
 
-class Or < Inst
+class Orq < Inst
   @inst = "orq"
   @asm_inst = "or"
+  @size = 8
 end
 
-class Xor < Inst
+class Xorq < Inst
   @inst = "xorq"
   @asm_inst = "xor"
+  @size = 8
 end
 
-class Cmp < Inst
+class Cmpq < Inst
   @inst = "cmpq"
   @asm_inst = "cmp"
+  @size = 8
+end
+
+class Cmpl < Inst
+  @inst = "cmpl"
+  @asm_inst = "cmp"
+  @size = 4
 end
 
 class Test < Inst
   @inst = "testq"
   @asm_inst = "test"
+  @size = 8
 
   def self.gen
     r_r
@@ -266,6 +300,7 @@ end
 class Push < Inst
   @inst = "pushq"
   @asm_inst = "push"
+  @size = 8
 
   def self.gen
     rm
@@ -275,15 +310,17 @@ end
 class Pop < Inst
   @inst = "popq"
   @asm_inst = "pop"
+  @size = 8
 
   def self.gen
     rm
   end
 end
 
-class Neg < Inst
+class Negq < Inst
   @inst = "negq"
   @asm_inst = "neg"
+  @size = 8
 
   def self.gen
     rm
@@ -300,24 +337,28 @@ end
 class Shl < Shift
   @inst = "shlq"
   @asm_inst = "shl"
+  @size = 8
 end
 
 class Shr < Shift
   @inst = "shrq"
   @asm_inst = "shr"
+  @size = 8
 end
 
 class Sal < Shift
   @inst = "salq"
   @asm_inst = "sal"
+  @size = 8
 end
 
 class Sar < Shift
   @inst = "sarq"
   @asm_inst = "sar"
+  @size = 8
 end
 
-instructions = [Mov, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Test, Push, Pop, Neg, Shl, Shr, Sal, Sar]
+instructions = [Movq, Movl, Addq, Addl, Adcq, Subq, Sbbq, Andq, Orq, Xorq, Cmpq, Cmpl, Test, Push, Pop, Negq, Shl, Shr, Sal, Sar]
 instructions.map do |inst|
   inst.make_file
 end
