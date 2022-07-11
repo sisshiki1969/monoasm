@@ -264,6 +264,8 @@ impl Parse for Inst {
                 "jae" => parse_jcc!(Ae),
                 "ja" => parse_jcc!(A),
                 "jbe" => parse_jcc!(Be),
+                "jb" => parse_jcc!(B),
+                "jc" => parse_jcc!(B),
                 "js" => parse_jcc!(S),
                 "jns" => parse_jcc!(Ns),
                 "jo" => parse_jcc!(O),
