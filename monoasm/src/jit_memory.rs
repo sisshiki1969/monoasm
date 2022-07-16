@@ -353,7 +353,7 @@ impl JitMemory {
                 let src_ptr = self[src_page].contents as usize + pos.0;
                 for (dest_page, size, dest) in &rel.disp {
                     let dest_ptr = self[*dest_page].contents as usize + dest.0 + (*size as usize);
-                    let disp = (src_ptr as i64) - (dest_ptr as i64);
+                    let disp = (src_ptr as i128) - (dest_ptr as i128);
                     match i32::try_from(disp) {
                         Ok(disp) => self[*dest_page].write32(*dest, disp as i32),
                         Err(_) => panic!(
