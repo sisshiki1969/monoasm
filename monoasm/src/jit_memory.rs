@@ -78,13 +78,19 @@ pub struct MemPage {
     /// Current position
     counter: Pos,
     /// Constants section.
-    constants: Vec<(u64, DestLabel)>,
+    constants: Vec<(Const, DestLabel)>,
     /// Machine code length
     code_len: usize,
     /// The top pos of the current code block.
     code_block_top: Pos,
     /// Code blocks. (start_pos, code_end, end_pos)
     pub code_block: Vec<(Pos, Pos, Pos)>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Const {
+    U64(u64),
+    U32(u32),
 }
 
 impl Index<Pos> for MemPage {
@@ -293,14 +299,21 @@ impl JitMemory {
     pub fn const_f64(&mut self, val: f64) -> DestLabel {
         let label = self.label();
         let val = u64::from_ne_bytes(val.to_ne_bytes());
-        self.constants.push((val, label));
+        self.constants.push((Const::U64(val), label));
         label
     }
 
     pub fn const_i64(&mut self, val: i64) -> DestLabel {
         let label = self.label();
         let val = val as u64;
-        self.constants.push((val, label));
+        self.constants.push((Const::U64(val), label));
+        label
+    }
+
+    pub fn const_i32(&mut self, val: i32) -> DestLabel {
+        let label = self.label();
+        let val = val as u32;
+        self.constants.push((Const::U32(val), label));
         label
     }
 
@@ -373,9 +386,12 @@ impl JitMemory {
         for id in 0..self.pages.len() {
             self[Page(id)].align();
             let constants = std::mem::take(&mut self[Page(id)].constants);
-            for (val, label) in constants {
+            for (c, label) in constants {
                 self.bind_label_with_page(Page(id), label);
-                self[Page(id)].emitq(val);
+                match c {
+                    Const::U64(val) => self[Page(id)].emitq(val),
+                    Const::U32(val) => self[Page(id)].emitl(val),
+                }
             }
         }
     }
