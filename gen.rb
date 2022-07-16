@@ -243,6 +243,12 @@ class Subq < Inst
   @size = 8
 end
 
+class Subl < Inst
+  @inst = "subl"
+  @asm_inst = "sub"
+  @size = 4
+end
+
 class Adcq < Inst
   @inst = "adcq"
   @asm_inst = "adc"
@@ -358,7 +364,7 @@ class Sar < Shift
   @size = 8
 end
 
-instructions = [Movq, Movl, Addq, Addl, Adcq, Subq, Sbbq, Andq, Orq, Xorq, Cmpq, Cmpl, Test, Push, Pop, Negq, Shl, Shr, Sal, Sar]
+instructions = [Movq, Movl, Addq, Addl, Adcq, Subq, Subl, Sbbq, Andq, Orq, Xorq, Cmpq, Cmpl, Test, Push, Pop, Negq, Shl, Shr, Sal, Sar]
 instructions.map do |inst|
   inst.make_file
 end

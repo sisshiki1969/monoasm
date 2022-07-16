@@ -27,6 +27,7 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Sbbq(op1, op2) => binary_opq("SBB", 0x81, 0x83, 0x19, 0x1b, 3, op1, op2),
         Inst::Andq(op1, op2) => binary_opq("AND", 0x81, 0x83, 0x21, 0x23, 4, op1, op2),
         Inst::Subq(op1, op2) => binary_opq("SUB", 0x81, 0x83, 0x29, 0x2b, 5, op1, op2),
+        Inst::Subl(op1, op2) => binary_opl("SUB", 0x81, 0x83, 0x29, 0x2b, 5, op1, op2),
         Inst::Xorq(op1, op2) => binary_opq("XOR", 0x81, 0x83, 0x31, 0x33, 6, op1, op2),
         Inst::Cmpq(op1, op2) => binary_opq("CMP", 0x81, 0x83, 0x39, 0x3b, 7, op1, op2),
         Inst::Cmpl(op1, op2) => binary_opl("CMP", 0x81, 0x83, 0x39, 0x3b, 7, op1, op2),
