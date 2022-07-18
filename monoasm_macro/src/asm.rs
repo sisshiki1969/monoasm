@@ -20,17 +20,14 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Movsxw(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xbf], #op1, #op2); ),
         Inst::Movzxb(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xb6], #op1, #op2); ),
         Inst::Movsxb(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xbe], #op1, #op2); ),
-        Inst::Addq(op1, op2) => binary_opq("ADD", 0x81, 0x83, 0x01, 0x03, 0, op1, op2),
-        Inst::Addl(op1, op2) => binary_opl("ADD", 0x81, 0x83, 0x01, 0x03, 0, op1, op2),
-        Inst::Orq(op1, op2) => binary_opq("OR", 0x81, 0x83, 0x09, 0x0b, 1, op1, op2),
-        Inst::Adcq(op1, op2) => binary_opq("ADC", 0x81, 0x83, 0x11, 0x13, 2, op1, op2),
-        Inst::Sbbq(op1, op2) => binary_opq("SBB", 0x81, 0x83, 0x19, 0x1b, 3, op1, op2),
-        Inst::Andq(op1, op2) => binary_opq("AND", 0x81, 0x83, 0x21, 0x23, 4, op1, op2),
-        Inst::Subq(op1, op2) => binary_opq("SUB", 0x81, 0x83, 0x29, 0x2b, 5, op1, op2),
-        Inst::Subl(op1, op2) => binary_opl("SUB", 0x81, 0x83, 0x29, 0x2b, 5, op1, op2),
-        Inst::Xorq(op1, op2) => binary_opq("XOR", 0x81, 0x83, 0x31, 0x33, 6, op1, op2),
-        Inst::Cmpq(op1, op2) => binary_opq("CMP", 0x81, 0x83, 0x39, 0x3b, 7, op1, op2),
-        Inst::Cmpl(op1, op2) => binary_opl("CMP", 0x81, 0x83, 0x39, 0x3b, 7, op1, op2),
+        Inst::Add(size, op1, op2) => binary_op(size, "ADD", 0x81, 0x83, 0x01, 0x03, 0, op1, op2),
+        Inst::Or(size, op1, op2) => binary_op(size, "OR", 0x81, 0x83, 0x09, 0x0b, 1, op1, op2),
+        Inst::Adc(size, op1, op2) => binary_op(size, "ADC", 0x81, 0x83, 0x11, 0x13, 2, op1, op2),
+        Inst::Sbb(size, op1, op2) => binary_op(size, "SBB", 0x81, 0x83, 0x19, 0x1b, 3, op1, op2),
+        Inst::And(size, op1, op2) => binary_op(size, "AND", 0x81, 0x83, 0x21, 0x23, 4, op1, op2),
+        Inst::Sub(size, op1, op2) => binary_op(size, "SUB", 0x81, 0x83, 0x29, 0x2b, 5, op1, op2),
+        Inst::Xor(size, op1, op2) => binary_op(size, "XOR", 0x81, 0x83, 0x31, 0x33, 6, op1, op2),
+        Inst::Cmp(size, op1, op2) => binary_op(size, "CMP", 0x81, 0x83, 0x39, 0x3b, 7, op1, op2),
         Inst::Cmpb(op1, op2) => {
             match (op1, op2) {
                 // cmp r/m8, imm8
@@ -92,10 +89,12 @@ pub fn compile(inst: Inst) -> TokenStream {
             _ => unimplemented!(),
         },
 
-        Inst::Shlq(op1, op2) => shift_op(4, op1, op2),
-        Inst::Shrq(op1, op2) => shift_op(5, op1, op2),
-        Inst::Salq(op1, op2) => shift_op(4, op1, op2),
-        Inst::Sarq(op1, op2) => shift_op(7, op1, op2),
+        Inst::Shlq(op1, op2) => shift_op(4, op1, op2, "SHL"),
+        Inst::Shrq(op1, op2) => shift_op(5, op1, op2, "SHR"),
+        Inst::Salq(op1, op2) => shift_op(4, op1, op2, "SAL"),
+        Inst::Sarq(op1, op2) => shift_op(7, op1, op2, "SAR"),
+        Inst::Rolq(op1, op2) => shift_op(0, op1, op2, "ROL"),
+        Inst::Rorq(op1, op2) => shift_op(1, op1, op2, "ROR"),
 
         Inst::Setcc(flag, op) => {
             let flag: u8 = match flag {
@@ -220,54 +219,6 @@ pub fn compile(inst: Inst) -> TokenStream {
         },
         Inst::Jcc(cond, dest) => {
             let cond: u8 = match cond {
-                // JNE rel32
-                // 0F 85 cd
-                // TODO: support rel8
-                Cond::Ne => 0x85,
-                // JE rel32
-                // 0F 84 cd
-                // TODO: support rel8
-                Cond::Eq => 0x84,
-                // JGE rel32
-                // 0F 8D cd
-                // TODO: support rel8
-                Cond::Ge => 0x8D,
-                // JG rel32
-                // 0F 8F cd
-                // TODO: support rel8
-                Cond::Gt => 0x8f,
-                // JLE rel32
-                // 0F 8E cd
-                // TODO: support rel8
-                Cond::Le => 0x8e,
-                // JL rel32
-                // 0F 8C cd
-                // TODO: support rel8
-                Cond::Lt => 0x8c,
-                // JAE rel32
-                // 0F 83 cd
-                // TODO: support rel8
-                Cond::Ae => 0x83,
-                // JA rel32
-                // 0F 87 cd
-                // TODO: support rel8
-                Cond::A => 0x87,
-                // JBE rel32
-                // 0F 86 cd
-                // TODO: support rel8
-                Cond::Be => 0x86,
-                // JB rel32
-                // 0F 82 cd
-                // TODO: support rel8
-                Cond::B => 0x82,
-                // JS rel32
-                // 0F 88 cd
-                // TODO: support rel8
-                Cond::S => 0x88,
-                // JNS rel32
-                // 0F 89 cd
-                // TODO: support rel8
-                Cond::Ns => 0x89,
                 // JO rel32
                 // 0F 80 cd
                 // TODO: support rel8
@@ -276,6 +227,62 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // 0F 81 cd
                 // TODO: support rel8
                 Cond::No => 0x81,
+                // JB rel32
+                // 0F 82 cd
+                // TODO: support rel8
+                Cond::B => 0x82,
+                // JAE rel32
+                // 0F 83 cd
+                // TODO: support rel8
+                Cond::Ae => 0x83,
+                // JE rel32
+                // 0F 84 cd
+                // TODO: support rel8
+                Cond::Eq => 0x84,
+                // JNE rel32
+                // 0F 85 cd
+                // TODO: support rel8
+                Cond::Ne => 0x85,
+                // JBE rel32
+                // 0F 86 cd
+                // TODO: support rel8
+                Cond::Be => 0x86,
+                // JA rel32
+                // 0F 87 cd
+                // TODO: support rel8
+                Cond::A => 0x87,
+                // JS rel32
+                // 0F 88 cd
+                // TODO: support rel8
+                Cond::S => 0x88,
+                // JNS rel32
+                // 0F 89 cd
+                // TODO: support rel8
+                Cond::Ns => 0x89,
+                // JP rel32
+                // 0F 8A cd
+                // TODO: support rel8
+                Cond::P => 0x8a,
+                // JP rel32
+                // 0F 8B cd
+                // TODO: support rel8
+                Cond::Np => 0x8b,
+                // JL rel32
+                // 0F 8C cd
+                // TODO: support rel8
+                Cond::Lt => 0x8c,
+                // JGE rel32
+                // 0F 8D cd
+                // TODO: support rel8
+                Cond::Ge => 0x8D,
+                // JLE rel32
+                // 0F 8E cd
+                // TODO: support rel8
+                Cond::Le => 0x8e,
+                // JG rel32
+                // 0F 8F cd
+                // TODO: support rel8
+                Cond::Gt => 0x8f,
             };
             quote!( jit.enc_d(&[0x0f, #cond], #dest); )
         }
@@ -474,6 +481,26 @@ fn movw(op1: RmOperand, op2: RmiOperand) -> TokenStream {
     }
 }
 
+fn binary_op(
+    size: OperandSize,
+    op_name: &str,
+    op_imm32: u8,
+    op_imm8: u8,
+    op_mr: u8,
+    op_rm: u8,
+    digit: u8,
+    op1: RmOperand,
+    op2: RmiOperand,
+) -> TokenStream {
+    if size == OperandSize::QWORD {
+        binary_opq(op_name, op_imm32, op_imm8, op_mr, op_rm, digit, op1, op2)
+    } else if size == OperandSize::DWORD {
+        binary_opl(op_name, op_imm32, op_imm8, op_mr, op_rm, digit, op1, op2)
+    } else {
+        unimplemented!()
+    }
+}
+
 fn binary_opq(
     op_name: &str,
     op_imm32: u8,
@@ -580,15 +607,29 @@ fn binary_opl(
     }
 }
 
-// Shl r/m64, imm8
-// REX.W C1 /4 ib
-//
-// Shl r/m64, 1
-// REX.W D1 /4
-//
-// Shl r/m64, Cl
-// REX.W D3 /4
-fn shift_op(digit: u8, op1: RmOperand, op2: RiOperand) -> TokenStream {
+///
+/// Shift and rotate operation.
+///
+/// #### Addressiong modes
+///
+/// ##### XXX r/m64, imm8
+/// - REX.W C1 /Y ib
+///
+/// ##### XXX r/m64, 1
+/// - REX.W D1 /Y
+///
+/// ##### XXX r/m64, Cl
+/// - REX.W D3 /Y
+///
+/// #### Instructions
+/// - XXX=Rol Y=0
+/// - XXX=Ror Y=1
+/// - XXX=Shl Y=4
+/// - XXX=Sal Y=4
+/// - XXX=Shr Y=5
+/// - XXX=Sar Y=7
+///
+fn shift_op(digit: u8, op1: RmOperand, op2: RiOperand, inst_str: &str) -> TokenStream {
     match (op1, op2) {
         (op1, RiOperand::Imm(i)) => {
             let op1_str = format!("{}", op1);
@@ -602,7 +643,7 @@ fn shift_op(digit: u8, op1: RmOperand, op2: RiOperand) -> TokenStream {
                 if let Ok(imm) = i8::try_from(imm) {
                     jit.enc_rexw_digit(&[0xc1], #op1, #digit, Imm::B(imm));
                 } else {
-                    panic!("'shl {}, imm' imm should be 8 bit.", #op1_str);
+                    panic!("'{} {}, imm' imm should be 8 bit.", #inst_str, #op1_str);
                 }
             }
         }
@@ -612,7 +653,7 @@ fn shift_op(digit: u8, op1: RmOperand, op2: RiOperand) -> TokenStream {
             let op1_str = format!("{}", op1);
             quote! {
                 if !#reg.is_cl() {
-                    panic!("'shl {}, reg' reg should be CL.", #op1_str);
+                    panic!("'{} {}, reg' reg should be CL.", #inst_str, #op1_str);
                 };
                 jit.enc_rexw_digit(&[0xd3], #op1, #digit, Imm::None);
             }

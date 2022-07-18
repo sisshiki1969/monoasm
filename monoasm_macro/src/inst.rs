@@ -61,17 +61,14 @@ pub enum Inst {
     Movsxw(Register, RmOperand),
     Movzxb(Register, RmOperand),
     Movsxb(Register, RmOperand),
-    Addq(RmOperand, RmiOperand),
-    Addl(RmOperand, RmiOperand),
-    Orq(RmOperand, RmiOperand),
-    Adcq(RmOperand, RmiOperand),
-    Sbbq(RmOperand, RmiOperand),
-    Andq(RmOperand, RmiOperand),
-    Subq(RmOperand, RmiOperand),
-    Subl(RmOperand, RmiOperand),
-    Xorq(RmOperand, RmiOperand),
-    Cmpq(RmOperand, RmiOperand),
-    Cmpl(RmOperand, RmiOperand),
+    Add(OperandSize, RmOperand, RmiOperand),
+    Sub(OperandSize, RmOperand, RmiOperand),
+    Adc(OperandSize, RmOperand, RmiOperand),
+    Sbb(OperandSize, RmOperand, RmiOperand),
+    And(OperandSize, RmOperand, RmiOperand),
+    Or(OperandSize, RmOperand, RmiOperand),
+    Xor(OperandSize, RmOperand, RmiOperand),
+    Cmp(OperandSize, RmOperand, RmiOperand),
     Cmpb(RmOperand, RmiOperand),
     Negq(RmOperand),
 
@@ -79,6 +76,8 @@ pub enum Inst {
     Shrq(RmOperand, RiOperand),
     Salq(RmOperand, RiOperand),
     Sarq(RmOperand, RiOperand),
+    Rolq(RmOperand, RiOperand),
+    Rorq(RmOperand, RiOperand),
 
     Imul(RmiOperand, RmiOperand),
     Idiv(RmOperand),
@@ -116,6 +115,19 @@ pub enum Inst {
 
 ///----------------------------------------------------------------------
 ///
+///  Operand size.
+///
+///----------------------------------------------------------------------
+#[derive(Clone, Debug, PartialEq)]
+pub enum OperandSize {
+    QWORD = 8,
+    DWORD = 4,
+    WORD = 2,
+    BYTE = 1,
+}
+
+///----------------------------------------------------------------------
+///
 ///  Comparison kinds.
 ///
 ///----------------------------------------------------------------------
@@ -135,10 +147,24 @@ pub enum Cond {
     Ns,
     O,
     No,
+    P,
+    Np,
 }
 
 impl Parse for Inst {
     fn parse(input: ParseStream) -> Result<Self, Error> {
+        macro_rules! parse_2op_sized {
+            ($inst: ident, $size: ident) => (
+                {
+                    let op1 = input.parse()?;
+                    input.parse::<Token![,]>()?;
+                    let op2 = input.parse()?;
+                    input.parse::<Token![;]>()?;
+                    Ok(Inst::$inst(OperandSize::$size, op1, op2))
+                }
+            )
+        }
+
         macro_rules! parse_2op {
             ($inst: ident) => (
                 {
@@ -204,15 +230,20 @@ impl Parse for Inst {
                 "movsxw" => parse_2op!(Movsxw),
                 "movzxb" => parse_2op!(Movzxb),
                 "movsxb" => parse_2op!(Movsxb),
-                "addq" => parse_2op!(Addq),
-                "addl" => parse_2op!(Addl),
-                "orq" => parse_2op!(Orq),
-                "adcq" => parse_2op!(Adcq),
-                "sbbq" => parse_2op!(Sbbq),
-                "andq" => parse_2op!(Andq),
-                "subq" => parse_2op!(Subq),
-                "subl" => parse_2op!(Subl),
-                "xorq" => parse_2op!(Xorq),
+                "addq" => parse_2op_sized!(Add, QWORD),
+                "addl" => parse_2op_sized!(Add, DWORD),
+                "orq" => parse_2op_sized!(Or, QWORD),
+                "orl" => parse_2op_sized!(Or, DWORD),
+                "adcq" => parse_2op_sized!(Adc, QWORD),
+                "adcl" => parse_2op_sized!(Adc, DWORD),
+                "sbbq" => parse_2op_sized!(Sbb, QWORD),
+                "sbbl" => parse_2op_sized!(Sbb, DWORD),
+                "andq" => parse_2op_sized!(And, QWORD),
+                "andl" => parse_2op_sized!(And, DWORD),
+                "subq" => parse_2op_sized!(Sub, QWORD),
+                "subl" => parse_2op_sized!(Sub, DWORD),
+                "xorq" => parse_2op_sized!(Xor, QWORD),
+                "xorl" => parse_2op_sized!(Xor, DWORD),
                 "negq" => parse_1op!(Negq),
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
@@ -239,6 +270,8 @@ impl Parse for Inst {
                 "shrq" => parse_2op!(Shrq),
                 "salq" => parse_2op!(Salq),
                 "sarq" => parse_2op!(Sarq),
+                "rolq" => parse_2op!(Rolq),
+                "rorq" => parse_2op!(Rorq),
 
                 "movsd" => parse_2op!(Movsd),
                 "addsd" => parse_2op!(Addsd),
@@ -251,27 +284,44 @@ impl Parse for Inst {
 
                 "pushq" => parse_1op!(Pushq),
                 "popq" => parse_1op!(Popq),
-                "cmpq" => parse_2op!(Cmpq),
-                "cmpl" => parse_2op!(Cmpl),
+                "cmpq" => parse_2op_sized!(Cmp, QWORD),
+                "cmpl" => parse_2op_sized!(Cmp, DWORD),
                 "cmpb" => parse_2op!(Cmpb),
                 "call" => parse_1op!(Call),
                 "ret" => parse_0op!(Ret),
                 "jmp" => parse_1op!(Jmp),
-                "jne" => parse_jcc!(Ne),
-                "jeq" => parse_jcc!(Eq),
-                "jgt" => parse_jcc!(Gt),
-                "jge" => parse_jcc!(Ge),
-                "jlt" => parse_jcc!(Lt),
-                "jle" => parse_jcc!(Le),
-                "jae" => parse_jcc!(Ae),
-                "ja" => parse_jcc!(A),
-                "jbe" => parse_jcc!(Be),
-                "jb" => parse_jcc!(B),
-                "jc" => parse_jcc!(B),
-                "js" => parse_jcc!(S),
-                "jns" => parse_jcc!(Ns),
+
                 "jo" => parse_jcc!(O),
                 "jno" => parse_jcc!(No),
+                "jb" => parse_jcc!(B),
+                "jc" => parse_jcc!(B),
+                "jae" => parse_jcc!(Ae),
+                "jnc" => parse_jcc!(Ae),
+                "jnae" => parse_jcc!(B),
+                "jeq" => parse_jcc!(Eq),
+                "je" => parse_jcc!(Eq),
+                "jz" => parse_jcc!(Eq),
+                "jne" => parse_jcc!(Ne),
+                "jnz" => parse_jcc!(Ne),
+                "jbe" => parse_jcc!(Be),
+                "jna" => parse_jcc!(Be),
+                "ja" => parse_jcc!(A),
+                "jnbe" => parse_jcc!(A),
+                "js" => parse_jcc!(S),
+                "jns" => parse_jcc!(Ns),
+                "jp" => parse_jcc!(P),
+                "jpe" => parse_jcc!(P),
+                "jnp" => parse_jcc!(Np),
+                "jpo" => parse_jcc!(Np),
+                "jlt" => parse_jcc!(Lt),
+                "jnge" => parse_jcc!(Lt),
+                "jge" => parse_jcc!(Ge),
+                "jnl" => parse_jcc!(Ge),
+                "jle" => parse_jcc!(Le),
+                "jng" => parse_jcc!(Le),
+                "jgt" => parse_jcc!(Gt),
+                "jnle" => parse_jcc!(Gt),
+
                 "syscall" => parse_0op!(Syscall),
                 "leave" => parse_0op!(Leave),
 

@@ -267,16 +267,34 @@ class Andq < Inst
   @size = 8
 end
 
+class Andl < Inst
+  @inst = "andl"
+  @asm_inst = "and"
+  @size = 4
+end
+
 class Orq < Inst
   @inst = "orq"
   @asm_inst = "or"
   @size = 8
 end
 
+class Orl < Inst
+  @inst = "orl"
+  @asm_inst = "or"
+  @size = 4
+end
+
 class Xorq < Inst
   @inst = "xorq"
   @asm_inst = "xor"
   @size = 8
+end
+
+class Xorl < Inst
+  @inst = "xorl"
+  @asm_inst = "xor"
+  @size = 4
 end
 
 class Cmpq < Inst
@@ -364,7 +382,22 @@ class Sar < Shift
   @size = 8
 end
 
-instructions = [Movq, Movl, Addq, Addl, Adcq, Subq, Subl, Sbbq, Andq, Orq, Xorq, Cmpq, Cmpl, Test, Push, Pop, Negq, Shl, Shr, Sal, Sar]
+class Rol < Shift
+  @inst = "rolq"
+  @asm_inst = "rol"
+  @size = 8
+end
+
+class Ror < Shift
+  @inst = "rorq"
+  @asm_inst = "ror"
+  @size = 8
+end
+
+instructions = [Movq, Addq, Adcq, Subq, Sbbq, Andq, Orq, Xorq, Cmpq, Cmpl, Shl, Shr, Sal, Sar, Rol, Ror] +
+[Movl, Addl, Subl, Andl, Orl, Xorl] +
+[Test, Push, Pop, Negq]
+
 instructions.map do |inst|
   inst.make_file
 end
