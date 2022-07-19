@@ -86,7 +86,7 @@ pub enum Inst {
 
     Testq(RmOperand, RmiOperand),
 
-    Setcc(Flag, RmOperand),
+    Setcc(Cond, RmOperand),
     Cqo,
 
     Movsd(XmOperand, XmOperand),
@@ -131,24 +131,24 @@ pub enum OperandSize {
 ///  Comparison kinds.
 ///
 ///----------------------------------------------------------------------
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Cond {
-    Ne,
-    Eq,
-    Gt,
-    Ge,
-    Lt,
-    Le,
-    A,
-    Ae,
-    B,
-    Be,
-    S,
-    Ns,
-    O,
-    No,
-    P,
-    Np,
+    O = 0,
+    No = 1,
+    B = 2,
+    Ae = 3,
+    Eq = 4,
+    Ne = 5,
+    Be = 6,
+    A = 7,
+    S = 8,
+    Ns = 9,
+    P = 10,
+    Np = 11,
+    Lt = 12,
+    Ge = 13,
+    Le = 14,
+    Gt = 15,
 }
 
 impl Parse for Inst {
@@ -211,7 +211,7 @@ impl Parse for Inst {
                 {
                     let op = input.parse()?;
                     input.parse::<Token![;]>()?;
-                    Ok(Inst::$inst(Flag::$flag, op))
+                    Ok(Inst::$inst(Cond::$flag, op))
                 }
             )
         }
@@ -251,18 +251,18 @@ impl Parse for Inst {
                 "testq" => parse_2op!(Testq),
                 "lea" => parse_2op!(Lea),
 
+                "setb" => parse_set!(Setcc, B),
+                "setae" => parse_set!(Setcc, Ae),
                 "seteq" => parse_set!(Setcc, Eq),
                 "setne" => parse_set!(Setcc, Ne),
-                "setgt" => parse_set!(Setcc, Gt),
-                "setge" => parse_set!(Setcc, Ge),
-                "setlt" => parse_set!(Setcc, Lt),
-                "setle" => parse_set!(Setcc, Le),
-                "seta" => parse_set!(Setcc, A),
-                "setae" => parse_set!(Setcc, Ae),
-                "setb" => parse_set!(Setcc, B),
                 "setbe" => parse_set!(Setcc, Be),
+                "seta" => parse_set!(Setcc, A),
                 "sets" => parse_set!(Setcc, S),
                 "setns" => parse_set!(Setcc, Ns),
+                "setlt" => parse_set!(Setcc, Lt),
+                "setge" => parse_set!(Setcc, Ge),
+                "setle" => parse_set!(Setcc, Le),
+                "setgt" => parse_set!(Setcc, Gt),
 
                 "cqo" => parse_0op!(Cqo),
 
@@ -295,9 +295,9 @@ impl Parse for Inst {
                 "jno" => parse_jcc!(No),
                 "jb" => parse_jcc!(B),
                 "jc" => parse_jcc!(B),
+                "jnae" => parse_jcc!(B),
                 "jae" => parse_jcc!(Ae),
                 "jnc" => parse_jcc!(Ae),
-                "jnae" => parse_jcc!(B),
                 "jeq" => parse_jcc!(Eq),
                 "je" => parse_jcc!(Eq),
                 "jz" => parse_jcc!(Eq),

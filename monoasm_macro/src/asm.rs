@@ -96,22 +96,9 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Rolq(op1, op2) => shift_op(0, op1, op2, "ROL"),
         Inst::Rorq(op1, op2) => shift_op(1, op1, op2, "ROR"),
 
-        Inst::Setcc(flag, op) => {
-            let flag: u8 = match flag {
-                Flag::Eq => 0x94,
-                Flag::Ne => 0x95,
-                Flag::Gt => 0x9f,
-                Flag::Ge => 0x9d,
-                Flag::Lt => 0x9c,
-                Flag::Le => 0x9e,
-                Flag::A => 0x97,
-                Flag::Ae => 0x93,
-                Flag::B => 0x92,
-                Flag::Be => 0x96,
-                Flag::S => 0x98,
-                Flag::Ns => 0x99,
-            };
-            quote!( jit.enc_rex_m(&[0x0f, #flag], #op); )
+        Inst::Setcc(cond, op) => {
+            let cond: u8 = 0x90 + cond as u8;
+            quote!( jit.enc_rex_m(&[0x0f, #cond], #op); )
         }
 
         Inst::Cqo => {
@@ -218,72 +205,7 @@ pub fn compile(inst: Inst) -> TokenStream {
             dest => unimplemented!("JMP {:?}", dest),
         },
         Inst::Jcc(cond, dest) => {
-            let cond: u8 = match cond {
-                // JO rel32
-                // 0F 80 cd
-                // TODO: support rel8
-                Cond::O => 0x80,
-                // JNO rel32
-                // 0F 81 cd
-                // TODO: support rel8
-                Cond::No => 0x81,
-                // JB rel32
-                // 0F 82 cd
-                // TODO: support rel8
-                Cond::B => 0x82,
-                // JAE rel32
-                // 0F 83 cd
-                // TODO: support rel8
-                Cond::Ae => 0x83,
-                // JE rel32
-                // 0F 84 cd
-                // TODO: support rel8
-                Cond::Eq => 0x84,
-                // JNE rel32
-                // 0F 85 cd
-                // TODO: support rel8
-                Cond::Ne => 0x85,
-                // JBE rel32
-                // 0F 86 cd
-                // TODO: support rel8
-                Cond::Be => 0x86,
-                // JA rel32
-                // 0F 87 cd
-                // TODO: support rel8
-                Cond::A => 0x87,
-                // JS rel32
-                // 0F 88 cd
-                // TODO: support rel8
-                Cond::S => 0x88,
-                // JNS rel32
-                // 0F 89 cd
-                // TODO: support rel8
-                Cond::Ns => 0x89,
-                // JP rel32
-                // 0F 8A cd
-                // TODO: support rel8
-                Cond::P => 0x8a,
-                // JP rel32
-                // 0F 8B cd
-                // TODO: support rel8
-                Cond::Np => 0x8b,
-                // JL rel32
-                // 0F 8C cd
-                // TODO: support rel8
-                Cond::Lt => 0x8c,
-                // JGE rel32
-                // 0F 8D cd
-                // TODO: support rel8
-                Cond::Ge => 0x8D,
-                // JLE rel32
-                // 0F 8E cd
-                // TODO: support rel8
-                Cond::Le => 0x8e,
-                // JG rel32
-                // 0F 8F cd
-                // TODO: support rel8
-                Cond::Gt => 0x8f,
-            };
+            let cond = 0x80 + cond as u8;
             quote!( jit.enc_d(&[0x0f, #cond], #dest); )
         }
 
