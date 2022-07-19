@@ -20,39 +20,15 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Movsxw(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xbf], #op1, #op2); ),
         Inst::Movzxb(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xb6], #op1, #op2); ),
         Inst::Movsxb(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xbe], #op1, #op2); ),
-        Inst::Add(size, op1, op2) => binary_op(size, "ADD", 0x81, 0x83, 0x01, 0x03, 0, op1, op2),
-        Inst::Or(size, op1, op2) => binary_op(size, "OR", 0x81, 0x83, 0x09, 0x0b, 1, op1, op2),
-        Inst::Adc(size, op1, op2) => binary_op(size, "ADC", 0x81, 0x83, 0x11, 0x13, 2, op1, op2),
-        Inst::Sbb(size, op1, op2) => binary_op(size, "SBB", 0x81, 0x83, 0x19, 0x1b, 3, op1, op2),
-        Inst::And(size, op1, op2) => binary_op(size, "AND", 0x81, 0x83, 0x21, 0x23, 4, op1, op2),
-        Inst::Sub(size, op1, op2) => binary_op(size, "SUB", 0x81, 0x83, 0x29, 0x2b, 5, op1, op2),
-        Inst::Xor(size, op1, op2) => binary_op(size, "XOR", 0x81, 0x83, 0x31, 0x33, 6, op1, op2),
-        Inst::Cmp(size, op1, op2) => binary_op(size, "CMP", 0x81, 0x83, 0x39, 0x3b, 7, op1, op2),
-        Inst::Cmpb(op1, op2) => {
-            match (op1, op2) {
-                // cmp r/m8, imm8
-                // REX 80 /7 ib
-                (op1, RmiOperand::Imm(i)) => {
-                    quote! {
-                        let imm = (#i) as i64;
-                        if let Ok(imm) = i8::try_from(imm) {
-                            jit.enc_m_digit_imm(&[0x80], #op1, 7, Imm::B(imm));
-                        } else {
-                            panic!("{} is out of 8bit.", #i);
-                        }
-                    }
-                }
-                // cmp r/m8, r8
-                // REX 38 /r
-                // MR
-                (op1, RmiOperand::Reg(expr)) => quote! ( jit.enc_rex_mr(&[0x38], #expr, #op1); ),
-                // cmp r8, r/m8
-                // REX 3A /r
-                // RM
-                (RmOperand::Reg(expr), op2) => quote! ( jit.enc_rex_mr(&[0x3a], #expr, #op2); ),
-                (op1, op2) => unimplemented!("cmp {}, {}", op1, op2),
-            }
-        }
+        Inst::Add(size, op1, op2) => binary_op(size, "ADD", 0x01, 0, op1, op2),
+        Inst::Or(size, op1, op2) => binary_op(size, "OR", 0x09, 1, op1, op2),
+        Inst::Adc(size, op1, op2) => binary_op(size, "ADC", 0x11, 2, op1, op2),
+        Inst::Sbb(size, op1, op2) => binary_op(size, "SBB", 0x19, 3, op1, op2),
+        Inst::And(size, op1, op2) => binary_op(size, "AND", 0x21, 4, op1, op2),
+        Inst::Sub(size, op1, op2) => binary_op(size, "SUB", 0x29, 5, op1, op2),
+        Inst::Xor(size, op1, op2) => binary_op(size, "XOR", 0x31, 6, op1, op2),
+        Inst::Cmp(size, op1, op2) => binary_op(size, "CMP", 0x39, 7, op1, op2),
+        Inst::Cmpb(op1, op2) => binary_opb("CMP", 0x38, 7, op1, op2),
 
         Inst::Testq(op1, op2) => match (op1, op2) {
             (op1, RmiOperand::Imm(i)) => {
@@ -356,7 +332,6 @@ fn movw(op1: RmOperand, op2: RmiOperand) -> TokenStream {
     match (op1, op2) {
         // MOV r16, imm16
         // B8+ rw iw
-        // OI
         (RmOperand::Reg(expr), RmiOperand::Imm(i)) => {
             quote!(
                 let imm = (#i) as i64;
@@ -372,7 +347,6 @@ fn movw(op1: RmOperand, op2: RmiOperand) -> TokenStream {
         }
         // MOV r/m16, imm16
         // C7 /0 iw
-        // MI
         (op1, RmiOperand::Imm(i)) => {
             let op1_str = format!("{}", op1);
             quote! {
@@ -387,14 +361,12 @@ fn movw(op1: RmOperand, op2: RmiOperand) -> TokenStream {
         }
         // MOV r/m16, r16
         // 89 /r
-        // MR
         (op1, RmiOperand::Reg(expr)) => quote!(
             jit.emitb(0x66);
             jit.enc_rex_mr(&[0x89], #expr, #op1);
         ),
         // MOV r16, m16
         // 8B /r
-        // RM
         (RmOperand::Reg(op1), op2) => quote!(
             jit.emitb(0x66);
             jit.enc_rex_mr(&[0x8b], #op1, #op2);
@@ -406,33 +378,24 @@ fn movw(op1: RmOperand, op2: RmiOperand) -> TokenStream {
 fn binary_op(
     size: OperandSize,
     op_name: &str,
-    op_imm32: u8,
-    op_imm8: u8,
     op_mr: u8,
-    op_rm: u8,
     digit: u8,
     op1: RmOperand,
     op2: RmiOperand,
 ) -> TokenStream {
     if size == OperandSize::QWORD {
-        binary_opq(op_name, op_imm32, op_imm8, op_mr, op_rm, digit, op1, op2)
+        binary_opq(op_name, op_mr, digit, op1, op2)
     } else if size == OperandSize::DWORD {
-        binary_opl(op_name, op_imm32, op_imm8, op_mr, op_rm, digit, op1, op2)
+        binary_opl(op_name, op_mr, digit, op1, op2)
+    } else if size == OperandSize::BYTE {
+        binary_opb(op_name, op_mr - 1, digit, op1, op2)
     } else {
         unimplemented!()
     }
 }
 
-fn binary_opq(
-    op_name: &str,
-    op_imm32: u8,
-    op_imm8: u8,
-    op_mr: u8,
-    op_rm: u8,
-    digit: u8,
-    op1: RmOperand,
-    op2: RmiOperand,
-) -> TokenStream {
+fn binary_opq(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOperand) -> TokenStream {
+    let op_rm = op_mr + 2;
     match (op1, op2) {
         // OP r/m64, imm32
         // OP=ADD REX.W 81 /0 id
@@ -441,7 +404,8 @@ fn binary_opq(
         // OP=SBB REX.W 81 /3 id
         // OP=AND REX.W 81 /4 id
         // OP=SUB REX.W 81 /5 id
-        // MI
+        // OP=XOR REX.W 81 /6 id
+        // OP=CMP REX.W 81 /7 id
         //
         // OP r/m64, imm8
         // OP=ADD REX.W 83 /0 id
@@ -450,42 +414,39 @@ fn binary_opq(
         // OP=SBB REX.W 83 /3 id
         // OP=AND REX.W 83 /4 id
         // OP=SUB REX.W 83 /5 id
-        // MI
+        // OP=XOR REX.W 83 /6 id
+        // OP=CMP REX.W 83 /7 id
         (op1, RmiOperand::Imm(i)) => {
             let op1_str = format!("{}", op1);
             quote! {
                 let imm = (#i) as i64;
                 if let Ok(imm) = i8::try_from(imm) {
-                    jit.enc_rexw_digit(&[#op_imm8], #op1, #digit, Imm::B(imm));
+                    jit.enc_rexw_digit(&[0x83], #op1, #digit, Imm::B(imm));
                 } else if let Ok(imm) = i32::try_from(imm) {
-                    jit.enc_rexw_digit(&[#op_imm32], #op1, #digit, Imm::L(imm));
+                    jit.enc_rexw_digit(&[0x81], #op1, #digit, Imm::L(imm));
                 } else {
                     panic!("'{} {}, imm64' does not exists.", #op_name, #op1_str);
                 }
             }
         }
         // OP r/m64, r64
-        // REX.W op_mr /r
-        // MR
+        // OP=ADD REX.W 01 /r
+        // OP=OR  REX.W 09 /r
+        // OP=XOR REX.W 31 /r
+        // OP=CMP REX.W 39 /r
         (op1, RmiOperand::Reg(expr)) => quote! ( jit.enc_rexw_mr(&[#op_mr], #expr, #op1); ),
         // OP r64, m64
-        // REX.W op_rm /r
-        // RM
+        // OP=ADD REX.W 03 /r
+        // OP=OR  REX.W 0b /r
+        // OP=XOR REX.W 33 /r
+        // OP=CMP REX.W 3b /r
         (RmOperand::Reg(expr), op2) => quote! ( jit.enc_rexw_mr(&[#op_rm], #expr, #op2); ),
         (op1, op2) => unimplemented!("{} {}, {}", op_name, op1, op2),
     }
 }
 
-fn binary_opl(
-    op_name: &str,
-    op_imm32: u8,
-    op_imm8: u8,
-    op_mr: u8,
-    op_rm: u8,
-    digit: u8,
-    op1: RmOperand,
-    op2: RmiOperand,
-) -> TokenStream {
+fn binary_opl(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOperand) -> TokenStream {
+    let op_rm = op_mr + 2;
     match (op1, op2) {
         // OP r/m32, imm32
         // OP=ADD 81 /0 id
@@ -494,7 +455,8 @@ fn binary_opl(
         // OP=SBB 81 /3 id
         // OP=AND 81 /4 id
         // OP=SUB 81 /5 id
-        // MI
+        // OP=XOR 81 /6 id
+        // OP=CMP 81 /7 id
         //
         // OP r/m32, imm8
         // OP=ADD 83 /0 id
@@ -503,27 +465,86 @@ fn binary_opl(
         // OP=SBB 83 /3 id
         // OP=AND 83 /4 id
         // OP=SUB 83 /5 id
-        // MI
+        // OP=XOR 83 /6 id
+        // OP=CMP 83 /7 id
         (op1, RmiOperand::Imm(i)) => {
             let op1_str = format!("{}", op1);
             quote! {
                 let imm = (#i) as i64;
                 if let Ok(imm) = i8::try_from(imm) {
-                    jit.enc_m_digit_imm(&[#op_imm8], #op1, #digit, Imm::B(imm));
+                    jit.enc_m_digit_imm(&[0x83], #op1, #digit, Imm::B(imm));
                 } else if let Ok(imm) = i32::try_from(imm) {
-                    jit.enc_m_digit_imm(&[#op_imm32], #op1, #digit, Imm::L(imm));
+                    jit.enc_m_digit_imm(&[0x81], #op1, #digit, Imm::L(imm));
                 } else {
                     panic!("'{} {}, imm64' does not exists.", #op_name, #op1_str);
                 }
             }
         }
         // OP r/m32, r32
-        // op_mr /r
-        // MR
+        // OP=ADD 01 /r
+        // OP=OR  09 /r
+        // OP=ADC 11 /r
+        // OP=SBB 19 /r
+        // OP=AND 21 /r
+        // OP=SUB 29 /r
+        // OP=XOR 31 /r
+        // OP=CMP 39 /r
         (op1, RmiOperand::Reg(expr)) => quote! ( jit.enc_rex_mr(&[#op_mr], #expr, #op1); ),
         // OP r32, m32
-        // op_rm /r
-        // RM
+        // OP=ADD 03 /r
+        // OP=OR  0b /r
+        // OP=ADC 13 /r
+        // OP=SBB 1b /r
+        // OP=AND 23 /r
+        // OP=SUB 2b /r
+        // OP=XOR 33 /r
+        // OP=CMP 3b /r
+        (RmOperand::Reg(expr), op2) => quote! ( jit.enc_rex_mr(&[#op_rm], #expr, #op2); ),
+        (op1, op2) => unimplemented!("{} {}, {}", op_name, op1, op2),
+    }
+}
+
+fn binary_opb(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOperand) -> TokenStream {
+    let op_rm = op_mr + 2;
+    match (op1, op2) {
+        // OP r/m8, imm8
+        // OP=ADD REX 80 /0 ib
+        // OP=OR  REX 80 /1 ib
+        // OP=ADC REX 80 /2 ib
+        // OP=SBB REX 80 /3 ib
+        // OP=AND REX 80 /4 ib
+        // OP=SUB REX 80 /5 ib
+        // OP=XOR REX 80 /6 ib
+        // OP=CMP REX 80 /7 ib
+        (op1, RmiOperand::Imm(i)) => {
+            quote! {
+                let imm = (#i) as i64;
+                if let Ok(imm) = i8::try_from(imm) {
+                    jit.enc_m_digit_imm(&[0x80], #op1, #digit, Imm::B(imm));
+                } else {
+                    panic!("{} is out of 8bit.", #i);
+                }
+            }
+        }
+        // cmp r/m8, r8
+        // OP=ADD REX 00 /r
+        // OP=OR  REX 08 /r
+        // OP=ADC REX 10 /r
+        // OP=SBB REX 18 /r
+        // OP=AND REX 20 /r
+        // OP=SUB REX 28 /r
+        // OP=XOR REX 30 /r
+        // OP=CMP REX 38 /r
+        (op1, RmiOperand::Reg(expr)) => quote! ( jit.enc_rex_mr(&[#op_mr], #expr, #op1); ),
+        // OP r8, m8
+        // OP=ADD REX 02 /r
+        // OP=OR  REX 0a /r
+        // OP=ADC REX 12 /r
+        // OP=SBB REX 1a /r
+        // OP=AND REX 22 /r
+        // OP=SUB REX 2a /r
+        // OP=XOR REX 32 /r
+        // OP=CMP REX 3a /r
         (RmOperand::Reg(expr), op2) => quote! ( jit.enc_rex_mr(&[#op_rm], #expr, #op2); ),
         (op1, op2) => unimplemented!("{} {}, {}", op_name, op1, op2),
     }

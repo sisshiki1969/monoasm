@@ -255,10 +255,22 @@ class Adcq < Inst
   @size = 8
 end
 
+class Adcl < Inst
+  @inst = "adcl"
+  @asm_inst = "adc"
+  @size = 4
+end
+
 class Sbbq < Inst
   @inst = "sbbq"
   @asm_inst = "sbb"
   @size = 8
+end
+
+class Sbbl < Inst
+  @inst = "sbbl"
+  @asm_inst = "sbb"
+  @size = 4
 end
 
 class Andq < Inst
@@ -394,8 +406,8 @@ class Ror < Shift
   @size = 8
 end
 
-instructions = [Movq, Addq, Adcq, Subq, Sbbq, Andq, Orq, Xorq, Cmpq, Cmpl, Shl, Shr, Sal, Sar, Rol, Ror] +
-[Movl, Addl, Subl, Andl, Orl, Xorl] +
+instructions = [Movq, Addq, Adcq, Subq, Sbbq, Andq, Orq, Xorq, Cmpq, Shl, Shr, Sal, Sar, Rol, Ror] +
+[Movl, Addl, Adcl, Subl, Andl, Orl, Xorl, Cmpl] +
 [Test, Push, Pop, Negq]
 
 instructions.map do |inst|
