@@ -7,6 +7,8 @@ def reg_template(size)
     ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
   elsif size == 4
     ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi", "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"]
+  elsif size == 1
+    ["al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil", "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"]
   else
     raise "invalid size descriptor #{size}"
   end
@@ -80,29 +82,55 @@ class Inst
   MODE_INDIRECT = 1
   MODE_IMMEDIATE = 2
 
-  def self.make_file
+  def self.size
+    @size
+  end
+
+  def self.inst
+    @inst
+  end
+
+  def self.inst_name(size)
+    @inst + 
+    case size
+    when 8
+      "q"
+    when 4
+      "l"
+    when 2
+      "w"
+    when 1
+      "b"
+    end
+  end
+
+  def self.make_file(inst, size)
     @monoasm = header
     @asm = ""
 
-    gen
+    gen(inst, size)
 
-    f = File.open "monoasm/tests/#{@inst}.rs", "w"
-    f.write @monoasm + footer
+    f = File.open "monoasm/tests/#{inst}.rs", "w"
+    f.write @monoasm + footer(inst)
     f.close
 
 
-    f = File.open "monoasm/tests/#{@inst}.s", "w"
+    f = File.open "monoasm/tests/#{inst}.s", "w"
     f.write ASM_HEADER + @asm
     f.close
 
-    `as monoasm/tests/#{@inst}.s -o monoasm/tests/#{@inst}`
-    `objcopy -O binary --only-section=.text monoasm/tests/#{@inst} monoasm/tests/#{@inst}.bin`
-    `rm monoasm/tests/#{@inst}`
+    `as monoasm/tests/#{inst}.s -o monoasm/tests/#{inst}`
+    `objcopy -O binary --only-section=.text monoasm/tests/#{inst} monoasm/tests/#{inst}.bin`
+    `rm monoasm/tests/#{inst}`
   end
 
-  def self.compare
-    puts `diff -s monoasm/tests/#{@inst}.bin monoasm/tests/#{@inst}_monoasm.bin`
-    #`rm monoasm/tests/*.bin`
+  def self.compare(inst)
+    res = `diff monoasm/tests/#{inst}.bin monoasm/tests/#{inst}_monoasm.bin`
+    if res.length != 0
+      puts res
+      `objdump -D -Mintel,x86-64 -b binary -m i386 monoasm/tests/#{inst}.bin > monoasm/tests/#{inst}.txt`
+      `objdump -D -Mintel,x86-64 -b binary -m i386 monoasm/tests/#{inst}_monoasm.bin > monoasm/tests/#{inst}_monoasm.txt`
+    end
   end
 
   private
@@ -124,48 +152,48 @@ class Inst
 EOS
   end
 
-  def self.footer
+  def self.footer(inst)
     <<EOS
       );
       jit.finalize();
-      let mut buf = std::fs::File::create("tests/#{@inst}_monoasm.bin").unwrap();
+      let mut buf = std::fs::File::create("tests/#{inst}_monoasm.bin").unwrap();
       buf.write_all(jit.as_slice()).unwrap();
   }
 EOS
   end
 
-  def self.template(mode)
+  def self.template(mode, size)
     case mode
     when MODE_REG
-      [reg_template(8), reg_template(@size)]
+      [reg_template(8), reg_template(size)]
     when MODE_INDIRECT
-      [indirect_template(@size), asm_indirect_template(@size)]
+      [indirect_template(size), asm_indirect_template(size)]
     when MODE_IMMEDIATE
       [IMM_TEMPLATE, IMM_TEMPLATE]
     end
   end
 
-  def self.operand(mode1, mode2=nil)
+  def self.operand(inst, size, mode1, mode2=nil)
     if mode2.nil?
 
-      templ = template(mode1)
+      templ = template(mode1, size)
       
       templ[0].each do |op|
-        @monoasm += "\t#{@inst} #{op};\n"
+        @monoasm += "\t#{inst} #{op};\n"
       end
       
       templ[1].each do |op|
-        @asm += "\t#{@inst} #{op};\n"
+        @asm += "\t#{inst} #{op};\n"
       end
       
     else
       
-      templ1 = template(mode1)
-      templ2 = template(mode2)
+      templ1 = template(mode1, size)
+      templ2 = template(mode2, size)
 
       templ1[0].each do |op1|
         templ2[0].each do |op2|
-          @monoasm += "\t#{@inst} #{op1}, #{op2};\n"
+          @monoasm += "\t#{inst} #{op1}, #{op2};\n"
         end
       end
 
@@ -177,38 +205,38 @@ EOS
     end
   end
 
-  def self.rm
-    operand(MODE_REG)
-    operand(MODE_INDIRECT)
+  def self.rm(inst, size)
+    operand(inst, size, MODE_REG)
+    operand(inst, size, MODE_INDIRECT)
   end
 
-  def self.r_r
-    operand(MODE_REG, MODE_REG)
+  def self.r_r(inst, size)
+    operand(inst, size, MODE_REG, MODE_REG)
   end
 
-  def self.rm_i
-    operand(MODE_REG, MODE_IMMEDIATE)
-    operand(MODE_INDIRECT, MODE_IMMEDIATE)
+  def self.rm_i(inst, size)
+    operand(inst, size, MODE_REG, MODE_IMMEDIATE)
+    operand(inst, size, MODE_INDIRECT, MODE_IMMEDIATE)
   end
 
-  def self.rm_1
-    operand(MODE_REG, MODE_IMMEDIATE)
-    operand(MODE_INDIRECT, MODE_IMMEDIATE)
+  def self.rm_1(inst, size)
+    operand(inst, size, MODE_REG, MODE_IMMEDIATE)
+    operand(inst, size, MODE_INDIRECT, MODE_IMMEDIATE)
   end
 
-  def self.m_r
-    operand(MODE_INDIRECT, MODE_REG)
+  def self.m_r(inst, size)
+    operand(inst, size, MODE_INDIRECT, MODE_REG)
   end
 
-  def self.r_m
-    operand(MODE_REG, MODE_INDIRECT)
+  def self.r_m(inst, size)
+    operand(inst, size, MODE_REG, MODE_INDIRECT)
   end
 
-  def self.gen
-    r_r
-    rm_i
-    m_r
-    r_m
+  def self.gen(inst, size)
+    r_r(inst, size)
+    rm_i(inst, size)
+    m_r(inst, size)
+    r_m(inst, size)
   end
 
 end
@@ -225,100 +253,52 @@ class Movl < Inst
   @size = 4
 end
 
-class Addq < Inst
-  @inst = "addq"
+class Add < Inst
+  @inst = "add"
   @asm_inst = "add"
-  @size = 8
+  @size = [8, 4, 1]
 end
 
-class Addl < Inst
-  @inst = "addl"
-  @asm_inst = "add"
-  @size = 4
-end
-
-class Subq < Inst
-  @inst = "subq"
+class Sub < Inst
+  @inst = "sub"
   @asm_inst = "sub"
-  @size = 8
+  @size = [8, 4, 1]
 end
 
-class Subl < Inst
-  @inst = "subl"
-  @asm_inst = "sub"
-  @size = 4
-end
-
-class Adcq < Inst
-  @inst = "adcq"
+class Adc < Inst
+  @inst = "adc"
   @asm_inst = "adc"
-  @size = 8
+  @size = [8, 4, 1]
 end
 
-class Adcl < Inst
-  @inst = "adcl"
-  @asm_inst = "adc"
-  @size = 4
-end
-
-class Sbbq < Inst
-  @inst = "sbbq"
+class Sbb < Inst
+  @inst = "sbb"
   @asm_inst = "sbb"
-  @size = 8
+  @size = [8, 4, 1]
 end
 
-class Sbbl < Inst
-  @inst = "sbbl"
-  @asm_inst = "sbb"
-  @size = 4
-end
-
-class Andq < Inst
-  @inst = "andq"
+class And < Inst
+  @inst = "and"
   @asm_inst = "and"
-  @size = 8
+  @size = [8, 4, 1]
 end
 
-class Andl < Inst
-  @inst = "andl"
-  @asm_inst = "and"
-  @size = 4
-end
-
-class Orq < Inst
-  @inst = "orq"
+class Or < Inst
+  @inst = "or"
   @asm_inst = "or"
-  @size = 8
+  @size = [8, 4, 1]
 end
 
-class Orl < Inst
-  @inst = "orl"
-  @asm_inst = "or"
-  @size = 4
-end
-
-class Xorq < Inst
-  @inst = "xorq"
+class Xor < Inst
+  @inst = "xor"
   @asm_inst = "xor"
-  @size = 8
+  @size = [8, 4, 1]
 end
 
-class Xorl < Inst
-  @inst = "xorl"
-  @asm_inst = "xor"
-  @size = 4
-end
-
-class Cmpq < Inst
-  @inst = "cmpq"
+class Cmp < Inst
   @asm_inst = "cmp"
-  @size = 8
-end
-
-class Cmpl < Inst
-  @inst = "cmpl"
-  @asm_inst = "cmp"
-  @size = 4
+  @inst = "cmp"
+  @size = [8, 4, 1]
 end
 
 class Test < Inst
@@ -326,10 +306,10 @@ class Test < Inst
   @asm_inst = "test"
   @size = 8
 
-  def self.gen
-    r_r
-    rm_i
-    m_r
+  def self.gen(inst, size)
+    r_r(inst, size)
+    rm_i(inst, size)
+    m_r(inst, size)
   end
 end
 
@@ -338,8 +318,8 @@ class Push < Inst
   @asm_inst = "push"
   @size = 8
 
-  def self.gen
-    rm
+  def self.gen(inst, size)
+    rm(inst, size)
   end
 end
 
@@ -348,8 +328,8 @@ class Pop < Inst
   @asm_inst = "pop"
   @size = 8
 
-  def self.gen
-    rm
+  def self.gen(inst, size)
+    rm(inst, size)
   end
 end
 
@@ -358,15 +338,15 @@ class Negq < Inst
   @asm_inst = "neg"
   @size = 8
 
-  def self.gen
-    rm
+  def self.gen(inst, size)
+    rm(inst, size)
   end
 end
 
 class Shift < Inst
-  def self.gen
-    rm_i
-    rm_1
+  def self.gen(inst, size)
+    rm_i(inst, size)
+    rm_1(inst, size)
   end
 end
 
@@ -406,16 +386,33 @@ class Ror < Shift
   @size = 8
 end
 
-instructions = [Movq, Addq, Adcq, Subq, Sbbq, Andq, Orq, Xorq, Cmpq, Shl, Shr, Sal, Sar, Rol, Ror] +
-[Movl, Addl, Adcl, Subl, Andl, Orl, Xorl, Cmpl] +
+instructions = [Movq, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Shl, Shr, Sal, Sar, Rol, Ror] +
+[Movl] +
 [Test, Push, Pop, Negq]
 
-instructions.map do |inst|
-  inst.make_file
+`rm monoasm/tests/*.txt`
+instructions.each do |inst|
+  if inst.size.is_a?(Array)
+    inst.size.each do |size|
+      inst_name = inst.inst_name(size)
+      inst.make_file(inst_name, size)
+    end
+  else
+    inst.make_file(inst.inst, inst.size)
+  end
+
 end
 `cargo test`
-instructions.map do |inst|
-  inst.compare
+instructions.each do |inst|
+  if inst.size.is_a?(Array)
+    inst.size.each do |size|
+      inst_name = inst.inst_name(size)
+      inst.compare(inst_name)
+    end
+  else
+    inst.compare(inst.inst)
+  end
 end
 `rm monoasm/tests/*.bin`
 `rm monoasm/tests/*.s`
+#`rm monoasm/tests/*.rs`

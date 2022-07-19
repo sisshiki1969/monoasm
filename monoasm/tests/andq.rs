@@ -6,7 +6,7 @@
   use monoasm_macro::monoasm;
 
   #[test]
-  fn andq() {
+  fn and() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
           jit,

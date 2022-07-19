@@ -143,6 +143,14 @@ impl Rm {
         }
     }
 
+    pub fn is_reg(&self) -> bool {
+        self.mode == Mode::Reg
+    }
+
+    pub fn is_rax(&self) -> bool {
+        self.mode == Mode::Reg && self.base.is_rax()
+    }
+
     pub fn ind(base: Reg, disp: Disp, scale: Scale) -> Self {
         let mode = Mode::Ind(scale, disp);
         Self { base, mode }

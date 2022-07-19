@@ -42,6 +42,7 @@ enum Rex {
     REXW,
     REX,
     None,
+    Byte,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -432,7 +433,7 @@ impl JitMemory {
     /// Op+ rd
     pub fn enc_o(&mut self, op: u8, reg: Reg) {
         assert!(!reg.is_rip());
-        self.rex_none(Reg(0), reg, Reg(0));
+        self.rex_none(Reg(0), reg, Reg(0), Mode::Reg);
         self.op_with_rd(op, reg);
     }
 
@@ -440,7 +441,7 @@ impl JitMemory {
     /// Op+ rd
     pub fn enc_oi(&mut self, op: u8, reg: Reg) {
         assert!(!reg.is_rip());
-        self.rex_none(Reg(0), reg, Reg(0));
+        self.rex_none(Reg(0), reg, Reg(0), Mode::Reg);
         self.op_with_rd(op, reg);
     }
 
@@ -448,7 +449,7 @@ impl JitMemory {
     /// REX.W Op+ rd
     pub fn enc_rexw_o(&mut self, op: u8, reg: Reg) {
         assert!(!reg.is_rip());
-        self.rexw(Reg(0), reg, Reg(0));
+        self.rexw(Reg(0), reg, Reg(0), Mode::Reg);
         self.op_with_rd(op, reg);
     }
 
@@ -478,6 +479,14 @@ impl JitMemory {
         self.encode(op, Rex::None, ModRM::Reg(reg), rm_op, Imm::None);
     }
 
+    pub fn enc_rex_mr_byte(&mut self, op: &[u8], reg: Reg, rm_op: Rm) {
+        //if rm_op.is_reg() {
+        self.encode(op, Rex::Byte, ModRM::Reg(reg), rm_op, Imm::None);
+        //} else {
+        //    self.encode(op, Rex::None, ModRM::Reg(reg), rm_op, Imm::None);
+        //}
+    }
+
     /// This is used in "setcc r/m8".
     pub fn enc_rex_m(&mut self, op: &[u8], rm: Rm) {
         self.encode(op, Rex::REX, ModRM::Reg(Reg(0)), rm, Imm::None);
@@ -494,7 +503,7 @@ impl JitMemory {
     /// Encoding: /n  
     /// Op /n
     pub fn enc_digit(&mut self, op: &[u8], reg: Reg, digit: u8) {
-        self.rex_none(Reg(0), reg, Reg(0));
+        self.rex_none(Reg(0), reg, Reg(0), Mode::Reg);
         self.emit(op);
         self.modrm(ModRM::Digit(digit), Mode::Reg, reg);
     }
@@ -507,6 +516,17 @@ impl JitMemory {
 
     pub fn enc_m_digit_imm(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {
         self.encode(op, Rex::None, ModRM::Digit(digit), rm, imm);
+    }
+
+    pub fn enc_m_digit_imm_byte(&mut self, op: &[u8], op_al: u8, rm: Rm, digit: u8, imm: Imm) {
+        if rm.is_rax() {
+            self.emitb(op_al);
+            self.emit_disp_imm(Disp::None, imm);
+        } else if rm.is_reg() {
+            self.encode(op, Rex::Byte, ModRM::Digit(digit), rm, imm);
+        } else {
+            self.encode(op, Rex::None, ModRM::Digit(digit), rm, imm);
+        }
     }
 
     /// Encoding: /n  
@@ -524,13 +544,14 @@ impl JitMemory {
             Rex::REXW => JitMemory::rexw,
             Rex::REX => JitMemory::rex,
             Rex::None => JitMemory::rex_none,
+            Rex::Byte => JitMemory::rex_none_byte,
         };
         assert!(!reg.is_rip());
         if rm.base.is_rip() {
             // For rip, only indirect addressing with disp32 ([rip + disp32]) is allowed.
             // [rip] and [rip + disp8] are to be converted to [rip + disp32].
             let rm = Rm::rip_ind_from(rm);
-            rex_fn(self, reg, rm.base, Reg(0));
+            rex_fn(self, reg, rm.base, Reg(0), rm.mode);
             self.emit(op);
             self.modrm(modrm_mode, Mode::Ind(Scale::None, Disp::None), rm.base);
             self.emit_disp_imm(rm.mode.disp(), imm);
@@ -543,7 +564,7 @@ impl JitMemory {
                         Scale::S1(scale, index) => (scale, index),
                     };
                     let base = rm.base;
-                    rex_fn(self, reg, base, index);
+                    rex_fn(self, reg, base, index, rm.mode);
                     self.emit(op);
                     self.modrm(modrm_mode, rm.mode, base);
                     self.sib(scale, index, base);
@@ -554,7 +575,7 @@ impl JitMemory {
         } else if rm.mode.is_indirect_no_disp() && (rm.base.0 & 0b111) == 5 {
             // If mode == Ind and r/m == 5/13 (rbp/r13), use [rbp/r13 + 0(disp8)].
             let scale = rm.mode.scale();
-            rex_fn(self, reg, rm.base, scale.index());
+            rex_fn(self, reg, rm.base, scale.index(), rm.mode);
             let mode = Mode::Ind(scale, Disp::D8(0));
             self.emit(op);
             self.modrm(modrm_mode, mode, rm.base);
@@ -575,6 +596,7 @@ impl JitMemory {
                         Scale::S1(_, index) => index,
                     },
                 },
+                rm.mode,
             );
             // index != Reg::RIP
             self.emit(op);
@@ -636,18 +658,26 @@ impl JitMemory {
     /// +---+---+------------------------------------------------+
     /// ~~~~
     ///
-    fn rexw(&mut self, reg: Reg, base: Reg, index: Reg) {
+    fn rexw(&mut self, reg: Reg, base: Reg, index: Reg, _mode: Mode) {
         let rexw = 0x48 | (reg.0 & 0b1000) >> 1 | (index.0 & 0b1000) >> 2 | (base.0 & 0b1000) >> 3;
         self.emitb(rexw);
     }
 
-    fn rex_none(&mut self, reg: Reg, base: Reg, index: Reg) {
+    fn rex_none(&mut self, reg: Reg, base: Reg, index: Reg, mode: Mode) {
         if reg.0 > 7 || base.0 > 7 || index.0 > 7 {
-            self.rex(reg, base, index);
+            self.rex(reg, base, index, mode);
         };
     }
 
-    fn rex(&mut self, reg: Reg, base: Reg, index: Reg) {
+    fn rex_none_byte(&mut self, reg: Reg, base: Reg, index: Reg, mode: Mode) {
+        if reg.0 > 7 || base.0 > 7 || index.0 > 7 {
+            self.rex(reg, base, index, mode);
+        } else if reg.0 > 3 || (base.0 > 3 && mode == Mode::Reg) {
+            self.rex(Reg(0), Reg(0), Reg(0), mode);
+        };
+    }
+
+    fn rex(&mut self, reg: Reg, base: Reg, index: Reg, _mode: Mode) {
         let rex_prefix =
             0x40 | (reg.0 & 0b1000) >> 1 | (index.0 & 0b1000) >> 2 | (base.0 & 0b1000) >> 3;
         self.emitb(rex_prefix);
