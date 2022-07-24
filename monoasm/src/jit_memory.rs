@@ -334,12 +334,10 @@ impl JitMemory {
     }*/
 
     /// Bind the current location to `label`.
-    fn get_label_pos(&self, label: DestLabel) -> usize {
+    fn get_label_pos(&self, label: DestLabel) -> (Page, Pos) {
         self.reloc[label]
             .loc
             .expect("The DestLabel has no position binding.")
-            .1
-             .0
     }
 
     pub fn get_current_address(&self) -> CodePtr {
@@ -348,7 +346,8 @@ impl JitMemory {
     }
 
     pub fn get_label_address(&self, label: DestLabel) -> CodePtr {
-        let ptr = unsafe { self.contents.add(self.get_label_pos(label)) };
+        let (page, pos) = self.get_label_pos(label);
+        let ptr = unsafe { self[page].contents.add(pos.0) };
         CodePtr::from(ptr)
     }
 
