@@ -389,7 +389,10 @@ impl JitMemory {
             for (c, label) in constants {
                 self.bind_label_with_page(Page(id), label);
                 match c {
-                    Const::U64(val) => self[Page(id)].emitq(val),
+                    Const::U64(val) => {
+                        self[Page(id)].align();
+                        self[Page(id)].emitq(val);
+                    }
                     Const::U32(val) => self[Page(id)].emitl(val),
                 }
             }
