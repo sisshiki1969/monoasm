@@ -384,16 +384,18 @@ impl JitMemory {
     /// Resolve labels for constant data, and emit them to `contents`.
     fn resolve_constants(&mut self) {
         for id in 0..self.pages.len() {
-            self[Page(id)].align();
             let constants = std::mem::take(&mut self[Page(id)].constants);
             for (c, label) in constants {
-                self.bind_label_with_page(Page(id), label);
                 match c {
                     Const::U64(val) => {
                         self[Page(id)].align();
+                        self.bind_label_with_page(Page(id), label);
                         self[Page(id)].emitq(val);
                     }
-                    Const::U32(val) => self[Page(id)].emitl(val),
+                    Const::U32(val) => {
+                        self.bind_label_with_page(Page(id), label);
+                        self[Page(id)].emitl(val);
+                    }
                 }
             }
         }
