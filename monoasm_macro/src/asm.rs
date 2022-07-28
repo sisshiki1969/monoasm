@@ -124,6 +124,12 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Subsd(op1, op2) => binary_sd_op(0x5c, op1, op2),
         Inst::Mulsd(op1, op2) => binary_sd_op(0x59, op1, op2),
         Inst::Divsd(op1, op2) => binary_sd_op(0x5e, op1, op2),
+        Inst::Xorps(op1, op2) => {
+            let op1 = op1.0;
+            quote! {
+                jit.enc_rex_mr(&[0x0f, 0x57], Reg::from(#op1), #op2);
+            }
+        }
 
         Inst::Lea(op1, op2) => match (op1, op2) {
             (RmOperand::Reg(op1), RmOperand::Ind(op2)) => quote! {
