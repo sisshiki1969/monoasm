@@ -252,9 +252,13 @@ impl JitMemory {
         self.pages.push(MemPage::new());
     }
 
-    pub fn select(&mut self, page: usize) {
+    pub fn select_page(&mut self, page: usize) {
         assert!(page < self.pages.len());
         self.page = Page(page);
+    }
+
+    pub fn get_page(&self) -> usize {
+        self.page.0
     }
 
     /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
