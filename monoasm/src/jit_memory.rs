@@ -52,7 +52,7 @@ pub struct CodePtr(NonNull<u8>);
 impl std::ops::Sub<CodePtr> for CodePtr {
     type Output = i64;
     fn sub(self, rhs: CodePtr) -> Self::Output {
-        (self.0.addr().get() as i64) - (rhs.0.addr().get())
+        (self.0.as_ptr() as usize as i64) - (rhs.0.as_ptr() as usize as i64)
     }
 }
 
