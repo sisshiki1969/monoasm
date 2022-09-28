@@ -16,6 +16,7 @@ mod tests {
         let func = jit.label();
         monoasm!(jit,
             func:
+                movq rax, qword 0;
                 xorps xmm0, xmm0;
                 xorps xmm0, xmm1;
                 xorps xmm0, xmm15;

@@ -397,6 +397,30 @@ impl Parse for Dest {
     }
 }
 
+///----------------------------------------------------------------------
+///
+///  Immediate.
+///
+///----------------------------------------------------------------------
+#[derive(Clone, Debug)]
+pub struct Immediate(pub TokenStream);
+
+impl Parse for Immediate {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        if input.peek(LitInt) && is_single(input) {
+            // e.g. "42"
+            let imm = input.parse::<LitInt>()?;
+            Ok(Self(quote! { #imm }))
+        } else if input.peek(token::Paren) {
+            // e.g. "(42)"
+            let gr = input.parse::<Group>()?;
+            Ok(Self(gr.stream()))
+        } else {
+            Err(input.error(format!("Illegal immediate.")))
+        }
+    }
+}
+
 pub fn is_single(input: ParseStream) -> bool {
     input.peek2(Token![,]) || input.peek2(Token![;])
 }

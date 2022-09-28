@@ -28,7 +28,6 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Sub(size, op1, op2) => binary_op(size, "SUB", 0x29, 5, op1, op2),
         Inst::Xor(size, op1, op2) => binary_op(size, "XOR", 0x31, 6, op1, op2),
         Inst::Cmp(size, op1, op2) => binary_op(size, "CMP", 0x39, 7, op1, op2),
-        //Inst::Cmpb(op1, op2) => binary_opb("CMP", 0x38, 7, op1, op2),
         Inst::Testq(op1, op2) => match (op1, op2) {
             (op1, RmiOperand::Imm(i)) => {
                 let op1_str = format!("{}", op1);
@@ -222,7 +221,7 @@ pub fn compile(inst: Inst) -> TokenStream {
 fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
     match (op1, op2) {
         (MovOperand::Xmm(op1), op2) => match &op2 {
-            MovOperand::Imm(_) => panic!("'MOV xmm, Imm' does not exists."),
+            MovOperand::Imm(..) => panic!("'MOV xmm, Imm' does not exists."),
             MovOperand::Reg(op2) => quote! {
                 let op2 = Rm::reg(#op2);
                 jit.emitb(0x66);
@@ -233,7 +232,7 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
                 jit.enc_rex_mr(&[0x0f, 0x7e],  Reg::from(#op1), #op2);
             },
         },
-        (MovOperand::Imm(_), op2) => panic!("'MOV Imm, {}' does not exists.", op2),
+        (MovOperand::Imm(..), op2) => panic!("'MOV Imm, {}' does not exists.", op2),
         // MOV r/m64, imm32
         // REX.W + C7 /0 id
         // MI
@@ -241,24 +240,35 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
         // MOV r64, imm64
         // REX.W + B8+ rd io
         // OI
-        (MovOperand::Reg(expr), MovOperand::Imm(i)) => {
-            quote!(
-                let imm = (#i) as i64;
-                let rm_op = Rm::reg(#expr);
-                if let Ok(imm) = i32::try_from(imm) {
-                    // MOV r/m64, imm32
-                    jit.enc_rexw_mi(0xc7, rm_op, Imm::L(imm));
-                } else {
+        (MovOperand::Reg(expr), MovOperand::Imm(i, size)) => {
+            if let Some(size) = size {
+                assert_eq!(OperandSize::QWORD, size);
+                quote!(
+                    let imm = (#i) as i64;
+                    let rm_op = Rm::reg(#expr);
                     // MOV r64, imm64
                     jit.enc_rexw_o(0xb8, #expr);
                     jit.emitq(imm as u64);
-                };
-            )
+                )
+            } else {
+                quote!(
+                    let imm = (#i) as i64;
+                    let rm_op = Rm::reg(#expr);
+                    if let Ok(imm) = i32::try_from(imm) {
+                        // MOV r/m64, imm32
+                        jit.enc_rexw_mi(0xc7, rm_op, Imm::L(imm));
+                    } else {
+                        // MOV r64, imm64
+                        jit.enc_rexw_o(0xb8, #expr);
+                        jit.emitq(imm as u64);
+                    };
+                )
+            }
         }
         // MOV r/m64, imm32
         // REX.W + C7 /0 id
         // MI
-        (op1, MovOperand::Imm(i)) => {
+        (op1, MovOperand::Imm(i, None)) => {
             let op1_str = format!("{}", op1);
             quote! {
                 let imm = (#i) as i64;
