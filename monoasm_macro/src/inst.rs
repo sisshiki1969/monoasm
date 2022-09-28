@@ -425,7 +425,7 @@ impl Parse for RmiOperand {
         if input.peek(Ident) {
             let ident = input.parse::<Ident>()?;
             // e.g. "rax"
-            let reg = Register::parse_register(input, &ident.to_string())?;
+            let reg = Register::parse_register(input, ident.to_string())?;
             Ok(RmiOperand::reg(reg))
         } else if input.peek(LitInt) && is_single(input) {
             // e.g. "42"
@@ -626,7 +626,7 @@ impl Parse for MovOperand {
             } else if ident.starts_with("xmm") {
                 Ok(Self::Xmm(parse_xmm(input, &ident)?))
             } else {
-                Ok(Self::reg(Register::parse_register(input, &ident)?))
+                Ok(Self::reg(Register::parse_register(input, ident)?))
             }
         } else if input.peek(LitInt) && is_single(input) {
             // e.g. "42"

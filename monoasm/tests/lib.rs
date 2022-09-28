@@ -17,6 +17,7 @@ mod tests {
         monoasm!(jit,
             func:
                 movq rax, qword 0;
+                call (0);
                 xorps xmm0, xmm0;
                 xorps xmm0, xmm1;
                 xorps xmm0, xmm15;

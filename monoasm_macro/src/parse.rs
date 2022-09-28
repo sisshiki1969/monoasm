@@ -129,7 +129,7 @@ pub enum Register {
 
 impl Parse for Register {
     fn parse(input: ParseStream) -> Result<Self, Error> {
-        Self::parse_register(input, &input.parse::<Ident>()?.to_string())
+        Self::parse_register(input, input.parse::<Ident>()?.to_string())
     }
 }
 
@@ -169,7 +169,7 @@ impl Register {
         }
     }
 
-    pub fn parse_register(input: ParseStream, ident: &String) -> Result<Register, Error> {
+    pub fn parse_register(input: ParseStream, ident: String) -> Result<Register, Error> {
         if ident == "R" {
             // e.g. "R(13)"
             let content;
@@ -376,10 +376,11 @@ impl ToTokens for Scale {
 ///  Destination operand for jump and call instructions.
 ///
 ///----------------------------------------------------------------------
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 pub enum Dest {
     Reg(Reg),
     Rel(Ident),
+    Disp(TokenStream),
 }
 
 impl Parse for Dest {
@@ -387,10 +388,14 @@ impl Parse for Dest {
         let lookahead = input.lookahead1();
         if lookahead.peek(Ident) && is_single(input) {
             let dest: Ident = input.parse()?;
-            match Reg::from_str(&dest.to_string()) {
+            match Reg::from_str(dest.to_string()) {
                 Some(reg) => Ok(Dest::Reg(reg)),
                 None => Ok(Dest::Rel(dest)),
             }
+        } else if input.peek(token::Paren) {
+            // e.g. "(42)"
+            let gr = input.parse::<Group>()?;
+            Ok(Dest::Disp(gr.stream()))
         } else {
             Err(lookahead.error())
         }

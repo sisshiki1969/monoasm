@@ -166,6 +166,16 @@ pub fn compile(inst: Inst) -> TokenStream {
                     jit.emitl(0);
                 }
             }
+            Dest::Disp(imm) => {
+                quote! {
+                    if let Ok(imm) = i32::try_from(#imm as i64) {
+                        jit.emitb(0xe8);
+                        jit.emitl(imm as u32);
+                    } else {
+                        panic!("'CALL ({})' out of range.", #imm);
+                    }
+                }
+            }
             dest => unimplemented!("CALL {:?}", dest),
         },
         Inst::Ret => quote!( jit.emitb(0xc3); ),
