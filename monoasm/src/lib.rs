@@ -1,11 +1,33 @@
 extern crate libc;
 use std::mem;
 use std::ops::{Add, Deref, DerefMut, Index, IndexMut, Sub};
+use std::ptr::NonNull;
 mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
 
 const PAGE_SIZE: usize = 1024 * 256;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(transparent)]
+pub struct CodePtr(NonNull<u8>);
+
+impl std::ops::Sub<CodePtr> for CodePtr {
+    type Output = i64;
+    fn sub(self, rhs: CodePtr) -> Self::Output {
+        (self.0.as_ptr() as usize as i64) - (rhs.0.as_ptr() as usize as i64)
+    }
+}
+
+impl CodePtr {
+    pub fn from(ptr: *mut u8) -> Self {
+        Self(NonNull::new(ptr).unwrap())
+    }
+
+    pub fn as_ptr(&self) -> *mut u8 {
+        self.0.as_ptr()
+    }
+}
 
 /// Register.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -75,6 +97,26 @@ impl Scale {
         match self {
             Self::None => Reg(0),
             Self::S1(_, r) => *r,
+        }
+    }
+}
+
+pub enum Imm {
+    None,
+    B(i8),
+    W(i16),
+    L(i32),
+    Q(i64),
+}
+
+impl Imm {
+    pub fn offset(&self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::B(_) => 1,
+            Self::W(_) => 2,
+            Self::L(_) => 4,
+            Self::Q(_) => 8,
         }
     }
 }

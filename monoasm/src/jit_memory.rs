@@ -10,28 +10,7 @@ use region::{protect, Protection};
 use std::{
     alloc::{alloc, Layout},
     io::Write,
-    ptr::NonNull,
 };
-
-pub enum Imm {
-    None,
-    B(i8),
-    W(i16),
-    L(i32),
-    Q(i64),
-}
-
-impl Imm {
-    pub fn offset(&self) -> u8 {
-        match self {
-            Self::None => 0,
-            Self::B(_) => 1,
-            Self::W(_) => 2,
-            Self::L(_) => 4,
-            Self::Q(_) => 8,
-        }
-    }
-}
 
 enum ModRM {
     Reg(Reg),
@@ -43,27 +22,6 @@ enum Rex {
     REX,
     None,
     Byte,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(transparent)]
-pub struct CodePtr(NonNull<u8>);
-
-impl std::ops::Sub<CodePtr> for CodePtr {
-    type Output = i64;
-    fn sub(self, rhs: CodePtr) -> Self::Output {
-        (self.0.as_ptr() as usize as i64) - (rhs.0.as_ptr() as usize as i64)
-    }
-}
-
-impl CodePtr {
-    pub fn from(ptr: *mut u8) -> Self {
-        Self(NonNull::new(ptr).unwrap())
-    }
-
-    pub fn as_ptr(&self) -> *mut u8 {
-        self.0.as_ptr()
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -123,7 +81,7 @@ impl IndexMut<Pos> for MemPage {
 
 impl MemPage {
     fn new() -> Self {
-        let layout = Layout::from_size_align(PAGE_SIZE, 4096).expect("Bad Layout.");
+        let layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).expect("Bad Layout.");
         let contents = unsafe { alloc(layout) };
         unsafe {
             protect(contents, PAGE_SIZE, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
