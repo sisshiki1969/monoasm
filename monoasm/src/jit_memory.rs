@@ -12,21 +12,6 @@ use std::{
     io::Write,
 };
 
-enum ModRM {
-    Reg(Reg),
-    Digit(u8),
-}
-
-enum Rex {
-    REXW,
-    REX,
-    None,
-    Byte,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Page(pub usize);
-
 /// Memory manager.
 #[derive(Debug)]
 pub struct JitMemory {
@@ -35,6 +20,9 @@ pub struct JitMemory {
     /// Relocation information.
     reloc: Relocations,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Page(pub usize);
 
 /// Memory manager.
 #[derive(Debug)]
@@ -51,12 +39,6 @@ pub struct MemPage {
     code_block_top: Pos,
     /// Code blocks. (start_pos, code_end, end_pos)
     pub code_block: Vec<(Pos, Pos, Pos)>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Const {
-    U64(u64),
-    U32(u32),
 }
 
 impl Index<Pos> for MemPage {
@@ -80,12 +62,7 @@ impl IndexMut<Pos> for MemPage {
 }
 
 impl MemPage {
-    fn new() -> Self {
-        let layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).expect("Bad Layout.");
-        let contents = unsafe { alloc(layout) };
-        unsafe {
-            protect(contents, PAGE_SIZE, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
-        }
+    fn new(contents: *mut u8) -> Self {
         MemPage {
             contents,
             counter: Pos(0),
@@ -140,6 +117,24 @@ impl MemPage {
         self[loc + 2] = (val >> 16) as u8;
         self[loc + 3] = (val >> 24) as u8;
     }
+}
+
+enum ModRM {
+    Reg(Reg),
+    Digit(u8),
+}
+
+enum Rex {
+    REXW,
+    REX,
+    None,
+    Byte,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Const {
+    U64(u64),
+    U32(u32),
 }
 
 impl std::ops::Deref for JitMemory {
@@ -203,18 +198,18 @@ impl JitMemory {
     /// ### panic
     /// Panic if Layout::from_size_align() or region::protect() returned Err.
     pub fn new() -> JitMemory {
-        let mut initial_page = MemPage::new();
-        initial_page.emitb(0xc3);
-        initial_page.counter = Pos(0);
+        let layout = Layout::from_size_align(PAGE_SIZE * 2, PAGE_SIZE * 2).expect("Bad Layout.");
+        let contents = unsafe { alloc(layout) };
+        unsafe {
+            protect(contents, PAGE_SIZE, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
+        }
+        let initial_page = MemPage::new(contents);
+        let second_page = MemPage::new(unsafe { contents.add(PAGE_SIZE) });
         JitMemory {
             page: Page(0),
-            pages: vec![initial_page],
+            pages: vec![initial_page, second_page],
             reloc: Relocations::new(),
         }
-    }
-
-    pub fn add_page(&mut self) {
-        self.pages.push(MemPage::new());
     }
 
     pub fn select_page(&mut self, page: usize) {
