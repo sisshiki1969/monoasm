@@ -201,7 +201,8 @@ impl JitMemory {
         let layout = Layout::from_size_align(PAGE_SIZE * 2, PAGE_SIZE * 2).expect("Bad Layout.");
         let contents = unsafe { alloc(layout) };
         unsafe {
-            protect(contents, PAGE_SIZE, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
+            protect(contents, PAGE_SIZE * 2, Protection::READ_WRITE_EXECUTE)
+                .expect("Mprotect failed.");
         }
         let initial_page = MemPage::new(contents);
         let second_page = MemPage::new(unsafe { contents.add(PAGE_SIZE) });
