@@ -222,6 +222,10 @@ impl JitMemory {
         self.page.0
     }
 
+    pub fn include(&self, ptr: *mut u8) -> bool {
+        self.contents <= ptr && ptr < unsafe { self.contents.add(PAGE_SIZE * 2) }
+    }
+
     /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
     pub fn finalize(&mut self) {
         for page in &mut self.pages {
