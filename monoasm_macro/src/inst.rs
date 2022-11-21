@@ -98,6 +98,7 @@ pub enum Inst {
     UComIsd(Xmm, XmOperand),
 
     Cvtsi2sdq(Xmm, RmOperand),
+    Sqrtpd(Xmm, XmOperand),
 
     Pushq(RmOperand),
     Popq(RmOperand),
@@ -294,6 +295,7 @@ impl Parse for Inst {
                 "ucomisd" => parse_2op!(UComIsd),
 
                 "cvtsi2sdq" => parse_2op!(Cvtsi2sdq),
+                "sqrtpd" => parse_2op!(Sqrtpd),
 
                 "pushq" => parse_1op!(Pushq),
                 "popq" => parse_1op!(Popq),

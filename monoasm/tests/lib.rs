@@ -281,11 +281,12 @@ fn div_test() {
     assert_eq!(9, func(63));
 }
 
-fn float() -> extern "C" fn(f64) -> f64 {
+fn float_sqrt() -> extern "C" fn(f64) -> f64 {
     let mut jit: JitMemory = JitMemory::new();
     let func = jit.label();
     monoasm!(jit,
     func:
+        sqrtpd xmm0, xmm0;
         ret;
     );
     jit.finalize();
@@ -294,8 +295,8 @@ fn float() -> extern "C" fn(f64) -> f64 {
 
 #[test]
 fn float_test() {
-    let func = float();
-    assert_eq!(9.88, func(9.88));
+    let func = float_sqrt();
+    assert_eq!(3.1432467291003423, func(9.88));
 }
 
 #[test]
