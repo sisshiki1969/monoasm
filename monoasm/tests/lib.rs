@@ -286,7 +286,7 @@ fn float_sqrt() -> extern "C" fn(f64) -> f64 {
     let func = jit.label();
     monoasm!(jit,
     func:
-        sqrtpd xmm0, xmm0;
+        sqrtsd xmm0, xmm0;
         ret;
     );
     jit.finalize();

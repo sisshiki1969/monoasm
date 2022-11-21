@@ -152,6 +152,12 @@ pub fn compile(inst: Inst) -> TokenStream {
                 jit.enc_rexw_mr(&[0x0f, 0x51], Reg::from(#op1), #op2);
             }
         }
+        Inst::Sqrtsd(Xmm(op1), op2) => {
+            quote! {
+                jit.emitb(0xf2);
+                jit.enc_rexw_mr(&[0x0f, 0x51], Reg::from(#op1), #op2);
+            }
+        }
 
         Inst::Pushq(op) => push_pop(0x50, (0xff, 6), op),
         Inst::Popq(op) => push_pop(0x58, (0x8f, 0), op),
