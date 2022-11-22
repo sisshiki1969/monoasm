@@ -149,13 +149,13 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Sqrtpd(Xmm(op1), op2) => {
             quote! {
                 jit.emitb(0x66);
-                jit.enc_rexw_mr(&[0x0f, 0x51], Reg::from(#op1), #op2);
+                jit.enc_rex_mr(&[0x0f, 0x51], Reg::from(#op1), #op2);
             }
         }
         Inst::Sqrtsd(Xmm(op1), op2) => {
             quote! {
                 jit.emitb(0xf2);
-                jit.enc_rexw_mr(&[0x0f, 0x51], Reg::from(#op1), #op2);
+                jit.enc_rex_mr(&[0x0f, 0x51], Reg::from(#op1), #op2);
             }
         }
 
@@ -425,6 +425,8 @@ fn binary_op(
         binary_opq(op_name, op_mr, digit, op1, op2)
     } else if size == OperandSize::DWORD {
         binary_opl(op_name, op_mr, digit, op1, op2)
+    } else if size == OperandSize::WORD {
+        binary_opw(op_name, op_mr, digit, op1, op2)
     } else if size == OperandSize::BYTE {
         binary_opb(op_name, op_mr - 1, digit, op1, op2)
     } else {
@@ -546,6 +548,72 @@ fn binary_opl(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
         // OP=XOR 33 /r
         // OP=CMP 3b /r
         (RmOperand::Reg(expr), op2) => quote! ( jit.enc_rex_mr(&[#op_rm], #expr, #op2); ),
+        (op1, op2) => unimplemented!("{} {}, {} does not exists.", op_name, op1, op2),
+    }
+}
+
+fn binary_opw(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOperand) -> TokenStream {
+    let op_rm = op_mr + 2;
+    match (op1, op2) {
+        // OP r/m16, imm16
+        // OP=ADD 81 /0 iw
+        // OP=OR  81 /1 iw
+        // OP=ADC 81 /2 iw
+        // OP=SBB 81 /3 iw
+        // OP=AND 81 /4 iw
+        // OP=SUB 81 /5 iw
+        // OP=XOR 81 /6 iw
+        // OP=CMP 81 /7 iw
+        //
+        // OP r/m16, imm8
+        // OP=ADD 83 /0 ib
+        // OP=OR  83 /1 ib
+        // OP=ADC 83 /2 ib
+        // OP=SBB 83 /3 ib
+        // OP=AND 83 /4 ib
+        // OP=SUB 83 /5 ib
+        // OP=XOR 83 /6 ib
+        // OP=CMP 83 /7 ib
+        (op1, RmiOperand::Imm(i)) => {
+            let op1_str = format!("{}", op1);
+            quote! {
+                let imm = (#i) as i64;
+                jit.emitb(0x66);
+                if let Ok(imm) = i8::try_from(imm) {
+                    jit.enc_m_digit_imm(&[0x83], #op1, #digit, Imm::B(imm));
+                } else if let Ok(imm) = i16::try_from(imm) {
+                    jit.enc_m_digit_imm(&[0x81], #op1, #digit, Imm::W(imm));
+                } else {
+                    panic!("'{} {}, imm64' does not exists.", #op_name, #op1_str);
+                }
+            }
+        }
+        // OP r/m16, r16
+        // OP=ADD 01 /r
+        // OP=OR  09 /r
+        // OP=ADC 11 /r
+        // OP=SBB 19 /r
+        // OP=AND 21 /r
+        // OP=SUB 29 /r
+        // OP=XOR 31 /r
+        // OP=CMP 39 /r
+        (op1, RmiOperand::Reg(expr)) => quote! {
+            jit.emitb(0x66);
+            jit.enc_rex_mr(&[#op_mr], #expr, #op1);
+        },
+        // OP r16, m16
+        // OP=ADD 03 /r
+        // OP=OR  0b /r
+        // OP=ADC 13 /r
+        // OP=SBB 1b /r
+        // OP=AND 23 /r
+        // OP=SUB 2b /r
+        // OP=XOR 33 /r
+        // OP=CMP 3b /r
+        (RmOperand::Reg(expr), op2) => quote! {
+            jit.emitb(0x66);
+            jit.enc_rex_mr(&[#op_rm], #expr, #op2);
+        },
         (op1, op2) => unimplemented!("{} {}, {} does not exists.", op_name, op1, op2),
     }
 }

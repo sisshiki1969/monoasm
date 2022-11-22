@@ -7,6 +7,8 @@ def reg_template(size)
     ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
   elsif size == 4
     ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi", "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"]
+  elsif size == 2
+    ["ax", "cx", "dx", "bx", "sp", "bp", "si", "di", "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"]
   elsif size == 1
     ["al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil", "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"]
   else
@@ -256,49 +258,49 @@ end
 class Add < Inst
   @inst = "add"
   @asm_inst = "add"
-  @size = [8, 4, 1]
+  @size = [8, 2, 4, 1]
 end
 
 class Sub < Inst
   @inst = "sub"
   @asm_inst = "sub"
-  @size = [8, 4, 1]
+  @size = [8, 2, 4, 1]
 end
 
 class Adc < Inst
   @inst = "adc"
   @asm_inst = "adc"
-  @size = [8, 4, 1]
+  @size = [8, 2, 4, 1]
 end
 
 class Sbb < Inst
   @inst = "sbb"
   @asm_inst = "sbb"
-  @size = [8, 4, 1]
+  @size = [8, 2, 4, 1]
 end
 
 class And < Inst
   @inst = "and"
   @asm_inst = "and"
-  @size = [8, 4, 1]
+  @size = [8, 2, 4, 1]
 end
 
 class Or < Inst
   @inst = "or"
   @asm_inst = "or"
-  @size = [8, 4, 1]
+  @size = [8, 2, 4, 1]
 end
 
 class Xor < Inst
   @inst = "xor"
   @asm_inst = "xor"
-  @size = [8, 4, 1]
+  @size = [8, 2, 4, 1]
 end
 
 class Cmp < Inst
   @asm_inst = "cmp"
   @inst = "cmp"
-  @size = [8, 4, 1]
+  @size = [8, 2, 4, 1]
 end
 
 class Test < Inst
