@@ -74,8 +74,18 @@ impl MemPage {
     }
 
     /// Adjust cursor with 16 byte alignment.
-    pub fn align(&mut self) {
+    pub fn align16(&mut self) {
         self.counter = Pos((self.counter.0 + 15) & !0b1111);
+    }
+
+    /// Adjust cursor with 8 byte alignment.
+    pub fn align8(&mut self) {
+        self.counter = Pos((self.counter.0 + 7) & !0b111);
+    }
+
+    /// Adjust cursor with 4 byte alignment.
+    pub fn align4(&mut self) {
+        self.counter = Pos((self.counter.0 + 3) & !0b11);
     }
 
     /// Emit a byte.
@@ -357,11 +367,12 @@ impl JitMemory {
             for (c, label) in constants {
                 match c {
                     Const::U64(val) => {
-                        self[Page(id)].align();
+                        self[Page(id)].align8();
                         self.bind_label_with_page(Page(id), label);
                         self[Page(id)].emitq(val);
                     }
                     Const::U32(val) => {
+                        self[Page(id)].align4();
                         self.bind_label_with_page(Page(id), label);
                         self[Page(id)].emitl(val);
                     }
