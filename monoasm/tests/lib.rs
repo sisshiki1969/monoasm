@@ -14,8 +14,28 @@ mod tests {
         let data2 = jit.const_i64(100);
         let label = jit.label();
         let func = jit.label();
-        monoasm!(jit,
-            func:
+
+        let cont1 = jit.label();
+        let cont2 = jit.label();
+        let loop1 = jit.label();
+        let loop2 = jit.label();
+        monoasm! { jit,
+        func:
+            subq r14, 16;  // r14 <- dfp
+        loop1:
+            cmpq [r14], 0;
+            je   cont1;
+            movq r14, [r14];
+            jp   loop1;
+        cont1:
+            addq r14, 16;  // r14 <- outermost lfp
+            movq rax, [rbx];        // rdi <- cfp
+        loop2:
+            cmpq [rax - 32], r14;
+            je   cont2;
+            movq rax, [rax];
+            jp   loop2;
+        cont2:
                 movq rax, qword 0;
                 call (0);
                 xorps xmm0, xmm0;
@@ -182,7 +202,7 @@ mod tests {
                 //divsd xmm(0), xmm(11);
                 //divsd xmm(0), [rax + 4];
                 ret;
-        );
+        }
         jit.finalize();
         let func = jit.get_label_addr(func);
         assert_eq!(3.5 * 2.3 * 100f64, func(2.3));
@@ -191,7 +211,8 @@ mod tests {
 
 fn syscall() -> extern "C" fn(()) -> u64 {
     let hello = "こんにちは世界\n\0";
-    let mut jit: JitMemory = JitMemory::new();
+    let mut mem: JitMemory = JitMemory::new();
+    let mut jit = &mut mem;
     let func = jit.label();
     monoasm!(jit,
     func:
