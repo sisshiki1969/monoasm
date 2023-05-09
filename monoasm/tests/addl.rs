@@ -9,7 +9,7 @@
   fn add() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	addl rax, rax;
 	addl rax, rcx;
 	addl rax, rdx;

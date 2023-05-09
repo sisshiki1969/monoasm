@@ -9,7 +9,7 @@
   fn negq() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	negq rax;
 	negq rcx;
 	negq rdx;

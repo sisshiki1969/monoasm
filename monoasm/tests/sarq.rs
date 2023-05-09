@@ -9,7 +9,7 @@
   fn sarq() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	sarq rax, 1;
 	sarq rax, 18;
 	sarq rcx, 1;

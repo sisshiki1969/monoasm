@@ -150,7 +150,7 @@ class Inst
   fn #{@inst}() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 EOS
   end
 

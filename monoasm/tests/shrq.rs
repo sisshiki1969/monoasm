@@ -9,7 +9,7 @@
   fn shrq() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	shrq rax, 1;
 	shrq rax, 18;
 	shrq rcx, 1;

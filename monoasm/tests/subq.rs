@@ -9,7 +9,7 @@
   fn sub() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	subq rax, rax;
 	subq rax, rcx;
 	subq rax, rdx;

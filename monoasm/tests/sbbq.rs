@@ -9,7 +9,7 @@
   fn sbb() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	sbbq rax, rax;
 	sbbq rax, rcx;
 	sbbq rax, rdx;

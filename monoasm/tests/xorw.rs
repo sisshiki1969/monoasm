@@ -9,7 +9,7 @@
   fn xor() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	xorw rax, rax;
 	xorw rax, rcx;
 	xorw rax, rdx;

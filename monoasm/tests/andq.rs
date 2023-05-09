@@ -9,7 +9,7 @@
   fn and() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	andq rax, rax;
 	andq rax, rcx;
 	andq rax, rdx;

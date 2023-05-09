@@ -9,7 +9,7 @@
   fn popq() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	popq rax;
 	popq rcx;
 	popq rdx;

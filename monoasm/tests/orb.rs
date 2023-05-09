@@ -9,7 +9,7 @@
   fn or() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	orb rax, rax;
 	orb rax, rcx;
 	orb rax, rdx;

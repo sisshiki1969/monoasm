@@ -9,7 +9,7 @@
   fn pushq() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	pushq rax;
 	pushq rcx;
 	pushq rdx;

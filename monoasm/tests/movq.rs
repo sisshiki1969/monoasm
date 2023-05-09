@@ -9,7 +9,7 @@
   fn movq() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	movq rax, rax;
 	movq rax, rcx;
 	movq rax, rdx;

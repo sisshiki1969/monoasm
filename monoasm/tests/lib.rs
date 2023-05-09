@@ -19,7 +19,7 @@ mod tests {
         let cont2 = jit.label();
         let loop1 = jit.label();
         let loop2 = jit.label();
-        monoasm! { jit,
+        monoasm! { &mut jit,
         func:
             subq r14, 16;  // r14 <- dfp
         loop1:
@@ -214,7 +214,7 @@ fn syscall() -> extern "C" fn(()) -> u64 {
     let mut mem: JitMemory = JitMemory::new();
     let mut jit = &mut mem;
     let func = jit.label();
-    monoasm!(jit,
+    monoasm!(&mut jit,
     func:
         movq rdi, 1;
         movq rsi, (hello.as_ptr() as u64);
@@ -233,7 +233,7 @@ fn hello() -> extern "C" fn(()) -> () {
     let mut jit: JitMemory = JitMemory::new();
     let label = jit.label();
     let func = jit.label();
-    monoasm!(jit,
+    monoasm!(&mut jit,
     func:
         // prologue
         pushq rbp;
@@ -264,7 +264,7 @@ fn hello() -> extern "C" fn(()) -> () {
 fn div1() -> extern "C" fn(u64) -> u64 {
     let mut jit: JitMemory = JitMemory::new();
     let func = jit.label();
-    monoasm!(jit,
+    monoasm!(&mut jit,
     func:
         movq rax, 63;
         movq rdx, 0;
@@ -281,7 +281,7 @@ fn div2() -> extern "C" fn(u64) -> u64 {
     let divider = 7i64;
     let divider_ptr = &divider as *const i64;
     let func = jit.label();
-    monoasm!(jit,
+    monoasm!(&mut jit,
     func:
         movq rax, rdi;
         movq rdx, 0;
@@ -305,7 +305,7 @@ fn div_test() {
 fn float_sqrt() -> extern "C" fn(f64) -> f64 {
     let mut jit: JitMemory = JitMemory::new();
     let func = jit.label();
-    monoasm!(jit,
+    monoasm!(&mut jit,
     func:
         movq   xmm15, xmm0;
         sqrtsd xmm0, xmm15;

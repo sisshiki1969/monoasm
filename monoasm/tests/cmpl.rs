@@ -9,7 +9,7 @@
   fn cmp() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	cmpl rax, rax;
 	cmpl rax, rcx;
 	cmpl rax, rdx;

@@ -9,7 +9,7 @@
   fn rolq() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	rolq rax, 1;
 	rolq rax, 18;
 	rolq rcx, 1;

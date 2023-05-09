@@ -9,7 +9,7 @@
   fn adc() {
       let mut jit: JitMemory = JitMemory::new();
       monoasm!(
-          jit,
+          &mut jit,
 	adcq rax, rax;
 	adcq rax, rcx;
 	adcq rax, rdx;
