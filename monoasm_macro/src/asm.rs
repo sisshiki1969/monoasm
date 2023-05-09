@@ -28,6 +28,35 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Sub(size, op1, op2) => binary_op(size, "SUB", 0x29, 5, op1, op2),
         Inst::Xor(size, op1, op2) => binary_op(size, "XOR", 0x31, 6, op1, op2),
         Inst::Cmp(size, op1, op2) => binary_op(size, "CMP", 0x39, 7, op1, op2),
+
+        Inst::Xchg(size, op1, op2) => match size {
+            OperandSize::QWORD => match (&op1, &op2) {
+                (RmOperand::Reg(r1), RmOperand::Reg(r2)) => quote! {
+                    if #r1 == Reg::from(0) {
+                        if #r2 == Reg::from(0) {
+                            jit.emitb(0x90);
+                        } else {
+                            jit.enc_rexw_o(0x90, #r2);
+                        }
+                    } else if #r2 == Reg::from(0) {
+                        jit.enc_rexw_o(0x90, #r1);
+                    } else {
+                        jit.enc_rexw_mr(&[0x87], #r2, #op1);
+                    }
+                },
+                (op1, RmOperand::Reg(op2)) => quote! {
+                    jit.enc_rexw_mr(&[0x87], #op2, #op1);
+                },
+                (RmOperand::Reg(op1), RmOperand::Ind(op2)) => quote! {
+                    jit.enc_rexw_mr(&[0x87], #op1, #op2);
+                },
+                (op1, op2) => {
+                    panic!("'Xchg {op1}, {op2}' does not exists.")
+                }
+            },
+            _ => panic!("'Xchg {:?} {op1}, {op2}' does not exists.", size),
+        },
+
         Inst::Testq(op1, op2) => match (op1, op2) {
             (op1, RmiOperand::Imm(i)) => {
                 let op1_str = format!("{}", op1);

@@ -303,6 +303,18 @@ class Cmp < Inst
   @size = [8, 2, 4, 1]
 end
 
+class Xchg < Inst
+  @inst = "xchgq"
+  @asm_inst = "xchg"
+  @size = 8
+
+  def self.gen(inst, size)
+    r_r(inst, size)
+    m_r(inst, size)
+    r_m(inst, size)
+  end
+end
+
 class Test < Inst
   @inst = "testq"
   @asm_inst = "test"
@@ -390,7 +402,7 @@ end
 
 instructions = [Movq, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Shl, Shr, Sal, Sar, Rol, Ror] +
 [Movl] +
-[Test, Push, Pop, Negq]
+[Test, Xchg, Push, Pop, Negq]
 
 `rm monoasm/tests/*.txt`
 instructions.each do |inst|

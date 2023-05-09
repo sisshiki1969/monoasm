@@ -22,7 +22,7 @@ The assembly code is assembled in compile time, and embedded as a code generator
     let mut jit: JitMemory = JitMemory::new();
     let a = 100;
 
-    monoasm!{ jit,
+    monoasm!{ &mut jit,
         movq rax, (a * 10);
     };
 ```
@@ -32,7 +32,7 @@ The assembly code is assembled in compile time, and embedded as a code generator
 ```Rust
     let mut jit: JitMemory = JitMemory::new();
     let label: DestLabel = jit.label();
-    monoasm!(jit,
+    monoasm!( &mut jit,
         cmpq rax, 10;
         jne label;
     label:
@@ -85,7 +85,7 @@ The assembly code is assembled in compile time, and embedded as a code generator
 
 - movl
 
-#### double word operation
+#### word operation
 
 - movzxw
 - movsxw

@@ -69,6 +69,7 @@ pub enum Inst {
     Or(OperandSize, RmOperand, RmiOperand),
     Xor(OperandSize, RmOperand, RmiOperand),
     Cmp(OperandSize, RmOperand, RmiOperand),
+    Xchg(OperandSize, RmOperand, RmOperand),
     Negq(RmOperand),
 
     Shlq(RmOperand, RiOperand),
@@ -264,6 +265,10 @@ impl Parse for Inst {
                 "cmpl" => parse_2op_sized!(Cmp, DWORD),
                 "cmpw" => parse_2op_sized!(Cmp, WORD),
                 "cmpb" => parse_2op_sized!(Cmp, BYTE),
+                "xchgq" => parse_2op_sized!(Xchg, QWORD),
+                "xchgl" => parse_2op_sized!(Xchg, DWORD),
+                "xchgw" => parse_2op_sized!(Xchg, WORD),
+                "xchgb" => parse_2op_sized!(Xchg, BYTE),
 
                 "negq" => parse_1op!(Negq),
                 "imul" => parse_2op!(Imul),

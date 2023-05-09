@@ -21,6 +21,7 @@ mod tests {
         let loop2 = jit.label();
         monoasm! { &mut jit,
         func:
+            xchgq rax, r15;
             subq r14, 16;  // r14 <- dfp
         loop1:
             cmpq [r14], 0;
