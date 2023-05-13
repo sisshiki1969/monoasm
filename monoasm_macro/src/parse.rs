@@ -36,12 +36,8 @@ pub enum Reg {
 }
 
 impl Reg {
-    /*pub fn none() -> Self {
-        Reg::Rax
-    }*/
-
     fn is_rip(&self) -> bool {
-        *self == Reg::RIP
+        self == &Reg::RIP
     }
 
     pub fn from(num: u64) -> Self {

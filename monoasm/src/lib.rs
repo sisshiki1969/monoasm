@@ -39,15 +39,32 @@ impl Reg {
     }
 
     pub fn is_rip(&self) -> bool {
-        self.0 == 16
+        self == &Self::rip()
     }
 
     pub fn is_cl(&self) -> bool {
-        self.0 == 1
+        self == &Self::rcx()
     }
 
     pub fn is_rax(&self) -> bool {
-        self.0 == 0
+        self == &Self::rax()
+    }
+}
+
+impl Reg {
+    fn rax() -> Self {
+        Self::from(0)
+    }
+    fn rcx() -> Self {
+        Self::from(1)
+    }
+
+    fn rbp() -> Self {
+        Self::from(5)
+    }
+
+    fn rip() -> Self {
+        Self::from(16)
     }
 }
 
@@ -200,20 +217,20 @@ impl Rm {
 
     pub fn rip_ind_from(rm: Rm) -> Self {
         let disp = match rm.mode {
-            Mode::Reg => unimplemented!("register direct addression is not allowed for RIP."),
+            Mode::Reg => unimplemented!("register direct addressing is not allowed for RIP."),
             Mode::Ind(Scale::None, Disp::D8(d)) => d as i32,
             Mode::Ind(Scale::None, Disp::D32(d)) => d,
             Mode::Ind(Scale::None, Disp::None) => 0,
             Mode::Ind(Scale::None, Disp::Label(label)) => {
                 return Self {
-                    base: Reg::from(5),
+                    base: Reg::rbp(),
                     mode: Mode::Ind(Scale::None, Disp::Label(label)),
                 }
             }
             _ => unimplemented!("scale index is not allowed for RIP."),
         };
         Self {
-            base: Reg::from(5),
+            base: Reg::rbp(),
             mode: Mode::Ind(Scale::None, Disp::D32(disp)),
         }
     }
@@ -311,13 +328,3 @@ impl DerefMut for Relocations {
         &mut self.0
     }
 }
-/*
-impl IntoIterator for Relocations {
-    type Item = Reloc;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-*/
