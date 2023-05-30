@@ -19,8 +19,11 @@ mod tests {
         let cont2 = jit.label();
         let loop1 = jit.label();
         let loop2 = jit.label();
+        let imm = 7;
         monoasm! { &mut jit,
         func:
+            shlq rdi, (imm);
+            jmp [rax];
             xchgq rax, r15;
             subq r14, 16;  // r14 <- dfp
         loop1:

@@ -177,6 +177,12 @@ pub struct Rm {
     mode: Mode,
 }
 
+impl std::convert::From<Reg> for Rm {
+    fn from(value: Reg) -> Self {
+        Rm::reg(value)
+    }
+}
+
 impl Rm {
     pub fn reg(base: Reg) -> Self {
         Self {

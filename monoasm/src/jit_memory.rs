@@ -486,10 +486,9 @@ impl JitMemory {
 
     /// Encoding: /n  
     /// Op /n
-    pub fn enc_digit(&mut self, op: &[u8], reg: Reg, digit: u8) {
-        self.rex_none(Reg(0), reg, Reg(0), Mode::Reg);
-        self.emit(op);
-        self.modrm(ModRM::Digit(digit), Mode::Reg, reg);
+    pub fn enc_digit(&mut self, op: &[u8], rm: impl Into<Rm>, digit: u8) {
+        let rm = rm.into();
+        self.encode(op, Rex::None, ModRM::Digit(digit), rm, Imm::None);
     }
 
     /// Encoding: M  

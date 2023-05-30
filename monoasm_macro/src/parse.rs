@@ -381,6 +381,7 @@ pub enum Dest {
     Reg(Reg),
     Rel(Ident),
     Disp(TokenStream),
+    Ind(IndAddr),
 }
 
 impl Parse for Dest {
@@ -396,6 +397,9 @@ impl Parse for Dest {
             // e.g. "(42)"
             let gr = input.parse::<Group>()?;
             Ok(Dest::Disp(gr.stream()))
+        } else if input.peek(token::Bracket) {
+            let ind = input.parse::<IndAddr>()?;
+            Ok(Dest::Ind(ind))
         } else {
             Err(lookahead.error())
         }
