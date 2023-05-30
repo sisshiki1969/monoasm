@@ -24,6 +24,7 @@ mod tests {
         func:
             shlq rdi, (imm);
             jmp [rax];
+            call [rax];
             xchgq rax, r15;
             subq r14, 16;  // r14 <- dfp
         loop1:

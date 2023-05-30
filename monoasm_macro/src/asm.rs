@@ -199,6 +199,13 @@ pub fn compile(inst: Inst) -> TokenStream {
                     jit.enc_digit(&[0xff], #r, 2);
                 }
             }
+            Dest::Ind(ind) => {
+                // CALL r/m64
+                // FF /2
+                quote! {
+                    jit.enc_digit(&[0xff], #ind, 2);
+                }
+            }
             Dest::Rel(dest) => {
                 // CALL rel32
                 // E8 cd
