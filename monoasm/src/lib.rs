@@ -270,6 +270,7 @@ impl Sub<Pos> for Pos {
 
 /// Id for destination label.
 #[derive(Copy, Clone, PartialEq, Default, Debug)]
+#[repr(transparent)]
 pub struct DestLabel(usize);
 
 impl DestLabel {
