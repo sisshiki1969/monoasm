@@ -272,6 +272,12 @@ impl Sub<Pos> for Pos {
 #[derive(Copy, Clone, PartialEq, Default, Debug)]
 pub struct DestLabel(usize);
 
+impl DestLabel {
+    pub fn to_usize(&self) -> usize {
+        self.0
+    }
+}
+
 /// Relocation
 ///
 /// This struct holds a pair of a single destination (whether determined or not)
