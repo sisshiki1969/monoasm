@@ -194,6 +194,12 @@ pub struct Rm {
     mode: Mode,
 }
 
+impl std::convert::From<Reg> for Rm {
+    fn from(value: Reg) -> Self {
+        Rm::reg(value)
+    }
+}
+
 impl Rm {
     pub fn reg(base: Reg) -> Self {
         Self {
@@ -264,7 +270,14 @@ impl Sub<Pos> for Pos {
 
 /// Id for destination label.
 #[derive(Copy, Clone, PartialEq, Default, Debug)]
+#[repr(transparent)]
 pub struct DestLabel(usize);
+
+impl DestLabel {
+    pub fn to_usize(&self) -> usize {
+        self.0
+    }
+}
 
 /// Relocation
 ///

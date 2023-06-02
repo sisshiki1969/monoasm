@@ -199,6 +199,13 @@ pub fn compile(inst: Inst) -> TokenStream {
                     jit.enc_digit(&[0xff], #r, 2);
                 }
             }
+            Dest::Ind(ind) => {
+                // CALL r/m64
+                // FF /2
+                quote! {
+                    jit.enc_digit(&[0xff], #ind, 2);
+                }
+            }
             Dest::Rel(dest) => {
                 // CALL rel32
                 // E8 cd
@@ -227,7 +234,15 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // FF /4
                 // M
                 quote! (
-                    jit.enc_digit(&[0xff],#r, 4);
+                    jit.enc_digit(&[0xff], #r, 4);
+                )
+            }
+            Dest::Ind(ind) => {
+                // JMP r/m64
+                // FF /4
+                // M
+                quote! (
+                    jit.enc_digit(&[0xff], #ind, 4);
                 )
             }
             // JMP rel32
@@ -736,8 +751,7 @@ fn shift_op(digit: u8, op1: RmOperand, op2: RiOperand, inst_str: &str) -> TokenS
                 let imm = (#i) as i64;
                 if imm == 1 {
                     jit.enc_rexw_digit(&[0xd1], #op1, #digit, Imm::None);
-                } else
-                if let Ok(imm) = i8::try_from(imm) {
+                } else if let Ok(imm) = i8::try_from(imm) {
                     jit.enc_rexw_digit(&[0xc1], #op1, #digit, Imm::B(imm));
                 } else {
                     panic!("'{} {}, imm' imm should be 8 bit.", #inst_str, #op1_str);
