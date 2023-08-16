@@ -409,6 +409,13 @@ impl JitMemory {
     pub fn emit(&mut self, slice: &[u8]) {
         slice.iter().for_each(|b| self.emitb(*b));
     }
+
+    pub fn apply_jmp_patch(&mut self, patch_point: DestLabel, jmp_dest: DestLabel) {
+        let jmp_dest = self.get_label_address(jmp_dest);
+        let patch_point = self.get_label_address(patch_point);
+        let offset = jmp_dest - patch_point - 5;
+        unsafe { *(patch_point.as_ptr().add(1) as *mut [u8; 4]) = (offset as i32).to_ne_bytes() };
+    }
 }
 
 #[allow(dead_code)]
