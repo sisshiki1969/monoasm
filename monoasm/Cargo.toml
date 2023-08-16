@@ -11,4 +11,5 @@ libc = "0.2.82"
 region = "3.0.0"
 monoasm_macro = { path = "../monoasm_macro" }
 proc-macro2 = "1.0.24"
-syn = "1.0.58"
+syn = "2.0.28"
+chrono = "0.4.26"
