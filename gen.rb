@@ -400,9 +400,20 @@ class Ror < Shift
   @size = 8
 end
 
+class Cmoveq < Inst
+  @inst = "cmoveqq"
+  @asm_inst = "cmoveq"
+  @size = 8
+
+  def self.gen(inst, size)
+    r_r(inst, size)
+    r_m(inst, size)
+  end
+end
+
 instructions = [Movq, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Shl, Shr, Sal, Sar, Rol, Ror] +
 [Movl] +
-[Test, Xchg, Push, Pop, Negq]
+[Test, Xchg, Push, Pop, Negq] + [Cmoveq]
 
 `rm monoasm/tests/*.txt`
 instructions.each do |inst|

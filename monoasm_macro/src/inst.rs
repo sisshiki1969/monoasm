@@ -87,6 +87,7 @@ pub enum Inst {
     Testq(RmOperand, RmiOperand),
 
     Setcc(Cond, RmOperand),
+    Cmovcc(OperandSize, Cond, Register, RmOperand),
     Cqo,
 
     Movsd(XmOperand, XmOperand),
@@ -219,6 +220,18 @@ impl Parse for Inst {
             )
         }
 
+        macro_rules! parse_cmov {
+            ($size: ident, $flag: ident) => (
+                {
+                    let op1 = input.parse()?;
+                    input.parse::<Token![,]>()?;
+                    let op2 = input.parse()?;
+                    input.parse::<Token![;]>()?;
+                    Ok(Inst::Cmovcc(OperandSize::$size, Cond::$flag, op1, op2))
+                }
+            )
+        }
+
         let ident = input.parse::<Ident>()?;
         if input.peek(Token![:]) {
             input.parse::<Token![:]>()?;
@@ -289,6 +302,19 @@ impl Parse for Inst {
                 "setge" => parse_set!(Setcc, Ge),
                 "setle" => parse_set!(Setcc, Le),
                 "setgt" => parse_set!(Setcc, Gt),
+
+                "cmovbq" => parse_cmov!(QWORD, B),
+                "cmovaeq" => parse_cmov!(QWORD, Ae),
+                "cmoveqq" => parse_cmov!(QWORD, Eq),
+                "cmovneq" => parse_cmov!(QWORD, Ne),
+                "cmovbeq" => parse_cmov!(QWORD, Be),
+                "cmovaq" => parse_cmov!(QWORD, A),
+                "cmovsq" => parse_cmov!(QWORD, S),
+                "cmovnsq" => parse_cmov!(QWORD, Ns),
+                "cmovltq" => parse_cmov!(QWORD, Lt),
+                "cmovgeq" => parse_cmov!(QWORD, Ge),
+                "cmovleq" => parse_cmov!(QWORD, Le),
+                "cmovgtq" => parse_cmov!(QWORD, Gt),
 
                 "cqo" => parse_0op!(Cqo),
 

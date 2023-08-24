@@ -103,6 +103,13 @@ pub fn compile(inst: Inst) -> TokenStream {
             let cond: u8 = 0x90 + cond as u8;
             quote!( jit.enc_rex_m(&[0x0f, #cond], #op); )
         }
+        Inst::Cmovcc(size, cond, op1, op2) => {
+            let cond: u8 = 0x40 + cond as u8;
+            match size {
+                OperandSize::QWORD => quote!( jit.enc_rexw_mr(&[0x0f, #cond], #op1, #op2); ),
+                _ => unimplemented!(),
+            }
+        }
 
         Inst::Cqo => {
             quote! ( jit.emit(&[0x48, 0x99]); )
