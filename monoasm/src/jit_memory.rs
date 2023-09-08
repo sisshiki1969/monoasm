@@ -145,6 +145,7 @@ enum Rex {
 enum Const {
     U64(u64),
     U32(u32),
+    Bytes(usize),
 }
 
 impl std::ops::Deref for JitMemory {
@@ -297,6 +298,12 @@ impl JitMemory {
         label
     }
 
+    pub fn bytes(&mut self, size: usize) -> DestLabel {
+        let label = self.label();
+        self.constants.push((Const::Bytes(size), label));
+        label
+    }
+
     /// Bind the current location to `label`.
     pub fn bind_label(&mut self, label: DestLabel) {
         let p = self.page;
@@ -375,6 +382,13 @@ impl JitMemory {
                         self[Page(id)].align4();
                         self.bind_label_with_page(Page(id), label);
                         self[Page(id)].emitl(val);
+                    }
+                    Const::Bytes(size) => {
+                        self[Page(id)].align16();
+                        self.bind_label_with_page(Page(id), label);
+                        for _ in 0..size {
+                            self[Page(id)].emitb(0);
+                        }
                     }
                 }
             }
