@@ -146,6 +146,7 @@ enum Const {
     U64(u64),
     U32(u32),
     Bytes(usize),
+    AbsAddress(DestLabel),
 }
 
 impl std::ops::Deref for JitMemory {
@@ -304,6 +305,12 @@ impl JitMemory {
         label
     }
 
+    pub fn abs_address(&mut self, addr_label: DestLabel) -> DestLabel {
+        let label = self.label();
+        self.constants.push((Const::AbsAddress(addr_label), label));
+        label
+    }
+
     /// Bind the current location to `label`.
     pub fn bind_label(&mut self, label: DestLabel) {
         let p = self.page;
@@ -371,24 +378,30 @@ impl JitMemory {
     fn resolve_constants(&mut self) {
         for id in 0..self.pages.len() {
             let constants = std::mem::take(&mut self[Page(id)].constants);
-            for (c, label) in constants {
+            for (c, const_label) in constants {
                 match c {
                     Const::U64(val) => {
                         self[Page(id)].align16();
-                        self.bind_label_with_page(Page(id), label);
+                        self.bind_label_with_page(Page(id), const_label);
                         self[Page(id)].emitq(val);
                     }
                     Const::U32(val) => {
                         self[Page(id)].align4();
-                        self.bind_label_with_page(Page(id), label);
+                        self.bind_label_with_page(Page(id), const_label);
                         self[Page(id)].emitl(val);
                     }
                     Const::Bytes(size) => {
                         self[Page(id)].align16();
-                        self.bind_label_with_page(Page(id), label);
+                        self.bind_label_with_page(Page(id), const_label);
                         for _ in 0..size {
                             self[Page(id)].emitb(0);
                         }
+                    }
+                    Const::AbsAddress(label) => {
+                        self[Page(id)].align8();
+                        self.bind_label_with_page(Page(id), const_label);
+                        let addr = self.get_label_u64(label);
+                        self[Page(id)].emitq(addr);
                     }
                 }
             }
