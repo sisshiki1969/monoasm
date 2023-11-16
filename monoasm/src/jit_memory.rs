@@ -147,6 +147,7 @@ enum Const {
     U32(u32),
     Bytes(usize),
     AbsAddress(DestLabel),
+    None,
 }
 
 impl std::ops::Deref for JitMemory {
@@ -311,6 +312,12 @@ impl JitMemory {
         label
     }
 
+    pub fn current_const(&mut self) -> DestLabel {
+        let label = self.label();
+        self.constants.push((Const::None, label));
+        label
+    }
+
     /// Bind the current location to `label`.
     pub fn bind_label(&mut self, label: DestLabel) {
         let p = self.page;
@@ -402,6 +409,9 @@ impl JitMemory {
                         self.bind_label_with_page(Page(id), const_label);
                         let addr = self.get_label_u64(label);
                         self[Page(id)].emitq(addr);
+                    }
+                    Const::None => {
+                        self.bind_label_with_page(Page(id), const_label);
                     }
                 }
             }
