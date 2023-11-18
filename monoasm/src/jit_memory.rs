@@ -375,9 +375,8 @@ impl JitMemory {
     }
 
     /// Save relocaton slot for `DestLabel`.
-    fn save_absolute_reloc(&mut self, dest: DestLabel) {
-        let page = self.page;
-        let pos = self.counter;
+    fn save_absolute_reloc(&mut self, page: Page, dest: DestLabel) {
+        let pos = self[page].counter;
         self.labels[dest].target.push(TargetType::Abs { page, pos });
     }
 
@@ -387,14 +386,14 @@ impl JitMemory {
         for rel in reloc.iter_mut() {
             if let Some((src_page, src_pos)) = rel.loc {
                 let src_ptr = self[src_page].contents as usize + src_pos.0;
-                for target in &rel.target {
+                for target in std::mem::take(&mut rel.target) {
                     match target {
                         TargetType::Rel { page, offset, pos } => {
                             let target_ptr =
-                                self[*page].contents as usize + pos.0 + (*offset as usize);
+                                self[page].contents as usize + pos.0 + (offset as usize);
                             let disp = (src_ptr as i128) - (target_ptr as i128);
                             match i32::try_from(disp) {
-                                Ok(disp) => self[*page].write32(*pos, disp as i32),
+                                Ok(disp) => self[page].write32(pos, disp as i32),
                                 Err(_) => panic!(
                                     "Relocation overflow. src:{:016x} dest:{:016x}",
                                     src_ptr, target_ptr
@@ -402,11 +401,10 @@ impl JitMemory {
                             }
                         }
                         TargetType::Abs { page, pos } => {
-                            self[*page].write64(*pos, src_ptr as _);
+                            self[page].write64(pos, src_ptr as _);
                         }
                     }
                 }
-                rel.target.clear();
             }
         }
         self.labels = reloc;
@@ -438,7 +436,7 @@ impl JitMemory {
                     Const::AbsAddress(label) => {
                         self[Page(id)].align8();
                         self.bind_label_with_page(Page(id), const_label);
-                        self.save_absolute_reloc(label);
+                        self.save_absolute_reloc(Page(id), label);
                         self[Page(id)].emitq(0);
                     }
                     Const::None => {

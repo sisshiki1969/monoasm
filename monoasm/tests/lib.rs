@@ -209,3 +209,25 @@ fn hello_world() {
     let func = hello();
     func(());
 }
+
+#[test]
+fn absolute_reloc() {
+    fn test() -> extern "C" fn(()) -> u64 {
+        let mut jit = JitMemory::new();
+        let func = jit.label();
+        let label = jit.abs_address(func);
+        monoasm!(&mut jit,
+        func:
+            movq rax, [rip + label];
+            lea  rdi, [rip + func];
+            subq rax, rdi;
+            ret;
+        );
+
+        jit.finalize();
+        jit.get_label_addr(func)
+    }
+    let func = test();
+    let ret = func(());
+    assert_eq!(0, ret);
+}
