@@ -163,7 +163,7 @@ enum Const {
     U32(u32),
     Bytes(usize),
     AbsAddress(DestLabel),
-    None,
+    Align8,
 }
 
 impl std::ops::Deref for JitMemory {
@@ -326,9 +326,9 @@ impl JitMemory {
         label
     }
 
-    pub fn current_const(&mut self) -> DestLabel {
+    pub fn const_align8(&mut self) -> DestLabel {
         let label = self.label();
-        self.constants.push((Const::None, label));
+        self.constants.push((Const::Align8, label));
         label
     }
 
@@ -439,7 +439,8 @@ impl JitMemory {
                         self.save_absolute_reloc(Page(id), label);
                         self[Page(id)].emitq(0);
                     }
-                    Const::None => {
+                    Const::Align8 => {
+                        self[Page(id)].align8();
                         self.bind_label_with_page(Page(id), const_label);
                     }
                 }
