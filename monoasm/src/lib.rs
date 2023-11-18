@@ -279,64 +279,74 @@ impl DestLabel {
     }
 }
 
+///
 /// Relocation
 ///
-/// This struct holds a pair of a single destination (whether determined or not)
-/// and multiple source positions.
+/// This holds a pair of a location in JitMemory (whether determined or not)
+/// and (possibly multiple) target positions for each *DestLabel*.
+///
 #[derive(Clone, PartialEq, Debug)]
-pub struct Reloc {
-    /// Destination position in JitMemory.
+struct LabelInfo {
+    /// A location of each *DestLabel* in JitMemory.
     /// None for not yet determined.
-    pub loc: Option<(Page, Pos)>,
-    /// Source positions. (page, opcode size, position in JitMemory)
-    pub disp: Vec<(Page, u8, Pos)>,
+    loc: Option<(Page, Pos)>,
+    /// Target informations.
+    target: Vec<TargetType>,
 }
 
-impl Reloc {
-    fn new() -> Reloc {
-        Reloc {
+impl LabelInfo {
+    fn new() -> LabelInfo {
+        LabelInfo {
             loc: None,
-            disp: vec![],
+            target: vec![],
         }
     }
 }
 
+#[derive(Clone, PartialEq, Debug)]
+enum TargetType {
+    Rel { page: Page, offset: u8, pos: Pos },
+    Abs { page: Page, pos: Pos },
+}
+
 /// Relocation tabla.
 #[derive(Debug, Default)]
-pub struct Relocations(Vec<Reloc>);
+struct Labels(Vec<LabelInfo>);
 
-impl Relocations {
+impl Labels {
     fn new() -> Self {
-        Relocations(vec![])
+        Labels(vec![])
     }
 
-    fn push(&mut self, reloc: Reloc) {
-        self.0.push(reloc)
+    fn new_label(&mut self) -> DestLabel {
+        let label = DestLabel(self.0.len());
+        self.0.push(LabelInfo::new());
+        label
     }
 }
 
-impl Index<DestLabel> for Relocations {
-    type Output = Reloc;
+impl Index<DestLabel> for Labels {
+    type Output = LabelInfo;
 
     fn index(&self, dest: DestLabel) -> &Self::Output {
         &self.0[dest.0]
     }
 }
 
-impl IndexMut<DestLabel> for Relocations {
+impl IndexMut<DestLabel> for Labels {
     fn index_mut(&mut self, dest: DestLabel) -> &mut Self::Output {
         &mut self.0[dest.0]
     }
 }
 
-impl Deref for Relocations {
-    type Target = Vec<Reloc>;
+impl Deref for Labels {
+    type Target = Vec<LabelInfo>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl DerefMut for Relocations {
+impl DerefMut for Labels {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }

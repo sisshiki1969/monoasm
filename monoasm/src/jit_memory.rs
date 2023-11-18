@@ -15,16 +15,20 @@ use std::{
 /// Memory manager.
 #[derive(Debug)]
 pub struct JitMemory {
+    /// Current memory page.
     page: Page,
+    /// Information of momory pages.
     pages: Vec<MemPage>,
     /// Relocation information.
-    reloc: Relocations,
+    labels: Labels,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Page(pub usize);
 
+///
 /// Memory manager.
+///
 #[derive(Debug)]
 pub struct MemPage {
     /// Pointer to the heap.
@@ -127,6 +131,18 @@ impl MemPage {
         self[loc + 2] = (val >> 16) as u8;
         self[loc + 3] = (val >> 24) as u8;
     }
+
+    /// Write 64bit data `val` on `loc`.
+    fn write64(&mut self, loc: Pos, val: u64) {
+        self[loc] = val as u8;
+        self[loc + 1] = (val >> 8) as u8;
+        self[loc + 2] = (val >> 16) as u8;
+        self[loc + 3] = (val >> 24) as u8;
+        self[loc + 4] = (val >> 32) as u8;
+        self[loc + 5] = (val >> 40) as u8;
+        self[loc + 6] = (val >> 48) as u8;
+        self[loc + 7] = (val >> 56) as u8;
+    }
 }
 
 enum ModRM {
@@ -222,7 +238,7 @@ impl JitMemory {
         JitMemory {
             page: Page(0),
             pages: vec![initial_page, second_page],
-            reloc: Relocations::new(),
+            labels: Labels::new(),
         }
     }
 
@@ -274,9 +290,7 @@ impl JitMemory {
 
     /// Create a new label and returns `DestLabel`.
     pub fn label(&mut self) -> DestLabel {
-        let label = self.reloc.len();
-        self.reloc.push(Reloc::new());
-        DestLabel(label)
+        self.labels.new_label()
     }
 
     pub fn const_f64(&mut self, val: f64) -> DestLabel {
@@ -320,12 +334,12 @@ impl JitMemory {
 
     /// Bind the current location to `label`.
     pub fn bind_label(&mut self, label: DestLabel) {
-        let p = self.page;
-        self.reloc[label].loc = Some((p, self.counter));
+        let page = self.page;
+        self.labels[label].loc = Some((page, self.counter));
     }
 
     pub fn bind_label_with_page(&mut self, page: Page, label: DestLabel) {
-        self.reloc[label].loc = Some((page, self.counter));
+        self.labels[label].loc = Some((page, self.counter));
     }
 
     /*/// Bind the current location to `label`.
@@ -335,7 +349,7 @@ impl JitMemory {
 
     /// Bind the current location to `label`.
     fn get_label_pos(&self, label: DestLabel) -> (Page, Pos) {
-        self.reloc[label]
+        self.labels[label]
             .loc
             .expect("The DestLabel has no position binding.")
     }
@@ -353,32 +367,49 @@ impl JitMemory {
 
     /// Save relocaton slot for `DestLabel`.
     pub fn save_reloc(&mut self, dest: DestLabel, offset: u8) {
-        let p = self.page;
+        let page = self.page;
         let pos = self.counter;
-        self.reloc[dest].disp.push((p, offset, pos));
+        self.labels[dest]
+            .target
+            .push(TargetType::Rel { page, offset, pos });
+    }
+
+    /// Save relocaton slot for `DestLabel`.
+    fn save_absolute_reloc(&mut self, dest: DestLabel) {
+        let page = self.page;
+        let pos = self.counter;
+        self.labels[dest].target.push(TargetType::Abs { page, pos });
     }
 
     /// Resolve and fill all relocations.
-    pub fn fill_relocs(&mut self) {
-        let mut reloc = std::mem::take(&mut self.reloc);
-        for rel in reloc.iter() {
-            if let Some((src_page, pos)) = rel.loc {
-                let src_ptr = self[src_page].contents as usize + pos.0;
-                for (dest_page, size, dest) in &rel.disp {
-                    let dest_ptr = self[*dest_page].contents as usize + dest.0 + (*size as usize);
-                    let disp = (src_ptr as i128) - (dest_ptr as i128);
-                    match i32::try_from(disp) {
-                        Ok(disp) => self[*dest_page].write32(*dest, disp as i32),
-                        Err(_) => panic!(
-                            "Relocation overflow. src:{:016x} dest:{:016x}",
-                            src_ptr, dest_ptr
-                        ),
+    fn fill_relocs(&mut self) {
+        let mut reloc = std::mem::take(&mut self.labels);
+        for rel in reloc.iter_mut() {
+            if let Some((src_page, src_pos)) = rel.loc {
+                let src_ptr = self[src_page].contents as usize + src_pos.0;
+                for target in &rel.target {
+                    match target {
+                        TargetType::Rel { page, offset, pos } => {
+                            let target_ptr =
+                                self[*page].contents as usize + pos.0 + (*offset as usize);
+                            let disp = (src_ptr as i128) - (target_ptr as i128);
+                            match i32::try_from(disp) {
+                                Ok(disp) => self[*page].write32(*pos, disp as i32),
+                                Err(_) => panic!(
+                                    "Relocation overflow. src:{:016x} dest:{:016x}",
+                                    src_ptr, target_ptr
+                                ),
+                            }
+                        }
+                        TargetType::Abs { page, pos } => {
+                            self[*page].write64(*pos, src_ptr as _);
+                        }
                     }
                 }
+                rel.target.clear();
             }
         }
-        reloc.iter_mut().for_each(|reloc| reloc.disp = vec![]);
-        self.reloc = reloc;
+        self.labels = reloc;
     }
 
     /// Resolve labels for constant data, and emit them to `contents`.
@@ -407,8 +438,8 @@ impl JitMemory {
                     Const::AbsAddress(label) => {
                         self[Page(id)].align8();
                         self.bind_label_with_page(Page(id), const_label);
-                        let addr = self.get_label_u64(label);
-                        self[Page(id)].emitq(addr);
+                        self.save_absolute_reloc(label);
+                        self[Page(id)].emitq(0);
                     }
                     Const::None => {
                         self.bind_label_with_page(Page(id), const_label);
@@ -419,7 +450,7 @@ impl JitMemory {
     }
 
     pub fn get_label_addr<T, U>(&mut self, label: DestLabel) -> extern "C" fn(T) -> U {
-        let (page, counter) = self.reloc[label]
+        let (page, counter) = self.labels[label]
             .loc
             .expect("The DestLabel has no position binding.");
         let adr = self[page].contents;
@@ -427,7 +458,7 @@ impl JitMemory {
     }
 
     pub fn get_label_addr2<S, T, U>(&mut self, label: DestLabel) -> extern "C" fn(S, T) -> U {
-        let (page, counter) = self.reloc[label]
+        let (page, counter) = self.labels[label]
             .loc
             .expect("The DestLabel has no position binding.");
         let adr = self[page].contents;
@@ -435,7 +466,7 @@ impl JitMemory {
     }
 
     pub fn get_label_u64(&mut self, label: DestLabel) -> u64 {
-        let (page, counter) = self.reloc[label]
+        let (page, counter) = self.labels[label]
             .loc
             .expect("The DestLabel has no position binding.");
         let adr = self[page].contents;
