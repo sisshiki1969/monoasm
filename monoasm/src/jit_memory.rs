@@ -503,6 +503,12 @@ impl JitMemory {
         self.op_with_rd(op, reg);
     }
 
+    pub fn enc_oi_byte(&mut self, op: u8, reg: Reg) {
+        assert!(!reg.is_rip());
+        self.rex_none_byte(Reg(0), reg, Reg(0), Mode::Reg);
+        self.op_with_rd(op, reg);
+    }
+
     /// Encoding: Opcode +rd  
     /// REX.W Op+ rd
     pub fn enc_rexw_o(&mut self, op: u8, reg: Reg) {
@@ -523,6 +529,10 @@ impl JitMemory {
         self.encode(&[op], Rex::None, ModRM::Reg(Reg(0)), rm_op, imm);
     }
 
+    pub fn enc_rex_mi_byte(&mut self, op: u8, rm_op: Rm, imm: Imm) {
+        self.encode(&[op], Rex::Byte, ModRM::Reg(Reg(0)), rm_op, imm);
+    }
+
     /// REX.W Op ModRM
     /// MR-> ModRM:r/m(w) ModRM:reg(r)
     /// RM-> ModRM:reg(r) ModRM:r/m(w)
@@ -538,11 +548,7 @@ impl JitMemory {
     }
 
     pub fn enc_rex_mr_byte(&mut self, op: &[u8], reg: Reg, rm_op: Rm) {
-        //if rm_op.is_reg() {
         self.encode(op, Rex::Byte, ModRM::Reg(reg), rm_op, Imm::None);
-        //} else {
-        //    self.encode(op, Rex::None, ModRM::Reg(reg), rm_op, Imm::None);
-        //}
     }
 
     /// This is used in "setcc r/m8".

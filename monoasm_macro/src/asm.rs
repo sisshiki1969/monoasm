@@ -15,6 +15,7 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Movq(op1, op2) => movq(op1, op2),
         Inst::Movl(op1, op2) => movl(op1, op2),
         Inst::Movw(op1, op2) => movw(op1, op2),
+        Inst::Movb(op1, op2) => movb(op1, op2),
         Inst::Movsxl(op1, op2) => quote!( jit.enc_rexw_mr(&[0x63], #op1, #op2); ),
         Inst::Movzxw(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xb7], #op1, #op2); ),
         Inst::Movsxw(op1, op2) => quote!( jit.enc_rexw_mr(&[0x0f, 0xbf], #op1, #op2); ),
@@ -459,6 +460,52 @@ fn movw(op1: RmOperand, op2: RmiOperand) -> TokenStream {
         (RmOperand::Reg(op1), op2) => quote!(
             jit.emitb(0x66);
             jit.enc_rex_mr(&[0x8b], #op1, #op2);
+        ),
+        (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
+    }
+}
+
+fn movb(op1: RmOperand, op2: RmiOperand) -> TokenStream {
+    match (op1, op2) {
+        // MOV r8, imm8
+        // B0+ rb ib
+        (RmOperand::Reg(expr), RmiOperand::Imm(i)) => {
+            quote!(
+                let imm = (#i) as i64;
+                if let Ok(imm) = i8::try_from(imm) {
+                    // MOV r8, imm8
+                    //jit.emitb(0x66);
+                    jit.enc_oi_byte(0xb0, #expr);
+                    jit.emitb(imm as u8);
+                } else {
+                    panic!("'MOVW {}, {}' does not exists.", #expr, imm);
+                };
+            )
+        }
+        // MOV r/m8, imm8
+        // C6 /0 ib
+        (op1, RmiOperand::Imm(i)) => {
+            let op1_str = format!("{}", op1);
+            quote! {
+                let imm = (#i) as i64;
+                if let Ok(imm) = i8::try_from(imm)  {
+                    jit.enc_rex_mi_byte(0xc6, #op1, Imm::B(imm));
+                } else {
+                    panic!("'MOVW {}, {}' does not exists.", #op1_str, imm);
+                }
+            }
+        }
+        // MOV r/m8, r8
+        // 88 /r
+        (op1, RmiOperand::Reg(expr)) => quote!(
+            //jit.emitb(0x66);
+            jit.enc_rex_mr_byte(&[0x88], #expr, #op1);
+        ),
+        // MOV r8, m8
+        // 8A /r
+        (RmOperand::Reg(op1), op2) => quote!(
+            //jit.emitb(0x66);
+            jit.enc_rex_mr_byte(&[0x8a], #op1, #op2);
         ),
         (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
     }

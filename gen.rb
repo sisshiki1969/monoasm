@@ -127,7 +127,7 @@ class Inst
   end
 
   def self.compare(inst)
-    res = `diff monoasm/tests/#{inst}.bin monoasm/tests/#{inst}_monoasm.bin`
+    res = `diff -y monoasm/tests/#{inst}.bin monoasm/tests/#{inst}_monoasm.bin`
     if res.length != 0
       puts res
       `objdump -D -Mintel,x86-64 -b binary -m i386 monoasm/tests/#{inst}.bin > monoasm/tests/#{inst}.txt`
@@ -253,6 +253,18 @@ class Movl < Inst
   @inst = "movl"
   @asm_inst = "mov"
   @size = 4
+end
+
+class Movw < Inst
+  @inst = "movw"
+  @asm_inst = "mov"
+  @size = 2
+end
+
+class Movb < Inst
+  @inst = "movb"
+  @asm_inst = "mov"
+  @size = 1
 end
 
 class Add < Inst
@@ -412,7 +424,7 @@ class Cmoveq < Inst
 end
 
 instructions = [Movq, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Shl, Shr, Sal, Sar, Rol, Ror] +
-[Movl] +
+[Movl, Movw, Movb] +
 [Test, Xchg, Push, Pop, Negq] + [Cmoveq]
 
 `rm monoasm/tests/*.txt`
@@ -440,4 +452,4 @@ instructions.each do |inst|
 end
 `rm monoasm/tests/*.bin`
 `rm monoasm/tests/*.s`
-#`rm monoasm/tests/*.rs`
+`rm monoasm/tests/*.rs`
