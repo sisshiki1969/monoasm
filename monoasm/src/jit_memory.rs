@@ -346,6 +346,12 @@ impl JitMemory {
         label
     }
 
+    pub fn constant(&mut self, size: usize) -> DestLabel {
+        let label = self.label();
+        self.constants.push((DataType::Bytes(size), label));
+        label
+    }
+
     pub fn data(&mut self, size: usize) -> DestLabel {
         let label = self.label();
         self.data.push((DataType::Bytes(size), label));
