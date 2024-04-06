@@ -372,7 +372,7 @@ impl JitMemory {
     }
 
     pub fn bind_label_with_page(&mut self, page: Page, label: DestLabel) {
-        self.labels[label].loc = Some((page, self.counter));
+        self.labels[label].loc = Some((page, self[page].counter));
     }
 
     /*/// Bind the current location to `label`.
