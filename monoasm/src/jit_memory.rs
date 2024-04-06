@@ -77,6 +77,11 @@ impl MemPage {
         }
     }
 
+    /// Adjust cursor with 4KB alignment.
+    pub fn align_page(&mut self) {
+        self.counter = Pos((self.counter.0 + 4095) & !0b1111_1111_1111);
+    }
+
     /// Adjust cursor with 16 byte alignment.
     pub fn align16(&mut self) {
         self.counter = Pos((self.counter.0 + 15) & !0b1111);
@@ -271,6 +276,7 @@ impl JitMemory {
         for page in &mut self.pages {
             page.code_block_top = page.counter;
         }
+        self.align_page();
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -412,6 +418,7 @@ impl JitMemory {
 
     /// Resolve labels for constant data, and emit them to `contents`.
     fn resolve_constants(&mut self) {
+        self.align_page();
         for id in 0..self.pages.len() {
             let constants = std::mem::take(&mut self[Page(id)].constants);
             for (c, const_label) in constants {
