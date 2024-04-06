@@ -18,13 +18,15 @@ pub struct JitMemory {
     /// Current memory page.
     page: Page,
     /// Information of momory pages.
-    pages: Vec<MemPage>,
+    pages: [MemPage; 3],
     /// Relocation information.
     labels: Labels,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Page(pub usize);
+
+const DATA_PAGE: Page = Page(2);
 
 ///
 /// Memory manager.
@@ -36,7 +38,9 @@ pub struct MemPage {
     /// Current position
     counter: Pos,
     /// Constants section.
-    constants: Vec<(Const, DestLabel)>,
+    constants: Vec<(DataType, DestLabel)>,
+    /// Data section.
+    data: Vec<(DataType, DestLabel)>,
     /// Machine code length
     code_len: usize,
     /// The top pos of the current code block.
@@ -71,6 +75,7 @@ impl MemPage {
             contents,
             counter: Pos(0),
             constants: vec![],
+            data: vec![],
             code_len: 0usize,
             code_block_top: Pos(0),
             code_block: vec![],
@@ -163,7 +168,7 @@ enum Rex {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum Const {
+enum DataType {
     U64(u64),
     U32(u32),
     Bytes(usize),
@@ -232,23 +237,30 @@ impl JitMemory {
     /// ### panic
     /// Panic if Layout::from_size_align() or region::protect() returned Err.
     pub fn new() -> JitMemory {
-        let layout = Layout::from_size_align(PAGE_SIZE * 2, PAGE_SIZE * 2).expect("Bad Layout.");
+        let layout = Layout::from_size_align(PAGE_SIZE * 3, PAGE_SIZE).expect("Bad Layout.");
         let contents = unsafe { alloc(layout) };
         unsafe {
             protect(contents, PAGE_SIZE * 2, Protection::READ_WRITE_EXECUTE)
                 .expect("Mprotect failed.");
+            protect(
+                contents.add(PAGE_SIZE * 2),
+                PAGE_SIZE,
+                Protection::READ_WRITE,
+            )
+            .expect("Mprotect failed.");
         }
         let initial_page = MemPage::new(contents);
         let second_page = MemPage::new(unsafe { contents.add(PAGE_SIZE) });
+        let data_page = MemPage::new(unsafe { contents.add(PAGE_SIZE * 2) });
         JitMemory {
             page: Page(0),
-            pages: vec![initial_page, second_page],
+            pages: [initial_page, second_page, data_page],
             labels: Labels::new(),
         }
     }
 
     pub fn select_page(&mut self, page: usize) {
-        assert!(page < self.pages.len());
+        assert!(page < 2);
         self.page = Page(page);
     }
 
@@ -269,6 +281,7 @@ impl JitMemory {
             page.code_block.push((start_pos, code_end, Pos(0)));
         }
         self.resolve_constants();
+        self.resolve_data();
         for page in &mut self.pages {
             page.code_block.last_mut().unwrap().2 = page.counter;
         }
@@ -276,7 +289,6 @@ impl JitMemory {
         for page in &mut self.pages {
             page.code_block_top = page.counter;
         }
-        self.align_page();
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -302,39 +314,40 @@ impl JitMemory {
     pub fn const_f64(&mut self, val: f64) -> DestLabel {
         let label = self.label();
         let val = u64::from_ne_bytes(val.to_ne_bytes());
-        self.constants.push((Const::U64(val), label));
+        self.constants.push((DataType::U64(val), label));
         label
     }
 
     pub fn const_i64(&mut self, val: i64) -> DestLabel {
         let label = self.label();
         let val = val as u64;
-        self.constants.push((Const::U64(val), label));
+        self.constants.push((DataType::U64(val), label));
         label
     }
 
     pub fn const_i32(&mut self, val: i32) -> DestLabel {
         let label = self.label();
         let val = val as u32;
-        self.constants.push((Const::U32(val), label));
+        self.constants.push((DataType::U32(val), label));
         label
     }
 
     pub fn bytes(&mut self, size: usize) -> DestLabel {
         let label = self.label();
-        self.constants.push((Const::Bytes(size), label));
+        self.data.push((DataType::Bytes(size), label));
         label
     }
 
     pub fn abs_address(&mut self, addr_label: DestLabel) -> DestLabel {
         let label = self.label();
-        self.constants.push((Const::AbsAddress(addr_label), label));
+        self.constants
+            .push((DataType::AbsAddress(addr_label), label));
         label
     }
 
     pub fn const_align8(&mut self) -> DestLabel {
         let label = self.label();
-        self.constants.push((Const::Align8, label));
+        self.constants.push((DataType::Align8, label));
         label
     }
 
@@ -418,37 +431,74 @@ impl JitMemory {
 
     /// Resolve labels for constant data, and emit them to `contents`.
     fn resolve_constants(&mut self) {
-        self.align_page();
-        for id in 0..self.pages.len() {
+        for id in 0..2 {
             let constants = std::mem::take(&mut self[Page(id)].constants);
             for (c, const_label) in constants {
                 match c {
-                    Const::U64(val) => {
+                    DataType::U64(val) => {
                         self[Page(id)].align16();
                         self.bind_label_with_page(Page(id), const_label);
                         self[Page(id)].emitq(val);
                     }
-                    Const::U32(val) => {
+                    DataType::U32(val) => {
                         self[Page(id)].align4();
                         self.bind_label_with_page(Page(id), const_label);
                         self[Page(id)].emitl(val);
                     }
-                    Const::Bytes(size) => {
+                    DataType::Bytes(size) => {
                         self[Page(id)].align16();
                         self.bind_label_with_page(Page(id), const_label);
                         for _ in 0..size {
                             self[Page(id)].emitb(0);
                         }
                     }
-                    Const::AbsAddress(label) => {
+                    DataType::AbsAddress(label) => {
                         self[Page(id)].align8();
                         self.bind_label_with_page(Page(id), const_label);
                         self.save_absolute_reloc(Page(id), label);
                         self[Page(id)].emitq(0);
                     }
-                    Const::Align8 => {
+                    DataType::Align8 => {
                         self[Page(id)].align8();
                         self.bind_label_with_page(Page(id), const_label);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Resolve labels for data, and emit them to the data page.
+    fn resolve_data(&mut self) {
+        for id in 0..2 {
+            let data = std::mem::take(&mut self[Page(id)].data);
+            for (c, data_label) in data {
+                match c {
+                    DataType::U64(val) => {
+                        self[DATA_PAGE].align16();
+                        self.bind_label_with_page(DATA_PAGE, data_label);
+                        self[DATA_PAGE].emitq(val);
+                    }
+                    DataType::U32(val) => {
+                        self[DATA_PAGE].align4();
+                        self.bind_label_with_page(DATA_PAGE, data_label);
+                        self[DATA_PAGE].emitl(val);
+                    }
+                    DataType::Bytes(size) => {
+                        self[DATA_PAGE].align16();
+                        self.bind_label_with_page(DATA_PAGE, data_label);
+                        for _ in 0..size {
+                            self[DATA_PAGE].emitb(0);
+                        }
+                    }
+                    DataType::AbsAddress(label) => {
+                        self[DATA_PAGE].align8();
+                        self.bind_label_with_page(DATA_PAGE, data_label);
+                        self.save_absolute_reloc(DATA_PAGE, label);
+                        self[DATA_PAGE].emitq(0);
+                    }
+                    DataType::Align8 => {
+                        self[DATA_PAGE].align8();
+                        self.bind_label_with_page(DATA_PAGE, data_label);
                     }
                 }
             }
