@@ -325,6 +325,13 @@ impl JitMemory {
         label
     }
 
+    pub fn data_i64(&mut self, val: i64) -> DestLabel {
+        let label = self.label();
+        let val = val as u64;
+        self.data.push((DataType::U64(val), label));
+        label
+    }
+
     pub fn const_i32(&mut self, val: i32) -> DestLabel {
         let label = self.label();
         let val = val as u32;
@@ -332,7 +339,14 @@ impl JitMemory {
         label
     }
 
-    pub fn bytes(&mut self, size: usize) -> DestLabel {
+    pub fn data_i32(&mut self, val: i32) -> DestLabel {
+        let label = self.label();
+        let val = val as u32;
+        self.data.push((DataType::U32(val), label));
+        label
+    }
+
+    pub fn data(&mut self, size: usize) -> DestLabel {
         let label = self.label();
         self.data.push((DataType::Bytes(size), label));
         label
