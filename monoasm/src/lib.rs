@@ -26,6 +26,12 @@ impl std::ops::Add<usize> for CodePtr {
     }
 }
 
+impl std::cmp::PartialOrd for CodePtr {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.as_ptr().partial_cmp(&other.0.as_ptr())
+    }
+}
+
 impl CodePtr {
     pub fn from(ptr: *mut u8) -> Self {
         Self(NonNull::new(ptr).unwrap())
