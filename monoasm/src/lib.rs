@@ -8,7 +8,7 @@ pub use jit_memory::*;
 
 const PAGE_SIZE: usize = 1024 * 1024 * 256;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct CodePtr(NonNull<u8>);
 
