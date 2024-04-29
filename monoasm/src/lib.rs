@@ -19,6 +19,13 @@ impl std::ops::Sub<CodePtr> for CodePtr {
     }
 }
 
+impl std::ops::Add<usize> for CodePtr {
+    type Output = CodePtr;
+    fn add(self, rhs: usize) -> Self::Output {
+        CodePtr::from(unsafe { self.0.as_ptr().add(rhs) })
+    }
+}
+
 impl CodePtr {
     pub fn from(ptr: *mut u8) -> Self {
         Self(NonNull::new(ptr).unwrap())
