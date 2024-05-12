@@ -86,6 +86,7 @@ pub enum Inst {
     Lea(RmOperand, RmOperand),
 
     Testq(RmOperand, RmiOperand),
+    Testb(RmOperand, RmiOperand),
 
     Setcc(Cond, RmOperand),
     Cmovcc(OperandSize, Cond, Register, RmOperand),
@@ -290,6 +291,7 @@ impl Parse for Inst {
                 "idiv" => parse_1op!(Idiv),
 
                 "testq" => parse_2op!(Testq),
+                "testb" => parse_2op!(Testb),
                 "lea" => parse_2op!(Lea),
 
                 "setb" => parse_set!(Setcc, B),

@@ -149,14 +149,14 @@ class Inst
   #[test]
   fn #{@inst}() {
       let mut jit: JitMemory = JitMemory::new();
-      monoasm!(
+      monoasm!{
           &mut jit,
 EOS
   end
 
   def self.footer(inst)
     <<EOS
-      );
+      }
       jit.finalize();
       let mut buf = std::fs::File::create("tests/#{inst}_monoasm.bin").unwrap();
       buf.write_all(jit.as_slice()).unwrap();
@@ -327,10 +327,22 @@ class Xchg < Inst
   end
 end
 
-class Test < Inst
+class Testq < Inst
   @inst = "testq"
   @asm_inst = "test"
   @size = 8
+
+  def self.gen(inst, size)
+    r_r(inst, size)
+    rm_i(inst, size)
+    m_r(inst, size)
+  end
+end
+
+class Testb < Inst
+  @inst = "testb"
+  @asm_inst = "test"
+  @size = 1
 
   def self.gen(inst, size)
     r_r(inst, size)
@@ -424,8 +436,8 @@ class Cmoveq < Inst
 end
 
 instructions = [Movq, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Shl, Shr, Sal, Sar, Rol, Ror] +
-[Movl, Movw, Movb] +
-[Test, Xchg, Push, Pop, Negq] + [Cmoveq]
+[Movl, Movw, Movb] + [Testb]
+[Testq, Xchg, Push, Pop, Negq] + [Cmoveq]
 
 `rm monoasm/tests/*.txt`
 instructions.each do |inst|
@@ -452,4 +464,4 @@ instructions.each do |inst|
 end
 `rm monoasm/tests/*.bin`
 `rm monoasm/tests/*.s`
-`rm monoasm/tests/*.rs`
+#`rm monoasm/tests/*.rs`

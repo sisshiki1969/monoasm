@@ -68,7 +68,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                             if let Ok(imm) = i32::try_from(imm)  {
                                 if #reg.is_rax() {
                                     jit.emit(&[0x48, 0xa9]);
-                                    jit.emitl(imm as u32)
+                                    jit.emitl(imm as u32);
                                 } else {
                                     jit.enc_rexw_mi(0xf7, #op1, Imm::L(imm));
                                 }
@@ -90,6 +90,40 @@ pub fn compile(inst: Inst) -> TokenStream {
                 }
             }
             (op1, RmiOperand::Reg(expr)) => quote!( jit.enc_rexw_mr(&[0x85], #expr, #op1); ),
+            _ => unimplemented!(),
+        },
+        Inst::Testb(op1, op2) => match (op1, op2) {
+            (op1, RmiOperand::Imm(i)) => {
+                let op1_str = format!("{}", op1);
+                match &op1 {
+                    RmOperand::Reg(reg) => {
+                        quote! {
+                            let imm = (#i) as i64;
+                            if let Ok(imm) = i8::try_from(imm)  {
+                                if #reg.is_rax() {
+                                    jit.emit(&[0xa8]);
+                                    jit.emitb(imm as u8);
+                                } else {
+                                    jit.enc_rex_mi_byte(0xf6, #op1, Imm::B(imm));
+                                }
+                            } else {
+                                panic!("'TEST {}, imm64' does not exists.", #op1_str);
+                            }
+                        }
+                    }
+                    _ => {
+                        quote! {
+                            let imm = (#i) as i64;
+                            if let Ok(imm) = i8::try_from(imm)  {
+                                jit.enc_rex_mi_byte(0xf6, #op1, Imm::B(imm));
+                            } else {
+                                panic!("'TEST {}, imm64' does not exists.", #op1_str);
+                            }
+                        }
+                    }
+                }
+            }
+            (op1, RmiOperand::Reg(expr)) => quote!( jit.enc_rex_mr_byte(&[0x84], #expr, #op1); ),
             _ => unimplemented!(),
         },
 
