@@ -34,7 +34,7 @@ const DATA_PAGE: Page = Page(2);
 #[derive(Debug)]
 pub struct MemPage {
     /// Pointer to the heap.
-    contents: *mut u8,
+    contents: usize,
     /// Current position
     counter: Pos,
     /// Constants section.
@@ -56,7 +56,7 @@ impl Index<Pos> for MemPage {
         if index.0 >= PAGE_SIZE {
             panic!("Page size overflow")
         }
-        unsafe { &*self.contents.offset(index.0 as isize) }
+        unsafe { &*self.contents().offset(index.0 as isize) }
     }
 }
 
@@ -65,14 +65,14 @@ impl IndexMut<Pos> for MemPage {
         if index.0 >= PAGE_SIZE {
             panic!("Page size overflow")
         }
-        unsafe { &mut *self.contents.offset(index.0 as isize) }
+        unsafe { &mut *self.contents().offset(index.0 as isize) }
     }
 }
 
 impl MemPage {
     fn new(contents: *mut u8) -> Self {
         MemPage {
-            contents,
+            contents: contents as usize,
             counter: Pos(0),
             constants: vec![],
             data: vec![],
@@ -80,6 +80,10 @@ impl MemPage {
             code_block_top: Pos(0),
             code_block: vec![],
         }
+    }
+
+    fn contents(&self) -> *mut u8 {
+        self.contents as *mut u8
     }
 
     /// Adjust cursor with 4KB alignment.
@@ -210,7 +214,7 @@ impl Index<Pos> for JitMemory {
         if index.0 >= PAGE_SIZE {
             panic!("Page size overflow")
         }
-        unsafe { &*self.contents.offset(index.0 as isize) }
+        unsafe { &*self.contents().offset(index.0 as isize) }
     }
 }
 
@@ -219,7 +223,7 @@ impl IndexMut<Pos> for JitMemory {
         if index.0 >= PAGE_SIZE {
             panic!("Page size overflow")
         }
-        unsafe { &mut *self.contents.offset(index.0 as isize) }
+        unsafe { &mut *self.contents().offset(index.0 as isize) }
     }
 }
 
@@ -269,7 +273,7 @@ impl JitMemory {
     }
 
     pub fn include(&self, ptr: *mut u8) -> bool {
-        self.contents <= ptr && ptr < unsafe { self.contents.add(PAGE_SIZE * 2) }
+        self.contents() <= ptr && ptr < unsafe { self.contents().add(PAGE_SIZE * 2) }
     }
 
     /// Resolve all relocations and return the top addresss of generated machine code as a function pointer.
@@ -292,7 +296,7 @@ impl JitMemory {
     }
 
     pub fn as_slice(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.contents, self.code_len) }
+        unsafe { std::slice::from_raw_parts(self.contents(), self.code_len) }
     }
 
     pub fn get_current(&self) -> usize {
@@ -394,13 +398,13 @@ impl JitMemory {
     }
 
     pub fn get_current_address(&self) -> CodePtr {
-        let ptr = unsafe { self.contents.add(self.counter.0) };
+        let ptr = unsafe { self.contents().add(self.counter.0) };
         CodePtr::from(ptr)
     }
 
     pub fn get_label_address(&self, label: DestLabel) -> CodePtr {
         let (page, pos) = self.get_label_pos(label);
-        let ptr = unsafe { self[page].contents.add(pos.0) };
+        let ptr = unsafe { self[page].contents().add(pos.0) };
         CodePtr::from(ptr)
     }
 
@@ -424,12 +428,11 @@ impl JitMemory {
         let mut reloc = std::mem::take(&mut self.labels);
         for rel in reloc.iter_mut() {
             if let Some((src_page, src_pos)) = rel.loc {
-                let src_ptr = self[src_page].contents as usize + src_pos.0;
+                let src_ptr = self[src_page].contents + src_pos.0;
                 for target in std::mem::take(&mut rel.target) {
                     match target {
                         TargetType::Rel { page, offset, pos } => {
-                            let target_ptr =
-                                self[page].contents as usize + pos.0 + (offset as usize);
+                            let target_ptr = self[page].contents + pos.0 + (offset as usize);
                             let disp = (src_ptr as i128) - (target_ptr as i128);
                             match i32::try_from(disp) {
                                 Ok(disp) => self[page].write32(pos, disp as i32),
@@ -529,7 +532,7 @@ impl JitMemory {
         let (page, counter) = self.labels[label]
             .loc
             .expect("The DestLabel has no position binding.");
-        let adr = self[page].contents;
+        let adr = self[page].contents();
         unsafe { mem::transmute(adr.add(counter.0)) }
     }
 
@@ -537,7 +540,7 @@ impl JitMemory {
         let (page, counter) = self.labels[label]
             .loc
             .expect("The DestLabel has no position binding.");
-        let adr = self[page].contents;
+        let adr = self[page].contents();
         unsafe { mem::transmute(adr.add(counter.0)) }
     }
 
@@ -545,7 +548,7 @@ impl JitMemory {
         let (page, counter) = self.labels[label]
             .loc
             .expect("The DestLabel has no position binding.");
-        let adr = self[page].contents;
+        let adr = self[page].contents();
         unsafe { mem::transmute(adr.add(counter.0)) }
     }
 
