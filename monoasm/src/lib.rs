@@ -1,7 +1,6 @@
 extern crate libc;
 use std::mem;
 use std::ops::{Add, Deref, DerefMut, Index, IndexMut, Sub};
-use std::ptr::NonNull;
 mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
@@ -10,37 +9,35 @@ const PAGE_SIZE: usize = 1024 * 1024 * 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct CodePtr(NonNull<u8>);
+pub struct CodePtr(std::num::NonZero<usize>);
 
 impl std::ops::Sub<CodePtr> for CodePtr {
     type Output = i64;
     fn sub(self, rhs: CodePtr) -> Self::Output {
-        (self.0.as_ptr() as usize as i64) - (rhs.0.as_ptr() as usize as i64)
+        (self.0.get() as i64) - (rhs.0.get() as i64)
     }
 }
 
 impl std::ops::Add<usize> for CodePtr {
     type Output = CodePtr;
     fn add(self, rhs: usize) -> Self::Output {
-        CodePtr::from(unsafe { self.0.as_ptr().add(rhs) })
+        CodePtr::from(unsafe { self.as_ptr().add(rhs) })
     }
 }
 
 impl std::cmp::PartialOrd for CodePtr {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.0.as_ptr().partial_cmp(&other.0.as_ptr())
+        self.as_ptr().partial_cmp(&other.as_ptr())
     }
 }
 
-unsafe impl std::marker::Sync for CodePtr {}
-
 impl CodePtr {
     pub fn from(ptr: *mut u8) -> Self {
-        Self(NonNull::new(ptr).unwrap())
+        Self(std::num::NonZero::new(ptr as usize).unwrap())
     }
 
     pub fn as_ptr(&self) -> *mut u8 {
-        self.0.as_ptr()
+        self.0.get() as *mut u8
     }
 }
 
