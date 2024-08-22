@@ -32,6 +32,8 @@ impl std::cmp::PartialOrd for CodePtr {
     }
 }
 
+unsafe impl std::marker::Sync for CodePtr {}
+
 impl CodePtr {
     pub fn from(ptr: *mut u8) -> Self {
         Self(NonNull::new(ptr).unwrap())
