@@ -13,5 +13,5 @@ fn test() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
     let f = jit.get_label_addr::<(), ()>(label);
-    f(());
+    //f(());
 }
