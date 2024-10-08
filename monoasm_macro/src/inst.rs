@@ -117,6 +117,8 @@ pub enum Inst {
 
     Lzcntq(Register, RmOperand),
     Tzcntq(Register, RmOperand),
+
+    Int3,
 }
 
 ///----------------------------------------------------------------------
@@ -321,6 +323,7 @@ impl Parse for Inst {
                 "cmovgtq" => parse_cmov!(QWORD, Gt),
 
                 "cqo" => parse_0op!(Cqo),
+                "int3" => parse_0op!(Int3),
 
                 "shlq" => parse_2op!(Shlq),
                 "shrq" => parse_2op!(Shrq),

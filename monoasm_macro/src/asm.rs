@@ -149,6 +149,9 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Cqo => {
             quote! ( jit.emit(&[0x48, 0x99]); )
         }
+        Inst::Int3 => {
+            quote! ( jit.emit(&[0xcc]); )
+        }
 
         Inst::Negq(op) => match op {
             op => quote! ( jit.enc_rexw_digit(&[0xf7], #op, 3, Imm::None); ),
