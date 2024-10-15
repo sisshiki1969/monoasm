@@ -82,6 +82,7 @@ pub enum Inst {
 
     Imul(RmiOperand, RmiOperand),
     Idiv(RmOperand),
+    Div(RmOperand),
 
     Lea(RmOperand, RmOperand),
 
@@ -117,6 +118,7 @@ pub enum Inst {
 
     Lzcntq(Register, RmOperand),
     Tzcntq(Register, RmOperand),
+    Popcntq(Register, RmOperand),
 
     Int3,
 }
@@ -291,6 +293,7 @@ impl Parse for Inst {
                 "negq" => parse_1op!(Negq),
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
+                "div" => parse_1op!(Div),
 
                 "testq" => parse_2op!(Testq),
                 "testb" => parse_2op!(Testb),
@@ -386,6 +389,7 @@ impl Parse for Inst {
 
                 "lzcntq" => parse_2op!(Lzcntq),
                 "tzcntq" => parse_2op!(Tzcntq),
+                "popcntq" => parse_2op!(Popcntq),
 
                 "dq" => {
                     if input.peek(LitFloat) {
