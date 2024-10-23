@@ -181,7 +181,7 @@ pub fn compile(inst: Inst) -> TokenStream {
         }
 
         Inst::Div(op) => {
-            // DIV r/m64: RAX <- RAX / r/m64
+            // DIV r/m64: RAX:quo RDX:rem <- RDX:RAX / r/m64
             match op {
                 // DIV r/m64
                 // REX.W F7 /6

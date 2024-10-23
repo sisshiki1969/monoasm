@@ -253,6 +253,7 @@ impl Parse for Inst {
                 "movsxw" => parse_2op!(Movsxw),
                 "movzxb" => parse_2op!(Movzxb),
                 "movsxb" => parse_2op!(Movsxb),
+
                 "addq" => parse_2op_sized!(Add, QWORD),
                 "addl" => parse_2op_sized!(Add, DWORD),
                 "addw" => parse_2op_sized!(Add, WORD),
