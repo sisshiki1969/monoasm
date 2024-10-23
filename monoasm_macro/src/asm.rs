@@ -180,6 +180,15 @@ pub fn compile(inst: Inst) -> TokenStream {
             }
         }
 
+        Inst::Div(op) => {
+            // DIV r/m64: RAX:quo RDX:rem <- RDX:RAX / r/m64
+            match op {
+                // DIV r/m64
+                // REX.W F7 /6
+                op => quote! { jit.enc_rexw_digit(&[0xf7], #op, 6, Imm::None); },
+            }
+        }
+
         Inst::Movsd(op1, op2) => match (op1, op2) {
             (XmOperand::Xmm(op1), op2) => quote! {
                 jit.emitb(0xf2);
@@ -325,6 +334,12 @@ pub fn compile(inst: Inst) -> TokenStream {
             quote!(
                 jit.emitb(0xf3);
                 jit.enc_rexw_mr(&[0x0f, 0xbd], #op1, #op2);
+            )
+        }
+        Inst::Popcntq(op1, op2) => {
+            quote!(
+                jit.emitb(0xf3);
+                jit.enc_rexw_mr(&[0x0f, 0xb8], #op1, #op2);
             )
         }
     }

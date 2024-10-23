@@ -112,7 +112,7 @@ class Inst
 
     gen(inst, size)
 
-    f = File.open "monoasm/tests/#{inst}.rs", "w"
+    f = File.open "monoasm/tests/gen_#{inst}.rs", "w"
     f.write @monoasm + footer(inst)
     f.close
 
@@ -464,4 +464,4 @@ instructions.each do |inst|
 end
 `rm monoasm/tests/*.bin`
 `rm monoasm/tests/*.s`
-#`rm monoasm/tests/*.rs`
+`rm monoasm/tests/gen_*.rs`

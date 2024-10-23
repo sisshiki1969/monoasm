@@ -43,9 +43,9 @@ The assembly code is assembled in compile time, and embedded as a code generator
 
 ## supported instructions
 
-### general register operation
+### general register operations
 
-#### quad word operation
+#### quad word operations
 
 - movq
 - lea
@@ -57,18 +57,28 @@ The assembly code is assembled in compile time, and embedded as a code generator
 - andq
 - subq
 - xorq
+- cmpq
+- xchgq
+
 - negq
 
 - imul
 - idiv
+- div
 - cqo
 
 - shlq
 - shrq
-
-- cmpq
+- salq
+- sarq
+- rolq
+- rorq
 
 - testq
+
+- lzcntq
+- tzcntq
+- popcntq
 
 - seteq
 - setne
@@ -81,32 +91,85 @@ The assembly code is assembled in compile time, and embedded as a code generator
 - setb
 - setbe
 
-#### double word operation
+#### double word operations
 
 - movl
+- movsxl
 
-#### word operation
+- addl
+- orl
+- adcl
+- sbbl
+- andl
+- subl
+- xorl
+- cmpl
+- xchgl
 
+#### word operations
+
+- movw
 - movzxw
 - movsxw
 
-#### byte operation
+- addw
+- orw
+- adcw
+- sbbw
+- andw
+- subw
+- xorw
+- cmpw
+- xchgw
 
+#### byte operations
+
+- movb
 - movzxb
 - movsxb
-- cmpb
 
-### floating point operation
+- addb
+- orb
+- adcb
+- sbbb
+- andb
+- subb
+- xorb
+- cmpb
+- xchgb
+
+- testb
+
+### conditional move operations
+
+- cmovbq
+- cmovaeq
+- cmoveqq
+- cmovneq
+- cmovbeq
+- cmovaq
+- cmovsq
+- cmovnsq
+- cmovltq
+- cmovgeq
+- cmovleq
+- cmovgtq
+
+### floating point operations
 
 - movsd
 - addsd
 - subsd
 - mulsd
 - divsd
+- xorps
 - cvtsi2sdq
 - ucomisd
 
-### stack operation
+- sqrtpd
+- sqrtsd
+
+### stack operations
 
 - pushq
 - popq
@@ -131,6 +194,7 @@ The assembly code is assembled in compile time, and embedded as a code generator
 
 - syscall
 - leave
+- int3
 
 ### constant data
 
