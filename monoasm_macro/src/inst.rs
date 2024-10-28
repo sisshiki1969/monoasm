@@ -100,6 +100,8 @@ pub enum Inst {
     Divsd(Xmm, XmOperand),
     Xorps(Xmm, XmOperand),
     UComIsd(Xmm, XmOperand),
+    Minsd(Xmm, XmOperand),
+    Maxsd(Xmm, XmOperand),
 
     Cvtsi2sdq(Xmm, RmOperand),
     Sqrtpd(Xmm, XmOperand),
@@ -341,6 +343,8 @@ impl Parse for Inst {
                 "subsd" => parse_2op!(Subsd),
                 "mulsd" => parse_2op!(Mulsd),
                 "divsd" => parse_2op!(Divsd),
+                "minsd" => parse_2op!(Minsd),
+                "maxsd" => parse_2op!(Maxsd),
                 "xorps" => parse_2op!(Xorps),
                 "ucomisd" => parse_2op!(UComIsd),
 

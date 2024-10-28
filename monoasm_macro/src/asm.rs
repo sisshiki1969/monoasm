@@ -206,6 +206,8 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Subsd(op1, op2) => binary_sd_op(0x5c, op1, op2),
         Inst::Mulsd(op1, op2) => binary_sd_op(0x59, op1, op2),
         Inst::Divsd(op1, op2) => binary_sd_op(0x5e, op1, op2),
+        Inst::Minsd(op1, op2) => binary_sd_op(0x5d, op1, op2),
+        Inst::Maxsd(op1, op2) => binary_sd_op(0x5f, op1, op2),
         Inst::Xorps(op1, op2) => {
             let op1 = op1.0;
             quote! {
