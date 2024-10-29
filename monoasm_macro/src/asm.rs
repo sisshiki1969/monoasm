@@ -187,6 +187,14 @@ pub fn compile(inst: Inst) -> TokenStream {
             }
         }
 
+        Inst::Idivl(op) => {
+            // IDIV r/m32: EAX <- EAX / r/m32
+            // REX.W F7 /7
+            match op {
+                op => quote! { jit.enc_rex_digit(&[0xf7], #op, 7, Imm::None); },
+            }
+        }
+
         Inst::Div(op) => {
             // DIV r/m64: RAX <- RAX / r/m64
             match op {

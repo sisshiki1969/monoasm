@@ -89,6 +89,7 @@ pub enum Inst {
 
     Imul(RmiOperand, RmiOperand),
     Idiv(RmOperand),
+    Idivl(RmOperand),
     Div(RmOperand),
     Divl(RmOperand),
 
@@ -324,6 +325,7 @@ impl Parse for Inst {
                 "negq" => parse_1op!(Negq),
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
+                "idivl" => parse_1op!(Idivl),
                 "div" => parse_1op!(Div),
                 "divl" => parse_1op!(Divl),
 
