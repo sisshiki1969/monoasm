@@ -101,6 +101,7 @@ pub enum Inst {
     Setcc(Cond, RmOperand),
     Cmovcc(OperandSize, Cond, Register, RmOperand),
     Cqo,
+    Cdq,
 
     Movsd(XmOperand, XmOperand),
     Addsd(Xmm, XmOperand),
@@ -360,6 +361,7 @@ impl Parse for Inst {
                 "cmovgtq" => parse_cmov!(QWORD, Gt),
 
                 "cqo" => parse_0op!(Cqo),
+                "cdq" => parse_0op!(Cdq),
                 "int3" => parse_0op!(Int3),
 
                 "shlq" => parse_2op!(Shlq),
