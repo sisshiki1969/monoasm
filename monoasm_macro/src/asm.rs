@@ -127,12 +127,19 @@ pub fn compile(inst: Inst) -> TokenStream {
             _ => unimplemented!(),
         },
 
-        Inst::Shlq(op1, op2) => shift_op(4, op1, op2, "SHL"),
-        Inst::Shrq(op1, op2) => shift_op(5, op1, op2, "SHR"),
-        Inst::Salq(op1, op2) => shift_op(4, op1, op2, "SAL"),
-        Inst::Sarq(op1, op2) => shift_op(7, op1, op2, "SAR"),
-        Inst::Rolq(op1, op2) => shift_op(0, op1, op2, "ROL"),
-        Inst::Rorq(op1, op2) => shift_op(1, op1, op2, "ROR"),
+        Inst::Shlq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 4, op1, op2, "SHL"),
+        Inst::Shrq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 5, op1, op2, "SHR"),
+        Inst::Salq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 4, op1, op2, "SAL"),
+        Inst::Sarq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 7, op1, op2, "SAR"),
+        Inst::Rolq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 0, op1, op2, "ROL"),
+        Inst::Rorq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 1, op1, op2, "ROR"),
+
+        Inst::Shll(op1, op2) => shift_op_with_width(OperandSize::DWORD, 4, op1, op2, "SHL"),
+        Inst::Shrl(op1, op2) => shift_op_with_width(OperandSize::DWORD, 5, op1, op2, "SHR"),
+        Inst::Sall(op1, op2) => shift_op_with_width(OperandSize::DWORD, 4, op1, op2, "SAL"),
+        Inst::Sarl(op1, op2) => shift_op_with_width(OperandSize::DWORD, 7, op1, op2, "SAR"),
+        Inst::Roll(op1, op2) => shift_op_with_width(OperandSize::DWORD, 0, op1, op2, "ROL"),
+        Inst::Rorl(op1, op2) => shift_op_with_width(OperandSize::DWORD, 1, op1, op2, "ROR"),
 
         Inst::Setcc(cond, op) => {
             let cond: u8 = 0x90 + cond as u8;
@@ -849,34 +856,71 @@ fn binary_opb(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
 /// - XXX=Shr Y=5
 /// - XXX=Sar Y=7
 ///
-fn shift_op(digit: u8, op1: RmOperand, op2: RiOperand, inst_str: &str) -> TokenStream {
-    match (op1, op2) {
-        (op1, RiOperand::Imm(i)) => {
-            let op1_str = format!("{}", op1);
-            // Shl r/m64, imm8
-            // REX.W C1 /4 ib
-            quote! {
-                let imm = (#i) as i64;
-                if imm == 1 {
-                    jit.enc_rexw_digit(&[0xd1], #op1, #digit, Imm::None);
-                } else if let Ok(imm) = i8::try_from(imm) {
-                    jit.enc_rexw_digit(&[0xc1], #op1, #digit, Imm::B(imm));
-                } else {
-                    panic!("'{} {}, imm' imm should be 8 bit.", #inst_str, #op1_str);
+fn shift_op_with_width(
+    width: OperandSize,
+    digit: u8,
+    op1: RmOperand,
+    op2: RiOperand,
+    inst_str: &str,
+) -> TokenStream {
+    match width {
+        OperandSize::QWORD => match (op1, op2) {
+            (op1, RiOperand::Imm(i)) => {
+                let op1_str = format!("{}", op1);
+                // Shl r/m64, imm8
+                // REX.W C1 /4 ib
+                quote! {
+                    let imm = (#i) as i64;
+                    if imm == 1 {
+                        jit.enc_rexw_digit(&[0xd1], #op1, #digit, Imm::None);
+                    } else if let Ok(imm) = i8::try_from(imm) {
+                        jit.enc_rexw_digit(&[0xc1], #op1, #digit, Imm::B(imm));
+                    } else {
+                        panic!("'{} {}, imm' imm should be 8 bit.", #inst_str, #op1_str);
+                    }
                 }
             }
-        }
-        // Shl r/m64, Cl
-        // REX.W D3 /4
-        (op1, RiOperand::Reg(reg)) => {
-            let op1_str = format!("{}", op1);
-            quote! {
-                if !#reg.is_cl() {
-                    panic!("'{} {}, reg' reg should be CL.", #inst_str, #op1_str);
-                };
-                jit.enc_rexw_digit(&[0xd3], #op1, #digit, Imm::None);
+            // Shl r/m64, Cl
+            // REX.W D3 /4
+            (op1, RiOperand::Reg(reg)) => {
+                let op1_str = format!("{}", op1);
+                quote! {
+                    if !#reg.is_cl() {
+                        panic!("'{} {}, reg' reg should be CL.", #inst_str, #op1_str);
+                    };
+                    jit.enc_rexw_digit(&[0xd3], #op1, #digit, Imm::None);
+                }
             }
-        }
+        },
+        OperandSize::DWORD => match (op1, op2) {
+            (op1, RiOperand::Imm(i)) => {
+                let op1_str = format!("{}", op1);
+                // Shl r/m32, imm8
+                // REX C1 /4 ib
+                quote! {
+                    let imm = (#i) as i64;
+                    if imm == 1 {
+                        jit.enc_rex_digit(&[0xd1], #op1, #digit, Imm::None);
+                    } else if let Ok(imm) = i8::try_from(imm) {
+                        jit.enc_rex_digit(&[0xc1], #op1, #digit, Imm::B(imm));
+                    } else {
+                        panic!("'{} {}, imm' imm should be 8 bit.", #inst_str, #op1_str);
+                    }
+                }
+            }
+            // Shl r/m32, Cl
+            // REX D3 /4
+            (op1, RiOperand::Reg(reg)) => {
+                let op1_str = format!("{}", op1);
+                quote! {
+                    if !#reg.is_cl() {
+                        panic!("'{} {}, reg' reg should be CL.", #inst_str, #op1_str);
+                    };
+                    jit.enc_rex_digit(&[0xd3], #op1, #digit, Imm::None);
+                }
+            }
+        },
+        OperandSize::WORD | OperandSize::BYTE => todo!("not implemented yet."),
     }
 }
 

@@ -682,6 +682,10 @@ impl JitMemory {
         }
     }
 
+    pub fn enc_rex_digit(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {
+        self.encode(op, Rex::REX, ModRM::Digit(digit), rm, imm);
+    }
+
     /// Encoding: /n  
     /// REX.W Op /n
     pub fn enc_rexw_digit(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {

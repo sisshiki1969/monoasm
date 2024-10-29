@@ -80,6 +80,13 @@ pub enum Inst {
     Rolq(RmOperand, RiOperand),
     Rorq(RmOperand, RiOperand),
 
+    Shll(RmOperand, RiOperand),
+    Shrl(RmOperand, RiOperand),
+    Sall(RmOperand, RiOperand),
+    Sarl(RmOperand, RiOperand),
+    Roll(RmOperand, RiOperand),
+    Rorl(RmOperand, RiOperand),
+
     Imul(RmiOperand, RmiOperand),
     Idiv(RmOperand),
     Div(RmOperand),
@@ -336,6 +343,13 @@ impl Parse for Inst {
                 "sarq" => parse_2op!(Sarq),
                 "rolq" => parse_2op!(Rolq),
                 "rorq" => parse_2op!(Rorq),
+
+                "shll" => parse_2op!(Sall),
+                "shrl" => parse_2op!(Shrl),
+                "sall" => parse_2op!(Sall),
+                "sarl" => parse_2op!(Sarl),
+                "roll" => parse_2op!(Roll),
+                "rorl" => parse_2op!(Rorl),
 
                 "movsd" => parse_2op!(Movsd),
                 "addsd" => parse_2op!(Addsd),
