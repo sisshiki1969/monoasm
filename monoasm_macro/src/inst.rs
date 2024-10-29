@@ -114,6 +114,7 @@ pub enum Inst {
     Xorpd(Xmm, XmOperand),
     Roundpd(Xmm, XmOperand, RiOperand),
     Cvtsi2sdq(Xmm, RmOperand),
+    Cvttsd2siq(Register, XmOperand),
     Sqrtpd(Xmm, XmOperand),
     Sqrtsd(Xmm, XmOperand),
 
@@ -385,6 +386,7 @@ impl Parse for Inst {
                 "xorpd" => parse_2op!(Xorpd),
                 "roundpd" => parse_3op!(Roundpd),
                 "cvtsi2sdq" => parse_2op!(Cvtsi2sdq),
+                "cvttsd2siq" => parse_2op!(Cvttsd2siq),
                 "sqrtpd" => parse_2op!(Sqrtpd),
                 "sqrtsd" => parse_2op!(Sqrtsd),
 
