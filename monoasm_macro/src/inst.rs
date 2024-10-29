@@ -128,8 +128,11 @@ pub enum Inst {
     Ret,
     Syscall,
 
+    Lzcntl(Register, RmOperand),
     Lzcntq(Register, RmOperand),
+    Tzcntl(Register, RmOperand),
     Tzcntq(Register, RmOperand),
+    Popcntl(Register, RmOperand),
     Popcntq(Register, RmOperand),
 
     Int3,
@@ -425,8 +428,11 @@ impl Parse for Inst {
                 "syscall" => parse_0op!(Syscall),
                 "leave" => parse_0op!(Leave),
 
+                "lzcntl" => parse_2op!(Lzcntl),
                 "lzcntq" => parse_2op!(Lzcntq),
+                "tzcntl" => parse_2op!(Tzcntl),
                 "tzcntq" => parse_2op!(Tzcntq),
+                "popcntl" => parse_2op!(Popcntl),
                 "popcntq" => parse_2op!(Popcntq),
 
                 "dq" => {

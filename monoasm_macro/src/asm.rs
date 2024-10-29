@@ -358,16 +358,34 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Leave => quote!(
             jit.emitb(0xc9);
         ),
+        Inst::Tzcntl(op1, op2) => {
+            quote!(
+                jit.emitb(0xf3);
+                jit.enc_rex_mr(&[0x0f, 0xbc], #op1, #op2);
+            )
+        }
         Inst::Tzcntq(op1, op2) => {
             quote!(
                 jit.emitb(0xf3);
                 jit.enc_rexw_mr(&[0x0f, 0xbc], #op1, #op2);
             )
         }
+        Inst::Lzcntl(op1, op2) => {
+            quote!(
+                jit.emitb(0xf3);
+                jit.enc_rex_mr(&[0x0f, 0xbd], #op1, #op2);
+            )
+        }
         Inst::Lzcntq(op1, op2) => {
             quote!(
                 jit.emitb(0xf3);
                 jit.enc_rexw_mr(&[0x0f, 0xbd], #op1, #op2);
+            )
+        }
+        Inst::Popcntl(op1, op2) => {
+            quote!(
+                jit.emitb(0xf3);
+                jit.enc_rex_mr(&[0x0f, 0xb8], #op1, #op2);
             )
         }
         Inst::Popcntq(op1, op2) => {
