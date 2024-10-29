@@ -110,6 +110,9 @@ pub enum Inst {
     Minsd(Xmm, XmOperand),
     Maxsd(Xmm, XmOperand),
 
+    Andpd(Xmm, XmOperand),
+    Xorpd(Xmm, XmOperand),
+    Roundpd(Xmm, XmOperand, RiOperand),
     Cvtsi2sdq(Xmm, RmOperand),
     Sqrtpd(Xmm, XmOperand),
     Sqrtsd(Xmm, XmOperand),
@@ -180,6 +183,20 @@ impl Parse for Inst {
                     let op2 = input.parse()?;
                     input.parse::<Token![;]>()?;
                     Ok(Inst::$inst(OperandSize::$size, op1, op2))
+                }
+            )
+        }
+
+        macro_rules! parse_3op {
+            ($inst: ident) => (
+                {
+                    let op1 = input.parse()?;
+                    input.parse::<Token![,]>()?;
+                    let op2 = input.parse()?;
+                    input.parse::<Token![,]>()?;
+                    let op3 = input.parse()?;
+                    input.parse::<Token![;]>()?;
+                    Ok(Inst::$inst(op1, op2, op3))
                 }
             )
         }
@@ -361,6 +378,9 @@ impl Parse for Inst {
                 "xorps" => parse_2op!(Xorps),
                 "ucomisd" => parse_2op!(UComIsd),
 
+                "andpd" => parse_2op!(Andpd),
+                "xorpd" => parse_2op!(Xorpd),
+                "roundpd" => parse_3op!(Roundpd),
                 "cvtsi2sdq" => parse_2op!(Cvtsi2sdq),
                 "sqrtpd" => parse_2op!(Sqrtpd),
                 "sqrtsd" => parse_2op!(Sqrtsd),
