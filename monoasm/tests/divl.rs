@@ -3,7 +3,6 @@ extern crate monoasm_macro;
 
 use monoasm::*;
 use monoasm_macro::monoasm;
-pub type ReturnFunc = extern "C" fn() -> u64;
 
 #[test]
 fn divl() {
@@ -13,16 +12,16 @@ fn divl() {
         begin:
             xorl rdx, rdx;
             xorl rax, rax;
-            movq rax, (7777777);
-            movq r12, (1111111);
+            movq rax, rdi;
+            movq r12, rsi;
             cdq;
             divl r12; // eax = 7, edx = 0
             ret;
     );
     jit.finalize();
 
-    let f: ReturnFunc = unsafe { std::mem::transmute(jit.get_label_u64(begin)) };
-    let ret = f() as i32; // rax contains (7)
+    let f = jit.get_label_addr2::<i32, i32, i32>(begin);
+    let ret = f(7777777, 1111111); // rax contains (7)
     assert_eq!(ret, 7);
 }
 
@@ -43,7 +42,7 @@ fn divl_rem() {
     );
     jit.finalize();
 
-    let f: ReturnFunc = unsafe { std::mem::transmute(jit.get_label_u64(begin)) };
-    let ret = f() as i32; // rax contains (1)
+    let f = jit.get_label_addr2::<i32, i32, i32>(begin);
+    let ret = f(7, 3); // rax contains (1)
     assert_eq!(ret, 1);
 }

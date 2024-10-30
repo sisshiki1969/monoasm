@@ -13,16 +13,16 @@ fn idivl() {
         begin:
             xorl rdx, rdx;
             xorl rax, rax;
-            movq rax, (-7777777);
-            movq r12, (1111111);
+            movq rax, rdi;
+            movq r12, rsi;
             cdq;
             idivl r12; // eax = -7, edx = 0
             ret;
     );
     jit.finalize();
 
-    let f: ReturnFunc = unsafe { std::mem::transmute(jit.get_label_u64(begin)) };
-    let ret = f() as i32; // rax contains (-7)
+    let f = jit.get_label_addr2::<i32, i32, i32>(begin);
+    let ret = f(-7777777, 1111111); // rax contains (-7)
     assert_eq!(ret, -7);
 }
 
@@ -34,8 +34,8 @@ fn idivl_rem() {
         begin:
             xorl rdx, rdx;
             xorl rax, rax;
-            movq rax, (-23);
-            movq r12, (4);
+            movq rax, rdi;
+            movq r12, rsi;
             cdq;
             idivl r12; // eax = -5, edx = -3
             movl rax, rdx;
@@ -43,7 +43,7 @@ fn idivl_rem() {
     );
     jit.finalize();
 
-    let f: ReturnFunc = unsafe { std::mem::transmute(jit.get_label_u64(begin)) };
-    let ret = f() as i32; // rax contains (-3)
+    let f = jit.get_label_addr2::<i32, i32, i32>(begin);
+    let ret = f(-23, 4); // rax contains (-3)
     assert_eq!(ret, -3);
 }
