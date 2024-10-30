@@ -80,9 +80,18 @@ pub enum Inst {
     Rolq(RmOperand, RiOperand),
     Rorq(RmOperand, RiOperand),
 
+    Shll(RmOperand, RiOperand),
+    Shrl(RmOperand, RiOperand),
+    Sall(RmOperand, RiOperand),
+    Sarl(RmOperand, RiOperand),
+    Roll(RmOperand, RiOperand),
+    Rorl(RmOperand, RiOperand),
+
     Imul(RmiOperand, RmiOperand),
     Idiv(RmOperand),
+    Idivl(RmOperand),
     Div(RmOperand),
+    Divl(RmOperand),
 
     Lea(RmOperand, RmOperand),
 
@@ -92,6 +101,7 @@ pub enum Inst {
     Setcc(Cond, RmOperand),
     Cmovcc(OperandSize, Cond, Register, RmOperand),
     Cqo,
+    Cdq,
 
     Movsd(XmOperand, XmOperand),
     Addsd(Xmm, XmOperand),
@@ -103,7 +113,11 @@ pub enum Inst {
     Minsd(Xmm, XmOperand),
     Maxsd(Xmm, XmOperand),
 
+    Andpd(Xmm, XmOperand),
+    Xorpd(Xmm, XmOperand),
+    Roundpd(Xmm, XmOperand, RiOperand),
     Cvtsi2sdq(Xmm, RmOperand),
+    Cvttsd2siq(Register, XmOperand),
     Sqrtpd(Xmm, XmOperand),
     Sqrtsd(Xmm, XmOperand),
 
@@ -118,8 +132,11 @@ pub enum Inst {
     Ret,
     Syscall,
 
+    Lzcntl(Register, RmOperand),
     Lzcntq(Register, RmOperand),
+    Tzcntl(Register, RmOperand),
     Tzcntq(Register, RmOperand),
+    Popcntl(Register, RmOperand),
     Popcntq(Register, RmOperand),
 
     Int3,
@@ -173,6 +190,20 @@ impl Parse for Inst {
                     let op2 = input.parse()?;
                     input.parse::<Token![;]>()?;
                     Ok(Inst::$inst(OperandSize::$size, op1, op2))
+                }
+            )
+        }
+
+        macro_rules! parse_3op {
+            ($inst: ident) => (
+                {
+                    let op1 = input.parse()?;
+                    input.parse::<Token![,]>()?;
+                    let op2 = input.parse()?;
+                    input.parse::<Token![,]>()?;
+                    let op3 = input.parse()?;
+                    input.parse::<Token![;]>()?;
+                    Ok(Inst::$inst(op1, op2, op3))
                 }
             )
         }
@@ -296,7 +327,9 @@ impl Parse for Inst {
                 "negq" => parse_1op!(Negq),
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
+                "idivl" => parse_1op!(Idivl),
                 "div" => parse_1op!(Div),
+                "divl" => parse_1op!(Divl),
 
                 "testq" => parse_2op!(Testq),
                 "testb" => parse_2op!(Testb),
@@ -329,6 +362,7 @@ impl Parse for Inst {
                 "cmovgtq" => parse_cmov!(QWORD, Gt),
 
                 "cqo" => parse_0op!(Cqo),
+                "cdq" => parse_0op!(Cdq),
                 "int3" => parse_0op!(Int3),
 
                 "shlq" => parse_2op!(Shlq),
@@ -337,6 +371,13 @@ impl Parse for Inst {
                 "sarq" => parse_2op!(Sarq),
                 "rolq" => parse_2op!(Rolq),
                 "rorq" => parse_2op!(Rorq),
+
+                "shll" => parse_2op!(Sall),
+                "shrl" => parse_2op!(Shrl),
+                "sall" => parse_2op!(Sall),
+                "sarl" => parse_2op!(Sarl),
+                "roll" => parse_2op!(Roll),
+                "rorl" => parse_2op!(Rorl),
 
                 "movsd" => parse_2op!(Movsd),
                 "addsd" => parse_2op!(Addsd),
@@ -348,7 +389,11 @@ impl Parse for Inst {
                 "xorps" => parse_2op!(Xorps),
                 "ucomisd" => parse_2op!(UComIsd),
 
+                "andpd" => parse_2op!(Andpd),
+                "xorpd" => parse_2op!(Xorpd),
+                "roundpd" => parse_3op!(Roundpd),
                 "cvtsi2sdq" => parse_2op!(Cvtsi2sdq),
+                "cvttsd2siq" => parse_2op!(Cvttsd2siq),
                 "sqrtpd" => parse_2op!(Sqrtpd),
                 "sqrtsd" => parse_2op!(Sqrtsd),
 
@@ -392,8 +437,11 @@ impl Parse for Inst {
                 "syscall" => parse_0op!(Syscall),
                 "leave" => parse_0op!(Leave),
 
+                "lzcntl" => parse_2op!(Lzcntl),
                 "lzcntq" => parse_2op!(Lzcntq),
+                "tzcntl" => parse_2op!(Tzcntl),
                 "tzcntq" => parse_2op!(Tzcntq),
+                "popcntl" => parse_2op!(Popcntl),
                 "popcntq" => parse_2op!(Popcntq),
 
                 "dq" => {

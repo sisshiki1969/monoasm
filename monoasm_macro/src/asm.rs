@@ -127,12 +127,19 @@ pub fn compile(inst: Inst) -> TokenStream {
             _ => unimplemented!(),
         },
 
-        Inst::Shlq(op1, op2) => shift_op(4, op1, op2, "SHL"),
-        Inst::Shrq(op1, op2) => shift_op(5, op1, op2, "SHR"),
-        Inst::Salq(op1, op2) => shift_op(4, op1, op2, "SAL"),
-        Inst::Sarq(op1, op2) => shift_op(7, op1, op2, "SAR"),
-        Inst::Rolq(op1, op2) => shift_op(0, op1, op2, "ROL"),
-        Inst::Rorq(op1, op2) => shift_op(1, op1, op2, "ROR"),
+        Inst::Shlq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 4, op1, op2, "SHL"),
+        Inst::Shrq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 5, op1, op2, "SHR"),
+        Inst::Salq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 4, op1, op2, "SAL"),
+        Inst::Sarq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 7, op1, op2, "SAR"),
+        Inst::Rolq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 0, op1, op2, "ROL"),
+        Inst::Rorq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 1, op1, op2, "ROR"),
+
+        Inst::Shll(op1, op2) => shift_op_with_width(OperandSize::DWORD, 4, op1, op2, "SHL"),
+        Inst::Shrl(op1, op2) => shift_op_with_width(OperandSize::DWORD, 5, op1, op2, "SHR"),
+        Inst::Sall(op1, op2) => shift_op_with_width(OperandSize::DWORD, 4, op1, op2, "SAL"),
+        Inst::Sarl(op1, op2) => shift_op_with_width(OperandSize::DWORD, 7, op1, op2, "SAR"),
+        Inst::Roll(op1, op2) => shift_op_with_width(OperandSize::DWORD, 0, op1, op2, "ROL"),
+        Inst::Rorl(op1, op2) => shift_op_with_width(OperandSize::DWORD, 1, op1, op2, "ROR"),
 
         Inst::Setcc(cond, op) => {
             let cond: u8 = 0x90 + cond as u8;
@@ -149,6 +156,11 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Cqo => {
             quote! ( jit.emit(&[0x48, 0x99]); )
         }
+
+        Inst::Cdq => {
+            quote! ( jit.emit(&[0x99]); )
+        }
+
         Inst::Int3 => {
             quote! ( jit.emit(&[0xcc]); )
         }
@@ -180,12 +192,28 @@ pub fn compile(inst: Inst) -> TokenStream {
             }
         }
 
+        Inst::Idivl(op) => {
+            // IDIV r/m32: EAX <- EAX / r/m32
+            // REX.W F7 /7
+            match op {
+                op => quote! { jit.enc_rex_digit(&[0xf7], #op, 7, Imm::None); },
+            }
+        }
+
         Inst::Div(op) => {
             // DIV r/m64: RAX:quo RDX:rem <- RDX:RAX / r/m64
             match op {
                 // DIV r/m64
                 // REX.W F7 /6
                 op => quote! { jit.enc_rexw_digit(&[0xf7], #op, 6, Imm::None); },
+            }
+        }
+
+        Inst::Divl(op) => {
+            // DIV r/m32: EAX <- EAX / r/m32
+            // REX.W F7 /6
+            match op {
+                op => quote! { jit.enc_rex_digit(&[0xf7], #op, 6, Imm::None); },
             }
         }
 
@@ -230,6 +258,38 @@ pub fn compile(inst: Inst) -> TokenStream {
                 jit.enc_rexw_mr(&[0x0f, 0x2a], Reg::from(#op1), #op2);
             }
         }
+
+        Inst::Cvttsd2siq(op1, op2) => {
+            quote! {
+                jit.emitb(0xf2);
+                jit.enc_rex_mr(&[0x0f, 0x2c], #op1, #op2);
+            }
+        }
+
+        Inst::Andpd(Xmm(op1), op2) => {
+            quote! {
+                jit.emitb(0x66);
+                jit.enc_rex_mr(&[0x0f, 0x54], Reg::from(#op1), #op2);
+            }
+        }
+
+        Inst::Xorpd(Xmm(op1), op2) => {
+            quote! {
+                jit.emitb(0x66);
+                jit.enc_rex_mr(&[0x0f, 0x57], Reg::from(#op1), #op2);
+            }
+        }
+
+        Inst::Roundpd(Xmm(op1), op2, op3) => match op3 {
+            RiOperand::Imm(op3) => {
+                quote! {
+                    jit.emitb(0x66);
+                    jit.enc_rex_mr(&[0x0f, 0x3a, 0x09], Reg::from(#op1), #op2);
+                    jit.emitb(#op3);
+                }
+            }
+            RiOperand::Reg(_) => unreachable!("'ROUNDPD' does not take register as immediate."),
+        },
 
         Inst::Sqrtpd(Xmm(op1), op2) => {
             quote! {
@@ -326,16 +386,34 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Leave => quote!(
             jit.emitb(0xc9);
         ),
+        Inst::Tzcntl(op1, op2) => {
+            quote!(
+                jit.emitb(0xf3);
+                jit.enc_rex_mr(&[0x0f, 0xbc], #op1, #op2);
+            )
+        }
         Inst::Tzcntq(op1, op2) => {
             quote!(
                 jit.emitb(0xf3);
                 jit.enc_rexw_mr(&[0x0f, 0xbc], #op1, #op2);
             )
         }
+        Inst::Lzcntl(op1, op2) => {
+            quote!(
+                jit.emitb(0xf3);
+                jit.enc_rex_mr(&[0x0f, 0xbd], #op1, #op2);
+            )
+        }
         Inst::Lzcntq(op1, op2) => {
             quote!(
                 jit.emitb(0xf3);
                 jit.enc_rexw_mr(&[0x0f, 0xbd], #op1, #op2);
+            )
+        }
+        Inst::Popcntl(op1, op2) => {
+            quote!(
+                jit.emitb(0xf3);
+                jit.enc_rex_mr(&[0x0f, 0xb8], #op1, #op2);
             )
         }
         Inst::Popcntq(op1, op2) => {
@@ -849,34 +927,71 @@ fn binary_opb(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
 /// - XXX=Shr Y=5
 /// - XXX=Sar Y=7
 ///
-fn shift_op(digit: u8, op1: RmOperand, op2: RiOperand, inst_str: &str) -> TokenStream {
-    match (op1, op2) {
-        (op1, RiOperand::Imm(i)) => {
-            let op1_str = format!("{}", op1);
-            // Shl r/m64, imm8
-            // REX.W C1 /4 ib
-            quote! {
-                let imm = (#i) as i64;
-                if imm == 1 {
-                    jit.enc_rexw_digit(&[0xd1], #op1, #digit, Imm::None);
-                } else if let Ok(imm) = i8::try_from(imm) {
-                    jit.enc_rexw_digit(&[0xc1], #op1, #digit, Imm::B(imm));
-                } else {
-                    panic!("'{} {}, imm' imm should be 8 bit.", #inst_str, #op1_str);
+fn shift_op_with_width(
+    width: OperandSize,
+    digit: u8,
+    op1: RmOperand,
+    op2: RiOperand,
+    inst_str: &str,
+) -> TokenStream {
+    match width {
+        OperandSize::QWORD => match (op1, op2) {
+            (op1, RiOperand::Imm(i)) => {
+                let op1_str = format!("{}", op1);
+                // Shl r/m64, imm8
+                // REX.W C1 /4 ib
+                quote! {
+                    let imm = (#i) as i64;
+                    if imm == 1 {
+                        jit.enc_rexw_digit(&[0xd1], #op1, #digit, Imm::None);
+                    } else if let Ok(imm) = i8::try_from(imm) {
+                        jit.enc_rexw_digit(&[0xc1], #op1, #digit, Imm::B(imm));
+                    } else {
+                        panic!("'{} {}, imm' imm should be 8 bit.", #inst_str, #op1_str);
+                    }
                 }
             }
-        }
-        // Shl r/m64, Cl
-        // REX.W D3 /4
-        (op1, RiOperand::Reg(reg)) => {
-            let op1_str = format!("{}", op1);
-            quote! {
-                if !#reg.is_cl() {
-                    panic!("'{} {}, reg' reg should be CL.", #inst_str, #op1_str);
-                };
-                jit.enc_rexw_digit(&[0xd3], #op1, #digit, Imm::None);
+            // Shl r/m64, Cl
+            // REX.W D3 /4
+            (op1, RiOperand::Reg(reg)) => {
+                let op1_str = format!("{}", op1);
+                quote! {
+                    if !#reg.is_cl() {
+                        panic!("'{} {}, reg' reg should be CL.", #inst_str, #op1_str);
+                    };
+                    jit.enc_rexw_digit(&[0xd3], #op1, #digit, Imm::None);
+                }
             }
-        }
+        },
+        OperandSize::DWORD => match (op1, op2) {
+            (op1, RiOperand::Imm(i)) => {
+                let op1_str = format!("{}", op1);
+                // Shl r/m32, imm8
+                // REX C1 /4 ib
+                quote! {
+                    let imm = (#i) as i64;
+                    if imm == 1 {
+                        jit.enc_rex_digit(&[0xd1], #op1, #digit, Imm::None);
+                    } else if let Ok(imm) = i8::try_from(imm) {
+                        jit.enc_rex_digit(&[0xc1], #op1, #digit, Imm::B(imm));
+                    } else {
+                        panic!("'{} {}, imm' imm should be 8 bit.", #inst_str, #op1_str);
+                    }
+                }
+            }
+            // Shl r/m32, Cl
+            // REX D3 /4
+            (op1, RiOperand::Reg(reg)) => {
+                let op1_str = format!("{}", op1);
+                quote! {
+                    if !#reg.is_cl() {
+                        panic!("'{} {}, reg' reg should be CL.", #inst_str, #op1_str);
+                    };
+                    jit.enc_rex_digit(&[0xd3], #op1, #digit, Imm::None);
+                }
+            }
+        },
+        OperandSize::WORD | OperandSize::BYTE => todo!("not implemented yet."),
     }
 }
 
