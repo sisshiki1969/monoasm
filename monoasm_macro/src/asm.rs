@@ -127,19 +127,12 @@ pub fn compile(inst: Inst) -> TokenStream {
             _ => unimplemented!(),
         },
 
-        Inst::Shlq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 4, op1, op2, "SHL"),
-        Inst::Shrq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 5, op1, op2, "SHR"),
-        Inst::Salq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 4, op1, op2, "SAL"),
-        Inst::Sarq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 7, op1, op2, "SAR"),
-        Inst::Rolq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 0, op1, op2, "ROL"),
-        Inst::Rorq(op1, op2) => shift_op_with_width(OperandSize::QWORD, 1, op1, op2, "ROR"),
-
-        Inst::Shll(op1, op2) => shift_op_with_width(OperandSize::DWORD, 4, op1, op2, "SHL"),
-        Inst::Shrl(op1, op2) => shift_op_with_width(OperandSize::DWORD, 5, op1, op2, "SHR"),
-        Inst::Sall(op1, op2) => shift_op_with_width(OperandSize::DWORD, 4, op1, op2, "SAL"),
-        Inst::Sarl(op1, op2) => shift_op_with_width(OperandSize::DWORD, 7, op1, op2, "SAR"),
-        Inst::Roll(op1, op2) => shift_op_with_width(OperandSize::DWORD, 0, op1, op2, "ROL"),
-        Inst::Rorl(op1, op2) => shift_op_with_width(OperandSize::DWORD, 1, op1, op2, "ROR"),
+        Inst::Rol(width, op1, op2) => shift_op(width, 0, op1, op2, "ROL"),
+        Inst::Ror(width, op1, op2) => shift_op(width, 1, op1, op2, "ROR"),
+        Inst::Shl(width, op1, op2) => shift_op(width, 4, op1, op2, "SHL"),
+        Inst::Shr(width, op1, op2) => shift_op(width, 5, op1, op2, "SHR"),
+        Inst::Sal(width, op1, op2) => shift_op(width, 4, op1, op2, "SAL"),
+        Inst::Sar(width, op1, op2) => shift_op(width, 7, op1, op2, "SAR"),
 
         Inst::Setcc(cond, op) => {
             let cond: u8 = 0x90 + cond as u8;
@@ -183,39 +176,10 @@ pub fn compile(inst: Inst) -> TokenStream {
             }
         }
 
-        Inst::Idiv(op) => {
-            // IDIV r/m64: RAX:quo RDX:rem <- RDX:RAX / r/m64
-            match op {
-                // IDIV r/m64
-                // REX.W F7 /7
-                op => quote! { jit.enc_rexw_digit(&[0xf7], #op, 7, Imm::None); },
-            }
-        }
-
-        Inst::Idivl(op) => {
-            // IDIV r/m32: EAX <- EAX / r/m32
-            // REX.W F7 /7
-            match op {
-                op => quote! { jit.enc_rex_digit(&[0xf7], #op, 7, Imm::None); },
-            }
-        }
-
-        Inst::Div(op) => {
-            // DIV r/m64: RAX:quo RDX:rem <- RDX:RAX / r/m64
-            match op {
-                // DIV r/m64
-                // REX.W F7 /6
-                op => quote! { jit.enc_rexw_digit(&[0xf7], #op, 6, Imm::None); },
-            }
-        }
-
-        Inst::Divl(op) => {
-            // DIV r/m32: EAX <- EAX / r/m32
-            // REX.W F7 /6
-            match op {
-                op => quote! { jit.enc_rex_digit(&[0xf7], #op, 6, Imm::None); },
-            }
-        }
+        Inst::Idiv(op) => divide_op(OperandSize::QWORD, true, op),
+        Inst::Idivl(op) => divide_op(OperandSize::DWORD, true, op),
+        Inst::Div(op) => divide_op(OperandSize::QWORD, false, op),
+        Inst::Divl(op) => divide_op(OperandSize::DWORD, false, op),
 
         Inst::Movsd(op1, op2) => match (op1, op2) {
             (XmOperand::Xmm(op1), op2) => quote! {
@@ -904,6 +868,27 @@ fn binary_opb(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
     }
 }
 
+fn divide_op(width: OperandSize, signed: bool, op: RmOperand) -> TokenStream {
+    // IDIV r/m64: RAX:quo RDX:rem <- RDX:RAX / r/m64
+    // REX.W F7 /7
+    // IDIV r/m32: EAX:quo EDX:rem <- EDX:EAX / r/m32
+    // REX F7 /7
+    // DIV r/m64: RAX:quo RDX:rem <- RDX:RAX / r/m64
+    // REX.W F7 /6
+    // DIV r/m32: EAX:quo EDX:rem <- EDX:EAX / r/m32
+    // REX F7 /6
+    let signed = if signed { 7u8 } else { 6u8 };
+    match width {
+        OperandSize::QWORD => {
+            quote! { jit.enc_rexw_digit(&[0xf7], #op, #signed, Imm::None); }
+        }
+        OperandSize::DWORD => {
+            quote! { jit.enc_rex_digit(&[0xf7], #op, #signed, Imm::None); }
+        }
+        _ => unimplemented!("DIV/IDIV for {:?} is not yet supported.", width),
+    }
+}
+
 ///
 /// Shift and rotate operation.
 ///
@@ -926,7 +911,7 @@ fn binary_opb(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
 /// - XXX=Shr Y=5
 /// - XXX=Sar Y=7
 ///
-fn shift_op_with_width(
+fn shift_op(
     width: OperandSize,
     digit: u8,
     op1: RmOperand,

@@ -13,3 +13,4 @@ monoasm_macro = { path = "../monoasm_macro" }
 proc-macro2 = "1.0.24"
 syn = "2.0.28"
 chrono = "0.4.26"
+tempfile = "3.13.0"

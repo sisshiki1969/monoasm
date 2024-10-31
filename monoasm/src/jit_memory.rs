@@ -895,10 +895,9 @@ impl JitMemory {
 impl JitMemory {
     /// Dump generated code.
     pub fn dump_code(&self) -> Result<String, std::io::Error> {
-        use std::fs::File;
         use std::process::Command;
         let asm = self.as_slice();
-        let mut file = File::create("tmp.bin").unwrap();
+        let mut file = tempfile::NamedTempFile::new()?;
         let (start_pos, code_end, _end_pos) = self.code_block.last().unwrap();
         file.write_all(&asm[start_pos.0..code_end.0]).unwrap();
 
@@ -910,7 +909,7 @@ impl JitMemory {
                 "binary",
                 "-m",
                 "i386",
-                "tmp.bin",
+                file.path().to_str().unwrap(),
             ])
             .output()
             .map(|o| {
