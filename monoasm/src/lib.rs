@@ -192,10 +192,7 @@ impl Mode {
     }
 
     fn is_indirect_no_disp(&self) -> bool {
-        match self {
-            Mode::Ind(_, Disp::None) => true,
-            _ => false,
-        }
+        matches!(self, Mode::Ind(_, Disp::None))
     }
 }
 

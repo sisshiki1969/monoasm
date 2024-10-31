@@ -200,16 +200,14 @@ fn parse_xmm(input: ParseStream, ident: &String) -> Result<TokenStream, Error> {
                 ident,
             )))
         }
-    } else {
-        if let Ok(no) = ident[3..].parse::<u8>() {
-            if no > 15 {
-                Err(input.error(format!("Invalid xmm register name. {}", ident)))
-            } else {
-                Ok(quote!(#no as u64))
-            }
-        } else {
+    } else if let Ok(no) = ident[3..].parse::<u8>() {
+        if no > 15 {
             Err(input.error(format!("Invalid xmm register name. {}", ident)))
+        } else {
+            Ok(quote!(#no as u64))
         }
+    } else {
+        Err(input.error(format!("Invalid xmm register name. {}", ident)))
     }
 }
 
@@ -421,7 +419,7 @@ impl Parse for Immediate {
             let gr = input.parse::<Group>()?;
             Ok(Self(gr.stream()))
         } else {
-            Err(input.error(format!("Illegal immediate.")))
+            Err(input.error("Illegal immediate.".to_string()))
         }
     }
 }

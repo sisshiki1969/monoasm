@@ -125,12 +125,9 @@ pub enum Inst {
     Ret,
     Syscall,
 
-    Lzcntl(Register, RmOperand),
-    Lzcntq(Register, RmOperand),
-    Tzcntl(Register, RmOperand),
-    Tzcntq(Register, RmOperand),
-    Popcntl(Register, RmOperand),
-    Popcntq(Register, RmOperand),
+    Lzcnt(OperandSize, Register, RmOperand),
+    Tzcnt(OperandSize, Register, RmOperand),
+    Popcnt(OperandSize, Register, RmOperand),
 
     Int3,
 }
@@ -430,12 +427,12 @@ impl Parse for Inst {
                 "syscall" => parse_0op!(Syscall),
                 "leave" => parse_0op!(Leave),
 
-                "lzcntl" => parse_2op!(Lzcntl),
-                "lzcntq" => parse_2op!(Lzcntq),
-                "tzcntl" => parse_2op!(Tzcntl),
-                "tzcntq" => parse_2op!(Tzcntq),
-                "popcntl" => parse_2op!(Popcntl),
-                "popcntq" => parse_2op!(Popcntq),
+                "lzcntq" => parse_2op_sized!(Lzcnt, QWORD),
+                "tzcntq" => parse_2op_sized!(Tzcnt, QWORD),
+                "popcntq" => parse_2op_sized!(Popcnt, QWORD),
+                "lzcntl" => parse_2op_sized!(Lzcnt, DWORD),
+                "tzcntl" => parse_2op_sized!(Tzcnt, DWORD),
+                "popcntl" => parse_2op_sized!(Popcnt, DWORD),
 
                 "dq" => {
                     if input.peek(LitFloat) {
@@ -691,16 +688,14 @@ fn parse_xmm(input: ParseStream, ident: &String) -> Result<TokenStream, Error> {
                 ident,
             )))
         }
-    } else {
-        if let Ok(no) = ident[3..].parse::<u8>() {
-            if no > 15 {
-                Err(input.error(format!("Invalid xmm register name. {}", ident)))
-            } else {
-                Ok(quote!(#no as u64))
-            }
-        } else {
+    } else if let Ok(no) = ident[3..].parse::<u8>() {
+        if no > 15 {
             Err(input.error(format!("Invalid xmm register name. {}", ident)))
+        } else {
+            Ok(quote!(#no as u64))
         }
+    } else {
+        Err(input.error(format!("Invalid xmm register name. {}", ident)))
     }
 }
 

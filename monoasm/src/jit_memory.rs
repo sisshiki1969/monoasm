@@ -56,7 +56,7 @@ impl Index<Pos> for MemPage {
         if index.0 >= PAGE_SIZE {
             panic!("Page size overflow")
         }
-        unsafe { &*self.contents().offset(index.0 as isize) }
+        unsafe { &*self.contents().add(index.0) }
     }
 }
 
@@ -65,7 +65,7 @@ impl IndexMut<Pos> for MemPage {
         if index.0 >= PAGE_SIZE {
             panic!("Page size overflow")
         }
-        unsafe { &mut *self.contents().offset(index.0 as isize) }
+        unsafe { &mut *self.contents().add(index.0) }
     }
 }
 
@@ -214,7 +214,7 @@ impl Index<Pos> for JitMemory {
         if index.0 >= PAGE_SIZE {
             panic!("Page size overflow")
         }
-        unsafe { &*self.contents().offset(index.0 as isize) }
+        unsafe { &*self.contents().add(index.0) }
     }
 }
 
@@ -223,7 +223,7 @@ impl IndexMut<Pos> for JitMemory {
         if index.0 >= PAGE_SIZE {
             panic!("Page size overflow")
         }
-        unsafe { &mut *self.contents().offset(index.0 as isize) }
+        unsafe { &mut *self.contents().add(index.0) }
     }
 }
 
@@ -435,7 +435,7 @@ impl JitMemory {
                             let target_ptr = self[page].contents + pos.0 + (offset as usize);
                             let disp = (src_ptr as i128) - (target_ptr as i128);
                             match i32::try_from(disp) {
-                                Ok(disp) => self[page].write32(pos, disp as i32),
+                                Ok(disp) => self[page].write32(pos, disp),
                                 Err(_) => panic!(
                                     "Relocation overflow. src:{:016x} dest:{:016x}",
                                     src_ptr, target_ptr
@@ -549,7 +549,7 @@ impl JitMemory {
             .loc
             .expect("The DestLabel has no position binding.");
         let adr = self[page].contents();
-        unsafe { mem::transmute(adr.add(counter.0)) }
+        unsafe { adr.add(counter.0) as u64 }
     }
 
     /// Emit bytes.
@@ -902,7 +902,7 @@ impl JitMemory {
         file.write_all(&asm[start_pos.0..code_end.0]).unwrap();
 
         Command::new("objdump")
-            .args(&[
+            .args([
                 "-D",
                 "-Mintel,x86-64",
                 "-b",

@@ -146,21 +146,11 @@ pub fn compile(inst: Inst) -> TokenStream {
             }
         }
 
-        Inst::Cqo => {
-            quote! ( jit.emit(&[0x48, 0x99]); )
-        }
+        Inst::Cqo => quote! ( jit.emit(&[0x48, 0x99]); ),
+        Inst::Cdq => quote! ( jit.emit(&[0x99]); ),
+        Inst::Int3 => quote! ( jit.emit(&[0xcc]); ),
 
-        Inst::Cdq => {
-            quote! ( jit.emit(&[0x99]); )
-        }
-
-        Inst::Int3 => {
-            quote! ( jit.emit(&[0xcc]); )
-        }
-
-        Inst::Negq(op) => match op {
-            op => quote! ( jit.enc_rexw_digit(&[0xf7], #op, 3, Imm::None); ),
-        },
+        Inst::Negq(op) => quote! ( jit.enc_rexw_digit(&[0xf7], #op, 3, Imm::None); ),
 
         Inst::Imul(op1, op2) => {
             // IMUL r64, r/m64: r64 <- r64 * r/m64
@@ -200,8 +190,7 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Divsd(op1, op2) => binary_sd_op(0x5e, op1, op2),
         Inst::Minsd(op1, op2) => binary_sd_op(0x5d, op1, op2),
         Inst::Maxsd(op1, op2) => binary_sd_op(0x5f, op1, op2),
-        Inst::Xorps(op1, op2) => {
-            let op1 = op1.0;
+        Inst::Xorps(Xmm(op1), op2) => {
             quote! {
                 jit.enc_rex_mr(&[0x0f, 0x57], Reg::from(#op1), #op2);
             }
@@ -244,15 +233,13 @@ pub fn compile(inst: Inst) -> TokenStream {
             }
         }
 
-        Inst::Roundpd(Xmm(op1), op2, op3) => match op3 {
-            ImmOperand(op3) => {
-                quote! {
-                    jit.emitb(0x66);
-                    jit.enc_rex_mr(&[0x0f, 0x3a, 0x09], Reg::from(#op1), #op2);
-                    jit.emitb(#op3);
-                }
+        Inst::Roundpd(Xmm(op1), op2, ImmOperand(op3)) => {
+            quote! {
+                jit.emitb(0x66);
+                jit.enc_rex_mr(&[0x0f, 0x3a, 0x09], Reg::from(#op1), #op2);
+                jit.emitb(#op3);
             }
-        },
+        }
 
         Inst::Sqrtpd(Xmm(op1), op2) => {
             quote! {
@@ -349,42 +336,9 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Leave => quote!(
             jit.emitb(0xc9);
         ),
-        Inst::Tzcntl(op1, op2) => {
-            quote!(
-                jit.emitb(0xf3);
-                jit.enc_rex_mr(&[0x0f, 0xbc], #op1, #op2);
-            )
-        }
-        Inst::Tzcntq(op1, op2) => {
-            quote!(
-                jit.emitb(0xf3);
-                jit.enc_rexw_mr(&[0x0f, 0xbc], #op1, #op2);
-            )
-        }
-        Inst::Lzcntl(op1, op2) => {
-            quote!(
-                jit.emitb(0xf3);
-                jit.enc_rex_mr(&[0x0f, 0xbd], #op1, #op2);
-            )
-        }
-        Inst::Lzcntq(op1, op2) => {
-            quote!(
-                jit.emitb(0xf3);
-                jit.enc_rexw_mr(&[0x0f, 0xbd], #op1, #op2);
-            )
-        }
-        Inst::Popcntl(op1, op2) => {
-            quote!(
-                jit.emitb(0xf3);
-                jit.enc_rex_mr(&[0x0f, 0xb8], #op1, #op2);
-            )
-        }
-        Inst::Popcntq(op1, op2) => {
-            quote!(
-                jit.emitb(0xf3);
-                jit.enc_rexw_mr(&[0x0f, 0xb8], #op1, #op2);
-            )
-        }
+        Inst::Tzcnt(width, op1, op2) => count_op(width, 0xbc, op1, op2),
+        Inst::Lzcnt(width, op1, op2) => count_op(width, 0xbd, op1, op2),
+        Inst::Popcnt(width, op1, op2) => count_op(width, 0xb8, op1, op2),
     }
 }
 
@@ -395,11 +349,11 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
             MovOperand::Reg(op2) => quote! {
                 let op2 = Rm::reg(#op2);
                 jit.emitb(0x66);
-                jit.enc_rexw_mr(&[0x0f, 0x6e],  Reg::from(#op1), op2);
+                jit.enc_rexw_mr(&[0x0f, 0x6e], Reg::from(#op1), op2);
             },
             op2 => quote! {
                 jit.emitb(0xf3);
-                jit.enc_rex_mr(&[0x0f, 0x7e],  Reg::from(#op1), #op2);
+                jit.enc_rex_mr(&[0x0f, 0x7e], Reg::from(#op1), #op2);
             },
         },
         (MovOperand::Imm(..), op2) => panic!("'MOV Imm, {}' does not exists.", op2),
@@ -614,16 +568,11 @@ fn binary_op(
     op1: RmOperand,
     op2: RmiOperand,
 ) -> TokenStream {
-    if size == OperandSize::QWORD {
-        binary_opq(op_name, op_mr, digit, op1, op2)
-    } else if size == OperandSize::DWORD {
-        binary_opl(op_name, op_mr, digit, op1, op2)
-    } else if size == OperandSize::WORD {
-        binary_opw(op_name, op_mr, digit, op1, op2)
-    } else if size == OperandSize::BYTE {
-        binary_opb(op_name, op_mr - 1, digit, op1, op2)
-    } else {
-        unimplemented!()
+    match size {
+        OperandSize::QWORD => binary_opq(op_name, op_mr, digit, op1, op2),
+        OperandSize::DWORD => binary_opl(op_name, op_mr, digit, op1, op2),
+        OperandSize::WORD => binary_opw(op_name, op_mr, digit, op1, op2),
+        OperandSize::BYTE => binary_opb(op_name, op_mr - 1, digit, op1, op2),
     }
 }
 
@@ -1000,5 +949,23 @@ fn push_pop(opcode_r: u8, opcode_m: (u8, u8), op: RmOperand) -> TokenStream {
             let (opcode, digit) = opcode_m;
             quote! ( jit.enc_m_digit(&[#opcode], #op, #digit); )
         }
+    }
+}
+
+fn count_op(width: OperandSize, opcode: u8, op1: Register, op2: RmOperand) -> TokenStream {
+    match width {
+        OperandSize::QWORD => {
+            quote!(
+                jit.emitb(0xf3);
+                jit.enc_rexw_mr(&[0x0f, #opcode], #op1, #op2);
+            )
+        }
+        OperandSize::DWORD => {
+            quote!(
+                jit.emitb(0xf3);
+                jit.enc_rex_mr(&[0x0f, #opcode], #op1, #op2);
+            )
+        }
+        _ => unimplemented!("Count operation for {:?} is not yet supported.", width),
     }
 }
