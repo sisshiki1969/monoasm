@@ -166,7 +166,6 @@ enum ModRM {
 
 enum Rex {
     REXW,
-    REX,
     None,
     Byte,
 }
@@ -608,19 +607,30 @@ impl JitMemory {
     }
 
     /// Encoding: MI  
+    /// Op ModRM:r/m
+    pub fn enc_mi(&mut self, op: u8, rm_op: Rm, imm: Imm) {
+        self.encode(&[op], Rex::None, ModRM::Reg(Reg(0)), rm_op, imm);
+    }
+
+    /// Encoding: MI  
     /// REX.W Op ModRM:r/m
     pub fn enc_rexw_mi(&mut self, op: u8, rm_op: Rm, imm: Imm) {
         self.encode(&[op], Rex::REXW, ModRM::Reg(Reg(0)), rm_op, imm);
     }
 
-    /// Encoding: MI  
-    /// Op ModRM:r/m
-    pub fn enc_rex_mi(&mut self, op: u8, rm_op: Rm, imm: Imm) {
-        self.encode(&[op], Rex::None, ModRM::Reg(Reg(0)), rm_op, imm);
+    pub fn enc_mi_byte(&mut self, op: u8, rm_op: Rm, imm: Imm) {
+        self.encode(&[op], Rex::Byte, ModRM::Reg(Reg(0)), rm_op, imm);
     }
 
-    pub fn enc_rex_mi_byte(&mut self, op: u8, rm_op: Rm, imm: Imm) {
-        self.encode(&[op], Rex::Byte, ModRM::Reg(Reg(0)), rm_op, imm);
+    /// REX Op ModRM
+    /// MR-> ModRM:r/m(w) ModRM:reg(r)
+    /// RM-> ModRM:reg(r) ModRM:r/m(w)
+    pub fn enc_mr(&mut self, op: &[u8], reg: Reg, rm_op: Rm) {
+        self.encode(op, Rex::None, ModRM::Reg(reg), rm_op, Imm::None);
+    }
+
+    pub fn enc_mr_byte(&mut self, op: &[u8], reg: Reg, rm_op: Rm) {
+        self.encode(op, Rex::Byte, ModRM::Reg(reg), rm_op, Imm::None);
     }
 
     /// REX.W Op ModRM
@@ -630,20 +640,9 @@ impl JitMemory {
         self.encode(op, Rex::REXW, ModRM::Reg(reg), rm_op, Imm::None);
     }
 
-    /// REX Op ModRM
-    /// MR-> ModRM:r/m(w) ModRM:reg(r)
-    /// RM-> ModRM:reg(r) ModRM:r/m(w)
-    pub fn enc_rex_mr(&mut self, op: &[u8], reg: Reg, rm_op: Rm) {
-        self.encode(op, Rex::None, ModRM::Reg(reg), rm_op, Imm::None);
-    }
-
-    pub fn enc_rex_mr_byte(&mut self, op: &[u8], reg: Reg, rm_op: Rm) {
-        self.encode(op, Rex::Byte, ModRM::Reg(reg), rm_op, Imm::None);
-    }
-
     /// This is used in "setcc r/m8".
-    pub fn enc_rex_m(&mut self, op: &[u8], rm: Rm) {
-        self.encode(op, Rex::REX, ModRM::Reg(Reg(0)), rm, Imm::None);
+    pub fn enc_m_byte(&mut self, op: &[u8], rm: Rm) {
+        self.encode(op, Rex::Byte, ModRM::Reg(Reg(0)), rm, Imm::None);
     }
 
     /// Encoding: D  
@@ -676,9 +675,9 @@ impl JitMemory {
         }
     }
 
-    pub fn enc_rex_digit(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {
+    /*pub fn enc_rex_digit(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {
         self.encode(op, Rex::REX, ModRM::Digit(digit), rm, imm);
-    }
+    }*/
 
     /// Encoding: /n  
     /// REX.W Op /n
@@ -693,7 +692,6 @@ impl JitMemory {
         };
         let rex_fn = match rex {
             Rex::REXW => JitMemory::rexw,
-            Rex::REX => JitMemory::rex,
             Rex::None => JitMemory::rex_none,
             Rex::Byte => JitMemory::rex_none_byte,
         };

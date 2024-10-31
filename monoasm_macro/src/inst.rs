@@ -88,8 +88,8 @@ pub enum Inst {
 
     Lea(RmOperand, RmOperand),
 
-    Testq(RmOperand, RmiOperand),
-    Testb(RmOperand, RmiOperand),
+    Testq(RmOperand, RiOperand),
+    Testb(RmOperand, RiOperand),
 
     Setcc(Cond, RmOperand),
     Cmovcc(OperandSize, Cond, Register, RmOperand),
@@ -170,6 +170,47 @@ pub enum Cond {
     Gt = 15,
 }
 
+impl Cond {
+    pub fn from(s: &str) -> Option<Self> {
+        let cond = match s {
+            "o" => Cond::O,
+            "no" => Cond::No,
+            "b" => Cond::B,
+            "c" => Cond::B,
+            "nae" => Cond::B,
+            "ae" => Cond::Ae,
+            "nc" => Cond::Ae,
+            "eq" => Cond::Eq,
+            "e" => Cond::Eq,
+            "z" => Cond::Eq,
+            "ne" => Cond::Ne,
+            "nz" => Cond::Ne,
+            "be" => Cond::Be,
+            "na" => Cond::Be,
+            "a" => Cond::A,
+            "nbe" => Cond::A,
+            "s" => Cond::S,
+            "ns" => Cond::Ns,
+            "p" => Cond::P,
+            "pe" => Cond::P,
+            "np" => Cond::Np,
+            "po" => Cond::Np,
+            "lt" => Cond::Lt,
+            "l" => Cond::Lt,
+            "nge" => Cond::Lt,
+            "ge" => Cond::Ge,
+            "nl" => Cond::Ge,
+            "le" => Cond::Le,
+            "ng" => Cond::Le,
+            "gt" => Cond::Gt,
+            "g" => Cond::Gt,
+            "nle" => Cond::Gt,
+            _ => return None,
+        };
+        Some(cond)
+    }
+}
+
 impl Parse for Inst {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         macro_rules! parse_2op_sized {
@@ -240,11 +281,11 @@ impl Parse for Inst {
         }
 
         macro_rules! parse_set {
-            ($inst: ident, $flag: ident) => (
+            ($flag: ident) => (
                 {
                     let op = input.parse()?;
                     input.parse::<Token![;]>()?;
-                    Ok(Inst::$inst(Cond::$flag, op))
+                    Ok(Inst::Setcc($flag, op))
                 }
             )
         }
@@ -256,7 +297,7 @@ impl Parse for Inst {
                     input.parse::<Token![,]>()?;
                     let op2 = input.parse()?;
                     input.parse::<Token![;]>()?;
-                    Ok(Inst::Cmovcc(OperandSize::$size, Cond::$flag, op1, op2))
+                    Ok(Inst::Cmovcc($size, $flag, op1, op2))
                 }
             )
         }
@@ -317,39 +358,15 @@ impl Parse for Inst {
                 "negq" => parse_1op!(Negq),
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
+                "idivq" => parse_1op!(Idiv),
                 "idivl" => parse_1op!(Idivl),
                 "div" => parse_1op!(Div),
+                "divq" => parse_1op!(Div),
                 "divl" => parse_1op!(Divl),
 
                 "testq" => parse_2op!(Testq),
                 "testb" => parse_2op!(Testb),
                 "lea" => parse_2op!(Lea),
-
-                "setb" => parse_set!(Setcc, B),
-                "setae" => parse_set!(Setcc, Ae),
-                "seteq" => parse_set!(Setcc, Eq),
-                "setne" => parse_set!(Setcc, Ne),
-                "setbe" => parse_set!(Setcc, Be),
-                "seta" => parse_set!(Setcc, A),
-                "sets" => parse_set!(Setcc, S),
-                "setns" => parse_set!(Setcc, Ns),
-                "setlt" => parse_set!(Setcc, Lt),
-                "setge" => parse_set!(Setcc, Ge),
-                "setle" => parse_set!(Setcc, Le),
-                "setgt" => parse_set!(Setcc, Gt),
-
-                "cmovbq" => parse_cmov!(QWORD, B),
-                "cmovaeq" => parse_cmov!(QWORD, Ae),
-                "cmoveqq" => parse_cmov!(QWORD, Eq),
-                "cmovneq" => parse_cmov!(QWORD, Ne),
-                "cmovbeq" => parse_cmov!(QWORD, Be),
-                "cmovaq" => parse_cmov!(QWORD, A),
-                "cmovsq" => parse_cmov!(QWORD, S),
-                "cmovnsq" => parse_cmov!(QWORD, Ns),
-                "cmovltq" => parse_cmov!(QWORD, Lt),
-                "cmovgeq" => parse_cmov!(QWORD, Ge),
-                "cmovleq" => parse_cmov!(QWORD, Le),
-                "cmovgtq" => parse_cmov!(QWORD, Gt),
 
                 "cqo" => parse_0op!(Cqo),
                 "cdq" => parse_0op!(Cdq),
@@ -447,6 +464,40 @@ impl Parse for Inst {
                         Err(input.error("unimplemented literal."))
                     }
                 }
+
+                s if s.starts_with("cmov") => {
+                    let width = match s.as_bytes()[s.len() - 1] {
+                        b'q' => OperandSize::QWORD,
+                        b'l' => OperandSize::DWORD,
+                        b'w' => OperandSize::WORD,
+                        _ => {
+                            return Err(Error::new(
+                                ident.span(),
+                                "illegal cmov operand size suffix.",
+                            ))
+                        }
+                    };
+                    if 5 >= s.len() {
+                        return Err(Error::new(ident.span(), "illegal cmov condition."));
+                    }
+                    let cond = match Cond::from(&s[4..s.len() - 1]) {
+                        Some(cond) => cond,
+                        None => return Err(Error::new(ident.span(), "illegal cmov condition.")),
+                    };
+                    parse_cmov!(width, cond)
+                }
+
+                s if s.starts_with("set") => {
+                    if 3 >= s.len() {
+                        return Err(Error::new(ident.span(), "illegal setcc condition."));
+                    }
+                    let cond = match Cond::from(&s[3..]) {
+                        Some(cond) => cond,
+                        None => return Err(Error::new(ident.span(), "illegal setcc condition.")),
+                    };
+                    parse_set!(cond)
+                }
+
                 _ => Err(Error::new(ident.span(), "unimplemented instruction.")),
             }
         }

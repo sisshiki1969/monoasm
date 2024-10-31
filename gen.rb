@@ -21,6 +21,39 @@ INDEX_TEMPLATE = [
   "r15", 
 ]
 
+CONDITIONS = [
+  "o",
+  "no",
+  "b",
+  "c",
+  "nae",
+  "ae",
+  "nc",
+  "eq",
+  "e",
+  "z",
+  "ne",
+  "nz",
+  "be",
+  "na",
+  "a",
+  "nbe",
+  "s",
+  "ns",
+  "p",
+  "pe",
+  "np",
+  "po",
+  "lt",
+  "nge",
+  "ge",
+  "nl",
+  "le",
+  "ng",
+  "gt",
+  "nle"
+]
+
 def indirect_template(size)
   (reg_template(8) + ["rip"]).map do |r|
     [ 
@@ -92,9 +125,8 @@ class Inst
     @inst
   end
 
-  def self.inst_name(size)
-    @inst + 
-    case size
+  def self.inst_name(size, cond = "")
+    @inst + cond + case size
     when 8
       "q"
     when 4
@@ -106,11 +138,55 @@ class Inst
     end
   end
 
-  def self.make_file(inst, size)
+  def self.make_files
+    @files = []
+    if @size.is_a?(Array)
+      @size.each do |size|
+        if @has_cond then
+          for cond in CONDITIONS do
+            asm_cond = if cond == "lt"
+              "l"
+            elsif cond == "gt"
+              "g"
+            elsif cond == "eq"
+              "e"
+            else
+              cond
+            end
+            inst_name = self.inst_name(size, cond)
+            make_file(inst_name, @inst + asm_cond, size)
+          end
+        else
+          inst_name = self.inst_name(size)
+          make_file(inst_name, @inst, size)
+        end
+      end
+    else
+      if @has_cond then
+        for cond in CONDITIONS do
+          asm_cond = if cond == "lt"
+            "l"
+          elsif cond == "gt"
+            "g"
+          elsif cond == "eq"
+            "e"
+          else
+            cond
+          end
+          make_file(@inst + cond, @inst + asm_cond, size)
+        end
+      else
+        make_file(@inst, @inst, size)
+      end
+    end
+  end
+
+  def self.make_file(inst, asm_inst, size)
+    puts "Generating #{inst}/#{asm_inst}/#{size}..."
     @monoasm = header
     @asm = ""
 
-    gen(inst, size)
+    gen(inst, asm_inst, size)
 
     f = File.open "monoasm/tests/gen_#{inst}.rs", "w"
     f.write @monoasm + footer(inst)
@@ -124,6 +200,14 @@ class Inst
     `as monoasm/tests/#{inst}.s -o monoasm/tests/#{inst}`
     `objcopy -O binary --only-section=.text monoasm/tests/#{inst} monoasm/tests/#{inst}.bin`
     `rm monoasm/tests/#{inst}`
+
+    @files << inst
+  end
+
+  def self.compare_files
+    @files.each do |file|
+      compare(file)
+    end
   end
 
   def self.compare(inst)
@@ -175,7 +259,7 @@ EOS
     end
   end
 
-  def self.operand(inst, size, mode1, mode2=nil)
+  def self.operand(inst, asm_inst, size, mode1, mode2=nil)
     if mode2.nil?
 
       templ = template(mode1, size)
@@ -185,7 +269,7 @@ EOS
       end
       
       templ[1].each do |op|
-        @asm += "\t#{inst} #{op};\n"
+        @asm += "\t#{asm_inst} #{op};\n"
       end
       
     else
@@ -201,266 +285,210 @@ EOS
 
       templ1[1].each do |op1|
         templ2[1].each do |op2|
-          @asm += "\t#{@asm_inst} #{op1}, #{op2};\n"
+          @asm += "\t#{asm_inst} #{op1}, #{op2};\n"
         end
       end
     end
   end
 
-  def self.rm(inst, size)
-    operand(inst, size, MODE_REG)
-    operand(inst, size, MODE_INDIRECT)
+  def self.rm(inst, asm_inst, size)
+    operand(inst, asm_inst, size, MODE_REG)
+    operand(inst, asm_inst, size, MODE_INDIRECT)
   end
 
-  def self.r_r(inst, size)
-    operand(inst, size, MODE_REG, MODE_REG)
+  def self.r_r(inst, asm_inst, size)
+    operand(inst, asm_inst, size, MODE_REG, MODE_REG)
   end
 
-  def self.rm_i(inst, size)
-    operand(inst, size, MODE_REG, MODE_IMMEDIATE)
-    operand(inst, size, MODE_INDIRECT, MODE_IMMEDIATE)
+  def self.rm_i(inst, asm_inst, size)
+    operand(inst, asm_inst, size, MODE_REG, MODE_IMMEDIATE)
+    operand(inst, asm_inst, size, MODE_INDIRECT, MODE_IMMEDIATE)
   end
 
-  def self.rm_1(inst, size)
-    operand(inst, size, MODE_REG, MODE_IMMEDIATE)
-    operand(inst, size, MODE_INDIRECT, MODE_IMMEDIATE)
+  def self.rm_1(inst, asm_inst, size)
+    operand(inst, asm_inst, size, MODE_REG, MODE_IMMEDIATE)
+    operand(inst, asm_inst, size, MODE_INDIRECT, MODE_IMMEDIATE)
   end
 
-  def self.m_r(inst, size)
-    operand(inst, size, MODE_INDIRECT, MODE_REG)
+  def self.m_r(inst, asm_inst, size)
+    operand(inst, asm_inst, size, MODE_INDIRECT, MODE_REG)
   end
 
-  def self.r_m(inst, size)
-    operand(inst, size, MODE_REG, MODE_INDIRECT)
+  def self.r_m(inst, asm_inst, size)
+    operand(inst, asm_inst, size, MODE_REG, MODE_INDIRECT)
   end
 
-  def self.gen(inst, size)
-    r_r(inst, size)
-    rm_i(inst, size)
-    m_r(inst, size)
-    r_m(inst, size)
+  def self.gen(inst, asm_inst, size)
+    r_r(inst, asm_inst, size)
+    rm_i(inst, asm_inst, size)
+    m_r(inst, asm_inst, size)
+    r_m(inst, asm_inst, size)
   end
 
 end
 
-class Movq < Inst
-  @inst = "movq"
-  @asm_inst = "mov"
-  @size = 8
-end
-
-class Movl < Inst
-  @inst = "movl"
-  @asm_inst = "mov"
-  @size = 4
-end
-
-class Movw < Inst
-  @inst = "movw"
-  @asm_inst = "mov"
-  @size = 2
-end
-
-class Movb < Inst
-  @inst = "movb"
-  @asm_inst = "mov"
-  @size = 1
+class Mov < Inst
+  @inst = "mov"
+  @size = [8, 4, 2, 1]
 end
 
 class Add < Inst
   @inst = "add"
-  @asm_inst = "add"
   @size = [8, 4, 2, 1]
 end
 
 class Sub < Inst
   @inst = "sub"
-  @asm_inst = "sub"
   @size = [8, 4, 2, 1]
 end
 
 class Adc < Inst
   @inst = "adc"
-  @asm_inst = "adc"
   @size = [8, 4, 2, 1]
 end
 
 class Sbb < Inst
   @inst = "sbb"
-  @asm_inst = "sbb"
   @size = [8, 4, 2, 1]
 end
 
 class And < Inst
   @inst = "and"
-  @asm_inst = "and"
   @size = [8, 4, 2, 1]
 end
 
 class Or < Inst
   @inst = "or"
-  @asm_inst = "or"
   @size = [8, 4, 2, 1]
 end
 
 class Xor < Inst
   @inst = "xor"
-  @asm_inst = "xor"
   @size = [8, 4, 2, 1]
 end
 
 class Cmp < Inst
-  @asm_inst = "cmp"
   @inst = "cmp"
   @size = [8, 4, 2, 1]
 end
 
 class Xchg < Inst
-  @inst = "xchgq"
-  @asm_inst = "xchg"
-  @size = 8
+  @inst = "xchg"
+  @size = [8]
 
-  def self.gen(inst, size)
-    r_r(inst, size)
-    m_r(inst, size)
-    r_m(inst, size)
+  def self.gen(inst, asm_inst, size)
+    r_r(inst, asm_inst, size)
+    m_r(inst, asm_inst, size)
+    r_m(inst, asm_inst, size)
   end
 end
 
-class Testq < Inst
-  @inst = "testq"
-  @asm_inst = "test"
-  @size = 8
+class Test < Inst
+  @inst = "test"
+  @size = [8, 1]
 
-  def self.gen(inst, size)
-    r_r(inst, size)
-    rm_i(inst, size)
-    m_r(inst, size)
-  end
-end
-
-class Testb < Inst
-  @inst = "testb"
-  @asm_inst = "test"
-  @size = 1
-
-  def self.gen(inst, size)
-    r_r(inst, size)
-    rm_i(inst, size)
-    m_r(inst, size)
+  def self.gen(inst, asm_inst, size)
+    r_r(inst, asm_inst, size)
+    rm_i(inst, asm_inst, size)
+    m_r(inst, asm_inst, size)
   end
 end
 
 class Push < Inst
-  @inst = "pushq"
-  @asm_inst = "push"
-  @size = 8
+  @inst = "push"
+  @size = [8]
 
-  def self.gen(inst, size)
-    rm(inst, size)
+  def self.gen(inst, asm_inst, size)
+    rm(inst, asm_inst, size)
   end
 end
 
 class Pop < Inst
-  @inst = "popq"
-  @asm_inst = "pop"
-  @size = 8
+  @inst = "pop"
+  @size = [8]
 
-  def self.gen(inst, size)
-    rm(inst, size)
+  def self.gen(inst, asm_inst, size)
+    rm(inst, asm_inst, size)
   end
 end
 
-class Negq < Inst
-  @inst = "negq"
-  @asm_inst = "neg"
-  @size = 8
+class Neg < Inst
+  @inst = "neg"
+  @size = [8]
 
-  def self.gen(inst, size)
-    rm(inst, size)
+  def self.gen(inst, asm_inst, size)
+    rm(inst, asm_inst, size)
   end
 end
 
 class Shift < Inst
-  def self.gen(inst, size)
-    rm_i(inst, size)
-    rm_1(inst, size)
+  def self.gen(inst, asm_inst, size)
+    rm_i(inst, asm_inst, size)
+    rm_1(inst, asm_inst, size)
   end
 end
 
 class Shl < Shift
   @inst = "shl"
-  @asm_inst = "shl"
   @size = [8, 4]
 end
 
 class Shr < Shift
   @inst = "shr"
-  @asm_inst = "shr"
   @size = [8, 4]
 end
 
 class Sal < Shift
   @inst = "sal"
-  @asm_inst = "sal"
   @size = [8, 4]
 end
 
 class Sar < Shift
   @inst = "sar"
-  @asm_inst = "sar"
   @size = [8, 4]
 end
 
 class Rol < Shift
   @inst = "rol"
-  @asm_inst = "rol"
   @size = [8, 4]
 end
 
 class Ror < Shift
   @inst = "ror"
-  @asm_inst = "ror"
   @size = [8, 4]
 end
 
-class Cmoveq < Inst
-  @inst = "cmoveqq"
-  @asm_inst = "cmoveq"
-  @size = 8
+class Setcc < Inst
+  @inst = "set"
+  @has_cond = true
+  @size = 1
 
-  def self.gen(inst, size)
-    r_r(inst, size)
-    r_m(inst, size)
+  def self.gen(inst, asm_inst, size)
+    rm(inst, asm_inst, size)
   end
 end
 
-instructions = [Movq, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Shl, Shr, Sal, Sar, Rol, Ror] +
-[Movl, Movw, Movb] + [Testb]
-[Testq, Xchg, Push, Pop, Negq] + [Cmoveq]
+class Cmov < Inst
+  @inst = "cmov"
+  @has_cond = true
+  @size = [8, 4, 2]
+
+  def self.gen(inst, asm_inst, size)
+    r_r(inst, asm_inst, size)
+    r_m(inst, asm_inst, size)
+  end
+end
+
+instructions = [Mov, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Shl, Shr, Sal, Sar, Rol, Ror] +
+[Test, Xchg, Push, Pop, Neg, Cmov, Setcc]
 
 `rm monoasm/tests/*.txt`
 instructions.each do |inst|
-  if inst.size.is_a?(Array)
-    inst.size.each do |size|
-      inst_name = inst.inst_name(size)
-      inst.make_file(inst_name, size)
-    end
-  else
-    inst.make_file(inst.inst, inst.size)
-  end
-
+  inst.make_files
 end
 `cargo test`
 instructions.each do |inst|
-  if inst.size.is_a?(Array)
-    inst.size.each do |size|
-      inst_name = inst.inst_name(size)
-      inst.compare(inst_name)
-    end
-  else
-    inst.compare(inst.inst)
-  end
+  inst.compare_files
 end
 `rm monoasm/tests/*.bin`
 `rm monoasm/tests/*.s`

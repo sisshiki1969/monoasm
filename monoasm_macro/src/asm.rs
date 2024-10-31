@@ -58,8 +58,8 @@ pub fn compile(inst: Inst) -> TokenStream {
             _ => panic!("'Xchg {:?} {op1}, {op2}' does not exists.", size),
         },
 
-        Inst::Testq(op1, op2) => match (op1, op2) {
-            (op1, RmiOperand::Imm(i)) => {
+        Inst::Testq(op1, op2) => match op2 {
+            RiOperand::Imm(i) => {
                 let op1_str = format!("{}", op1);
                 match &op1 {
                     RmOperand::Reg(reg) => {
@@ -89,11 +89,10 @@ pub fn compile(inst: Inst) -> TokenStream {
                     }
                 }
             }
-            (op1, RmiOperand::Reg(expr)) => quote!( jit.enc_rexw_mr(&[0x85], #expr, #op1); ),
-            _ => unimplemented!(),
+            RiOperand::Reg(expr) => quote!( jit.enc_rexw_mr(&[0x85], #expr, #op1); ),
         },
-        Inst::Testb(op1, op2) => match (op1, op2) {
-            (op1, RmiOperand::Imm(i)) => {
+        Inst::Testb(op1, op2) => match op2 {
+            RiOperand::Imm(i) => {
                 let op1_str = format!("{}", op1);
                 match &op1 {
                     RmOperand::Reg(reg) => {
@@ -104,7 +103,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                                     jit.emit(&[0xa8]);
                                     jit.emitb(imm as u8);
                                 } else {
-                                    jit.enc_rex_mi_byte(0xf6, #op1, Imm::B(imm));
+                                    jit.enc_mi_byte(0xf6, #op1, Imm::B(imm));
                                 }
                             } else {
                                 panic!("'TEST {}, imm64' does not exists.", #op1_str);
@@ -115,7 +114,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                         quote! {
                             let imm = (#i) as i64;
                             if let Ok(imm) = i8::try_from(imm)  {
-                                jit.enc_rex_mi_byte(0xf6, #op1, Imm::B(imm));
+                                jit.enc_mi_byte(0xf6, #op1, Imm::B(imm));
                             } else {
                                 panic!("'TEST {}, imm64' does not exists.", #op1_str);
                             }
@@ -123,8 +122,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                     }
                 }
             }
-            (op1, RmiOperand::Reg(expr)) => quote!( jit.enc_rex_mr_byte(&[0x84], #expr, #op1); ),
-            _ => unimplemented!(),
+            RiOperand::Reg(expr) => quote!( jit.enc_mr_byte(&[0x84], #expr, #op1); ),
         },
 
         Inst::Rol(width, op1, op2) => shift_op(width, 0, op1, op2, "ROL"),
@@ -136,12 +134,17 @@ pub fn compile(inst: Inst) -> TokenStream {
 
         Inst::Setcc(cond, op) => {
             let cond: u8 = 0x90 + cond as u8;
-            quote!( jit.enc_rex_m(&[0x0f, #cond], #op); )
+            quote!( jit.enc_m_byte(&[0x0f, #cond], #op); )
         }
         Inst::Cmovcc(size, cond, op1, op2) => {
             let cond: u8 = 0x40 + cond as u8;
             match size {
                 OperandSize::QWORD => quote!( jit.enc_rexw_mr(&[0x0f, #cond], #op1, #op2); ),
+                OperandSize::DWORD => quote!( jit.enc_mr(&[0x0f, #cond], #op1, #op2); ),
+                OperandSize::WORD => quote!(
+                    jit.emitb(0x66);
+                    jit.enc_mr(&[0x0f, #cond], #op1, #op2);
+                ),
                 _ => unimplemented!(),
             }
         }
@@ -174,11 +177,11 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Movsd(op1, op2) => match (op1, op2) {
             (XmOperand::Xmm(op1), op2) => quote! {
                 jit.emitb(0xf2);
-                jit.enc_rex_mr(&[0x0f, 0x10], Reg::from(#op1), #op2);
+                jit.enc_mr(&[0x0f, 0x10], Reg::from(#op1), #op2);
             },
             (op1, XmOperand::Xmm(op2)) => quote! {
                 jit.emitb(0xf2);
-                jit.enc_rex_mr(&[0x0f, 0x11], Reg::from(#op2), #op1);
+                jit.enc_mr(&[0x0f, 0x11], Reg::from(#op2), #op1);
             },
             _ => {
                 panic!("'MOVSD m64, m64' does not exists.")
@@ -192,7 +195,7 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Maxsd(op1, op2) => binary_sd_op(0x5f, op1, op2),
         Inst::Xorps(Xmm(op1), op2) => {
             quote! {
-                jit.enc_rex_mr(&[0x0f, 0x57], Reg::from(#op1), #op2);
+                jit.enc_mr(&[0x0f, 0x57], Reg::from(#op1), #op2);
             }
         }
 
@@ -215,28 +218,28 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Cvttsd2siq(op1, op2) => {
             quote! {
                 jit.emitb(0xf2);
-                jit.enc_rex_mr(&[0x0f, 0x2c], #op1, #op2);
+                jit.enc_mr(&[0x0f, 0x2c], #op1, #op2);
             }
         }
 
         Inst::Andpd(Xmm(op1), op2) => {
             quote! {
                 jit.emitb(0x66);
-                jit.enc_rex_mr(&[0x0f, 0x54], Reg::from(#op1), #op2);
+                jit.enc_mr(&[0x0f, 0x54], Reg::from(#op1), #op2);
             }
         }
 
         Inst::Xorpd(Xmm(op1), op2) => {
             quote! {
                 jit.emitb(0x66);
-                jit.enc_rex_mr(&[0x0f, 0x57], Reg::from(#op1), #op2);
+                jit.enc_mr(&[0x0f, 0x57], Reg::from(#op1), #op2);
             }
         }
 
         Inst::Roundpd(Xmm(op1), op2, ImmOperand(op3)) => {
             quote! {
                 jit.emitb(0x66);
-                jit.enc_rex_mr(&[0x0f, 0x3a, 0x09], Reg::from(#op1), #op2);
+                jit.enc_mr(&[0x0f, 0x3a, 0x09], Reg::from(#op1), #op2);
                 jit.emitb(#op3);
             }
         }
@@ -244,13 +247,13 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Sqrtpd(Xmm(op1), op2) => {
             quote! {
                 jit.emitb(0x66);
-                jit.enc_rex_mr(&[0x0f, 0x51], Reg::from(#op1), #op2);
+                jit.enc_mr(&[0x0f, 0x51], Reg::from(#op1), #op2);
             }
         }
         Inst::Sqrtsd(Xmm(op1), op2) => {
             quote! {
                 jit.emitb(0xf2);
-                jit.enc_rex_mr(&[0x0f, 0x51], Reg::from(#op1), #op2);
+                jit.enc_mr(&[0x0f, 0x51], Reg::from(#op1), #op2);
             }
         }
 
@@ -326,7 +329,7 @@ pub fn compile(inst: Inst) -> TokenStream {
             let op1 = op1.0;
             quote!(
                 jit.emitb(0x66);
-                jit.enc_rex_mr(&[0x0f, 0x2e], Reg::from(#op1), #op2);
+                jit.enc_mr(&[0x0f, 0x2e], Reg::from(#op1), #op2);
             )
         }
 
@@ -353,7 +356,7 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
             },
             op2 => quote! {
                 jit.emitb(0xf3);
-                jit.enc_rex_mr(&[0x0f, 0x7e], Reg::from(#op1), #op2);
+                jit.enc_mr(&[0x0f, 0x7e], Reg::from(#op1), #op2);
             },
         },
         (MovOperand::Imm(..), op2) => panic!("'MOV Imm, {}' does not exists.", op2),
@@ -414,7 +417,7 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
         },
         (op1, MovOperand::Xmm(op2)) => quote! {
             jit.emitb(0x66);
-            jit.enc_rex_mr(&[0x0f, 0xd6], Reg::from(#op2), #op1);
+            jit.enc_mr(&[0x0f, 0xd6], Reg::from(#op2), #op1);
         },
         // MOV r64,m64
         // REX.W + 8B /r
@@ -449,7 +452,7 @@ fn movl(op1: RmOperand, op2: RmiOperand) -> TokenStream {
             quote! {
                 let imm = (#i) as i64;
                 if let Ok(imm) = i32::try_from(imm)  {
-                    jit.enc_rex_mi(0xc7, #op1, Imm::L(imm));
+                    jit.enc_mi(0xc7, #op1, Imm::L(imm));
                 } else {
                     panic!("'MOVL {}, imm64' does not exists.", #op1_str);
                 }
@@ -458,11 +461,11 @@ fn movl(op1: RmOperand, op2: RmiOperand) -> TokenStream {
         // MOV r/m32, r32
         // 89 /r
         // MR
-        (op1, RmiOperand::Reg(expr)) => quote!( jit.enc_rex_mr(&[0x89], #expr, #op1); ),
+        (op1, RmiOperand::Reg(expr)) => quote!( jit.enc_mr(&[0x89], #expr, #op1); ),
         // MOV r32, m32
         // 8B /r
         // RM
-        (RmOperand::Reg(op1), op2) => quote!( jit.enc_rex_mr(&[0x8b], #op1, #op2); ),
+        (RmOperand::Reg(op1), op2) => quote!( jit.enc_mr(&[0x8b], #op1, #op2); ),
         (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
     }
 }
@@ -492,7 +495,7 @@ fn movw(op1: RmOperand, op2: RmiOperand) -> TokenStream {
                 let imm = (#i) as i64;
                 if let Ok(imm) = i16::try_from(imm)  {
                     jit.emitb(0x66);
-                    jit.enc_rex_mi(0xc7, #op1, Imm::W(imm));
+                    jit.enc_mi(0xc7, #op1, Imm::W(imm));
                 } else {
                     panic!("'MOVW {}, {}' does not exists.", #op1_str, imm);
                 }
@@ -502,13 +505,13 @@ fn movw(op1: RmOperand, op2: RmiOperand) -> TokenStream {
         // 89 /r
         (op1, RmiOperand::Reg(expr)) => quote!(
             jit.emitb(0x66);
-            jit.enc_rex_mr(&[0x89], #expr, #op1);
+            jit.enc_mr(&[0x89], #expr, #op1);
         ),
         // MOV r16, m16
         // 8B /r
         (RmOperand::Reg(op1), op2) => quote!(
             jit.emitb(0x66);
-            jit.enc_rex_mr(&[0x8b], #op1, #op2);
+            jit.enc_mr(&[0x8b], #op1, #op2);
         ),
         (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
     }
@@ -538,7 +541,7 @@ fn movb(op1: RmOperand, op2: RmiOperand) -> TokenStream {
             quote! {
                 let imm = (#i) as i64;
                 if let Ok(imm) = i8::try_from(imm)  {
-                    jit.enc_rex_mi_byte(0xc6, #op1, Imm::B(imm));
+                    jit.enc_mi_byte(0xc6, #op1, Imm::B(imm));
                 } else {
                     panic!("'MOVW {}, {}' does not exists.", #op1_str, imm);
                 }
@@ -548,13 +551,13 @@ fn movb(op1: RmOperand, op2: RmiOperand) -> TokenStream {
         // 88 /r
         (op1, RmiOperand::Reg(expr)) => quote!(
             //jit.emitb(0x66);
-            jit.enc_rex_mr_byte(&[0x88], #expr, #op1);
+            jit.enc_mr_byte(&[0x88], #expr, #op1);
         ),
         // MOV r8, m8
         // 8A /r
         (RmOperand::Reg(op1), op2) => quote!(
             //jit.emitb(0x66);
-            jit.enc_rex_mr_byte(&[0x8a], #op1, #op2);
+            jit.enc_mr_byte(&[0x8a], #op1, #op2);
         ),
         (op1, op2) => unimplemented!("MOV {}, {}", op1, op2),
     }
@@ -679,7 +682,7 @@ fn binary_opl(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
         // OP=SUB 29 /r
         // OP=XOR 31 /r
         // OP=CMP 39 /r
-        (op1, RmiOperand::Reg(expr)) => quote! ( jit.enc_rex_mr(&[#op_mr], #expr, #op1); ),
+        (op1, RmiOperand::Reg(expr)) => quote! ( jit.enc_mr(&[#op_mr], #expr, #op1); ),
         // OP r32, m32
         // OP=ADD 03 /r
         // OP=OR  0b /r
@@ -689,7 +692,7 @@ fn binary_opl(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
         // OP=SUB 2b /r
         // OP=XOR 33 /r
         // OP=CMP 3b /r
-        (RmOperand::Reg(expr), op2) => quote! ( jit.enc_rex_mr(&[#op_rm], #expr, #op2); ),
+        (RmOperand::Reg(expr), op2) => quote! ( jit.enc_mr(&[#op_rm], #expr, #op2); ),
         (op1, op2) => unimplemented!("{} {}, {} does not exists.", op_name, op1, op2),
     }
 }
@@ -741,7 +744,7 @@ fn binary_opw(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
         // OP=CMP 39 /r
         (op1, RmiOperand::Reg(expr)) => quote! {
             jit.emitb(0x66);
-            jit.enc_rex_mr(&[#op_mr], #expr, #op1);
+            jit.enc_mr(&[#op_mr], #expr, #op1);
         },
         // OP r16, m16
         // OP=ADD 03 /r
@@ -754,7 +757,7 @@ fn binary_opw(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
         // OP=CMP 3b /r
         (RmOperand::Reg(expr), op2) => quote! {
             jit.emitb(0x66);
-            jit.enc_rex_mr(&[#op_rm], #expr, #op2);
+            jit.enc_mr(&[#op_rm], #expr, #op2);
         },
         (op1, op2) => unimplemented!("{} {}, {} does not exists.", op_name, op1, op2),
     }
@@ -802,7 +805,7 @@ fn binary_opb(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
         // OP=SUB REX 28 /r
         // OP=XOR REX 30 /r
         // OP=CMP REX 38 /r
-        (op1, RmiOperand::Reg(expr)) => quote! ( jit.enc_rex_mr_byte(&[#op_mr], #expr, #op1); ),
+        (op1, RmiOperand::Reg(expr)) => quote! ( jit.enc_mr_byte(&[#op_mr], #expr, #op1); ),
         // OP r8, m8
         // OP=ADD REX 02 /r
         // OP=OR  REX 0a /r
@@ -812,7 +815,7 @@ fn binary_opb(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
         // OP=SUB REX 2a /r
         // OP=XOR REX 32 /r
         // OP=CMP REX 3a /r
-        (RmOperand::Reg(expr), op2) => quote! ( jit.enc_rex_mr_byte(&[#op_rm], #expr, #op2); ),
+        (RmOperand::Reg(expr), op2) => quote! ( jit.enc_mr_byte(&[#op_rm], #expr, #op2); ),
         (op1, op2) => unimplemented!("{} {}, {} does not exists.", op_name, op1, op2),
     }
 }
@@ -832,7 +835,7 @@ fn divide_op(width: OperandSize, signed: bool, op: RmOperand) -> TokenStream {
             quote! { jit.enc_rexw_digit(&[0xf7], #op, #signed, Imm::None); }
         }
         OperandSize::DWORD => {
-            quote! { jit.enc_rex_digit(&[0xf7], #op, #signed, Imm::None); }
+            quote! { jit.enc_digit(&[0xf7], #op, #signed); }
         }
         _ => unimplemented!("DIV/IDIV for {:?} is not yet supported.", width),
     }
@@ -932,7 +935,7 @@ fn binary_sd_op(operand: u8, op1: Xmm, op2: XmOperand) -> TokenStream {
     let op1 = op1.0;
     quote! {
         jit.emitb(0xf2);
-        jit.enc_rex_mr(&[0x0f, #operand], Reg::from(#op1), #op2);
+        jit.enc_mr(&[0x0f, #operand], Reg::from(#op1), #op2);
     }
 }
 
@@ -963,7 +966,7 @@ fn count_op(width: OperandSize, opcode: u8, op1: Register, op2: RmOperand) -> To
         OperandSize::DWORD => {
             quote!(
                 jit.emitb(0xf3);
-                jit.enc_rex_mr(&[0x0f, #opcode], #op1, #op2);
+                jit.enc_mr(&[0x0f, #opcode], #op1, #op2);
             )
         }
         _ => unimplemented!("Count operation for {:?} is not yet supported.", width),
