@@ -115,7 +115,7 @@ pub enum Inst {
 
     Andpd(Xmm, XmOperand),
     Xorpd(Xmm, XmOperand),
-    Roundpd(Xmm, XmOperand, RiOperand),
+    Roundpd(Xmm, XmOperand, ImmOperand),
     Cvtsi2sdq(Xmm, RmOperand),
     Cvttsd2siq(Register, XmOperand),
     Sqrtpd(Xmm, XmOperand),
@@ -634,6 +634,44 @@ impl RiOperand {
 
     pub fn imm(imm: impl ToTokens) -> Self {
         Self::Imm(quote! { #imm })
+    }
+}
+
+///----------------------------------------------------------------------
+///
+///  Immediate Operands.
+///
+///----------------------------------------------------------------------
+#[derive(Clone, Debug)]
+pub struct ImmOperand(pub TokenStream);
+
+impl Parse for ImmOperand {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        if input.peek(LitInt) && is_single(input) {
+            // e.g. "42"
+            let imm = input.parse::<LitInt>()?;
+            Ok(ImmOperand::new(imm))
+        } else if input.peek(token::Paren) {
+            // e.g. "(42)"
+            let gr = input.parse::<Group>()?;
+            Ok(ImmOperand(gr.stream()))
+        } else {
+            Err(input.error("Expected integer literal or Rust expression with parenthesis."))
+        }
+    }
+}
+
+impl std::fmt::Display for ImmOperand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImmOperand(i) => write!(f, "{}", i),
+        }
+    }
+}
+
+impl ImmOperand {
+    pub fn new(imm: impl ToTokens) -> Self {
+        Self(quote! { #imm })
     }
 }
 

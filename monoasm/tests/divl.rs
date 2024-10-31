@@ -13,12 +13,12 @@ fn divl() {
             xorl rdx, rdx;
             xorl rax, rax;
             movq rax, rdi;
-            movq r12, rsi;
             cdq;
-            divl r12; // eax = 7, edx = 0
+            divl rsi; // eax = 7, edx = 0
             ret;
     );
     jit.finalize();
+    eprintln!("{}", jit.dump_code().unwrap());
 
     let f = jit.get_label_addr2::<i32, i32, i32>(begin);
     let ret = f(7777777, 1111111); // rax contains (7)
@@ -33,14 +33,14 @@ fn divl_rem() {
         begin:
             xorl rdx, rdx;
             xorl rax, rax;
-            movq rax, (7);
-            movq r12, (3);
+            movq rax, rdi;
             cdq;
-            divl r12; // eax = 2, edx = 1
+            divl rsi; // eax = 2, edx = 1
             movl rax, rdx;
             ret;
     );
     jit.finalize();
+    eprintln!("{}", jit.dump_code().unwrap());
 
     let f = jit.get_label_addr2::<i32, i32, i32>(begin);
     let ret = f(7, 3); // rax contains (1)

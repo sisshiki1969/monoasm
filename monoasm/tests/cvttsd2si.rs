@@ -16,9 +16,9 @@ fn cvttsd2si() {
             ret;
     );
     jit.finalize();
+    eprintln!("{}", jit.dump_code().unwrap());
 
     let f = jit.get_label_addr::<f64, i64>(begin);
     let ret = f(pi);
     assert_eq!(ret, 3);
 }
-

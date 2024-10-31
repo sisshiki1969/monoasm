@@ -14,12 +14,12 @@ fn idivl() {
             xorl rdx, rdx;
             xorl rax, rax;
             movq rax, rdi;
-            movq r12, rsi;
             cdq;
-            idivl r12; // eax = -7, edx = 0
+            idivl rsi; // eax = -7, edx = 0
             ret;
     );
     jit.finalize();
+    eprintln!("{}", jit.dump_code().unwrap());
 
     let f = jit.get_label_addr2::<i32, i32, i32>(begin);
     let ret = f(-7777777, 1111111); // rax contains (-7)
@@ -35,13 +35,13 @@ fn idivl_rem() {
             xorl rdx, rdx;
             xorl rax, rax;
             movq rax, rdi;
-            movq r12, rsi;
             cdq;
-            idivl r12; // eax = -5, edx = -3
+            idivl rsi; // eax = -5, edx = -3
             movl rax, rdx;
             ret;
     );
     jit.finalize();
+    eprintln!("{}", jit.dump_code().unwrap());
 
     let f = jit.get_label_addr2::<i32, i32, i32>(begin);
     let ret = f(-23, 4); // rax contains (-3)

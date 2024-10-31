@@ -281,14 +281,13 @@ pub fn compile(inst: Inst) -> TokenStream {
         }
 
         Inst::Roundpd(Xmm(op1), op2, op3) => match op3 {
-            RiOperand::Imm(op3) => {
+            ImmOperand(op3) => {
                 quote! {
                     jit.emitb(0x66);
                     jit.enc_rex_mr(&[0x0f, 0x3a, 0x09], Reg::from(#op1), #op2);
                     jit.emitb(#op3);
                 }
             }
-            RiOperand::Reg(_) => unreachable!("'ROUNDPD' does not take register as immediate."),
         },
 
         Inst::Sqrtpd(Xmm(op1), op2) => {
