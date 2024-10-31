@@ -270,49 +270,49 @@ end
 class Add < Inst
   @inst = "add"
   @asm_inst = "add"
-  @size = [8, 2, 4, 1]
+  @size = [8, 4, 2, 1]
 end
 
 class Sub < Inst
   @inst = "sub"
   @asm_inst = "sub"
-  @size = [8, 2, 4, 1]
+  @size = [8, 4, 2, 1]
 end
 
 class Adc < Inst
   @inst = "adc"
   @asm_inst = "adc"
-  @size = [8, 2, 4, 1]
+  @size = [8, 4, 2, 1]
 end
 
 class Sbb < Inst
   @inst = "sbb"
   @asm_inst = "sbb"
-  @size = [8, 2, 4, 1]
+  @size = [8, 4, 2, 1]
 end
 
 class And < Inst
   @inst = "and"
   @asm_inst = "and"
-  @size = [8, 2, 4, 1]
+  @size = [8, 4, 2, 1]
 end
 
 class Or < Inst
   @inst = "or"
   @asm_inst = "or"
-  @size = [8, 2, 4, 1]
+  @size = [8, 4, 2, 1]
 end
 
 class Xor < Inst
   @inst = "xor"
   @asm_inst = "xor"
-  @size = [8, 2, 4, 1]
+  @size = [8, 4, 2, 1]
 end
 
 class Cmp < Inst
   @asm_inst = "cmp"
   @inst = "cmp"
-  @size = [8, 2, 4, 1]
+  @size = [8, 4, 2, 1]
 end
 
 class Xchg < Inst
@@ -389,39 +389,39 @@ class Shift < Inst
 end
 
 class Shl < Shift
-  @inst = "shlq"
+  @inst = "shl"
   @asm_inst = "shl"
-  @size = 8
+  @size = [8, 4]
 end
 
 class Shr < Shift
-  @inst = "shrq"
+  @inst = "shr"
   @asm_inst = "shr"
-  @size = 8
+  @size = [8, 4]
 end
 
 class Sal < Shift
-  @inst = "salq"
+  @inst = "sal"
   @asm_inst = "sal"
-  @size = 8
+  @size = [8, 4]
 end
 
 class Sar < Shift
-  @inst = "sarq"
+  @inst = "sar"
   @asm_inst = "sar"
-  @size = 8
+  @size = [8, 4]
 end
 
 class Rol < Shift
-  @inst = "rolq"
+  @inst = "rol"
   @asm_inst = "rol"
-  @size = 8
+  @size = [8, 4]
 end
 
 class Ror < Shift
-  @inst = "rorq"
+  @inst = "ror"
   @asm_inst = "ror"
-  @size = 8
+  @size = [8, 4]
 end
 
 class Cmoveq < Inst

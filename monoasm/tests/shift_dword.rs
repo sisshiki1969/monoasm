@@ -17,6 +17,7 @@ fn shll() {
             ret;
     );
     jit.finalize();
+    eprintln!("{}", jit.dump_code().unwrap());
 
     let f = jit.get_label_addr::<u64, u64>(begin);
     let ret = f(val);
@@ -36,6 +37,7 @@ fn shrl() {
             ret;
     );
     jit.finalize();
+    eprintln!("{}", jit.dump_code().unwrap());
 
     let f = jit.get_label_addr::<u64, u64>(begin);
     let ret = f(val);
@@ -55,6 +57,7 @@ fn sall() {
             ret;
     );
     jit.finalize();
+    eprintln!("{}", jit.dump_code().unwrap());
 
     let f = jit.get_label_addr::<u64, u64>(begin);
     let ret = f(val);
@@ -74,6 +77,7 @@ fn sarl() {
             ret;
     );
     jit.finalize();
+    eprintln!("{}", jit.dump_code().unwrap());
 
     let f = jit.get_label_addr::<u64, u64>(begin);
     let ret = f(val);
@@ -93,6 +97,7 @@ fn roll() {
             ret;
     );
     jit.finalize();
+    eprintln!("{}", jit.dump_code().unwrap());
 
     let f = jit.get_label_addr::<u64, u64>(begin);
     let ret = f(val);
@@ -112,6 +117,7 @@ fn rorl() {
             ret;
     );
     jit.finalize();
+    eprintln!("{}", jit.dump_code().unwrap());
 
     let f = jit.get_label_addr::<u64, u64>(begin);
     let ret = f(val);

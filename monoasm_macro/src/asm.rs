@@ -662,9 +662,9 @@ fn binary_opl(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
             quote! {
                 let imm = (#i) as i64;
                 if let Ok(imm) = i8::try_from(imm) {
-                    jit.enc_m_digit_imm(&[0x83], #op1, #digit, Imm::B(imm));
+                    jit.enc_digit_imm(&[0x83], #op1, #digit, Imm::B(imm));
                 } else if let Ok(imm) = i32::try_from(imm) {
-                    jit.enc_m_digit_imm(&[0x81], #op1, #digit, Imm::L(imm));
+                    jit.enc_digit_imm(&[0x81], #op1, #digit, Imm::L(imm));
                 } else {
                     panic!("'{} {}, imm64' does not exists.", #op_name, #op1_str);
                 }
@@ -722,9 +722,9 @@ fn binary_opw(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
                 let imm = (#i) as i64;
                 jit.emitb(0x66);
                 if let Ok(imm) = i8::try_from(imm) {
-                    jit.enc_m_digit_imm(&[0x83], #op1, #digit, Imm::B(imm));
+                    jit.enc_digit_imm(&[0x83], #op1, #digit, Imm::B(imm));
                 } else if let Ok(imm) = i16::try_from(imm) {
-                    jit.enc_m_digit_imm(&[0x81], #op1, #digit, Imm::W(imm));
+                    jit.enc_digit_imm(&[0x81], #op1, #digit, Imm::W(imm));
                 } else {
                     panic!("'{} {}, imm64' does not exists.", #op_name, #op1_str);
                 }
@@ -787,7 +787,7 @@ fn binary_opb(op_name: &str, op_mr: u8, digit: u8, op1: RmOperand, op2: RmiOpera
             quote! {
                 let imm = (#i) as i64;
                 if let Ok(imm) = i8::try_from(imm) {
-                    jit.enc_m_digit_imm_byte(&[0x80], #op_al, #op1, #digit, Imm::B(imm));
+                    jit.enc_digit_imm_byte(&[0x80], #op_al, #op1, #digit, Imm::B(imm));
                 } else {
                     panic!("{} is out of 8bit.", #i);
                 }
@@ -904,9 +904,9 @@ fn shift_op(
                 quote! {
                     let imm = (#i) as i64;
                     if imm == 1 {
-                        jit.enc_rex_digit(&[0xd1], #op1, #digit, Imm::None);
+                        jit.enc_digit(&[0xd1], #op1, #digit);
                     } else if let Ok(imm) = i8::try_from(imm) {
-                        jit.enc_rex_digit(&[0xc1], #op1, #digit, Imm::B(imm));
+                        jit.enc_digit_imm(&[0xc1], #op1, #digit, Imm::B(imm));
                     } else {
                         panic!("'{} {}, imm' imm should be 8 bit.", #inst_str, #op1_str);
                     }
@@ -920,7 +920,7 @@ fn shift_op(
                     if !#reg.is_cl() {
                         panic!("'{} {}, reg' reg should be CL.", #inst_str, #op1_str);
                     };
-                    jit.enc_rex_digit(&[0xd3], #op1, #digit, Imm::None);
+                    jit.enc_digit(&[0xd3], #op1, #digit);
                 }
             }
         },
@@ -947,7 +947,7 @@ fn push_pop(opcode_r: u8, opcode_m: (u8, u8), op: RmOperand) -> TokenStream {
         // M            M
         op => {
             let (opcode, digit) = opcode_m;
-            quote! ( jit.enc_m_digit(&[#opcode], #op, #digit); )
+            quote! ( jit.enc_digit(&[#opcode], #op, #digit); )
         }
     }
 }

@@ -661,17 +661,11 @@ impl JitMemory {
         self.encode(op, Rex::None, ModRM::Digit(digit), rm, Imm::None);
     }
 
-    /// Encoding: M  
-    /// Op /n
-    pub fn enc_m_digit(&mut self, op: &[u8], rm: Rm, digit: u8) {
-        self.encode(op, Rex::None, ModRM::Digit(digit), rm, Imm::None);
-    }
-
-    pub fn enc_m_digit_imm(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {
+    pub fn enc_digit_imm(&mut self, op: &[u8], rm: Rm, digit: u8, imm: Imm) {
         self.encode(op, Rex::None, ModRM::Digit(digit), rm, imm);
     }
 
-    pub fn enc_m_digit_imm_byte(&mut self, op: &[u8], op_al: u8, rm: Rm, digit: u8, imm: Imm) {
+    pub fn enc_digit_imm_byte(&mut self, op: &[u8], op_al: u8, rm: Rm, digit: u8, imm: Imm) {
         if rm.is_rax() {
             self.emitb(op_al);
             self.emit_disp_imm(Disp::None, imm);
