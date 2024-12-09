@@ -154,6 +154,7 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Int3 => quote! ( jit.emit(&[0xcc]); ),
 
         Inst::Negq(op) => quote! ( jit.enc_rexw_digit(&[0xf7], #op, 3, Imm::None); ),
+        Inst::Notq(op) => quote! ( jit.enc_rexw_digit(&[0xf7], #op, 2, Imm::None); ),
 
         Inst::Imul(op1, op2) => {
             // IMUL r64, r/m64: r64 <- r64 * r/m64

@@ -72,6 +72,7 @@ pub enum Inst {
     Cmp(OperandSize, RmOperand, RmiOperand),
     Xchg(OperandSize, RmOperand, RmOperand),
     Negq(RmOperand),
+    Notq(RmOperand),
 
     Shl(OperandSize, RmOperand, RiOperand),
     Shr(OperandSize, RmOperand, RiOperand),
@@ -356,6 +357,7 @@ impl Parse for Inst {
                 "xchgb" => parse_2op_sized!(Xchg, BYTE),
 
                 "negq" => parse_1op!(Negq),
+                "notq" => parse_1op!(Notq),
                 "imul" => parse_2op!(Imul),
                 "idiv" => parse_1op!(Idiv),
                 "idivq" => parse_1op!(Idiv),
