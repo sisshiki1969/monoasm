@@ -186,20 +186,22 @@ class Inst
     @monoasm = header
     @asm = ""
 
-    gen(inst, asm_inst, size)
+    gen.each do |p|
+      send(p, inst, asm_inst, size)
+    end
 
     f = File.open "monoasm/tests/gen_#{inst}.rs", "w"
     f.write @monoasm + footer(inst)
     f.close
 
 
-    f = File.open "monoasm/tests/#{inst}.s", "w"
+    f = File.open "monoasm/tests/gen/#{inst}.s", "w"
     f.write ASM_HEADER + @asm
     f.close
 
-    `as monoasm/tests/#{inst}.s -o monoasm/tests/#{inst}`
-    `objcopy -O binary --only-section=.text monoasm/tests/#{inst} monoasm/tests/#{inst}.bin`
-    `rm monoasm/tests/#{inst}`
+    `as monoasm/tests/gen/#{inst}.s -o monoasm/tests/gen/#{inst}`
+    `objcopy -O binary --only-section=.text monoasm/tests/gen/#{inst} monoasm/tests/gen/#{inst}.bin`
+    `rm monoasm/tests/gen/#{inst}`
 
     @files << inst
   end
@@ -211,11 +213,11 @@ class Inst
   end
 
   def self.compare(inst)
-    res = `diff -y monoasm/tests/#{inst}.bin monoasm/tests/#{inst}_monoasm.bin`
+    res = `diff -y monoasm/tests/gen/#{inst}.bin monoasm/tests/gen/#{inst}_monoasm.bin`
     if res.length != 0
       puts res
-      `objdump -D -Mintel,x86-64 -b binary -m i386 monoasm/tests/#{inst}.bin > monoasm/tests/#{inst}.txt`
-      `objdump -D -Mintel,x86-64 -b binary -m i386 monoasm/tests/#{inst}_monoasm.bin > monoasm/tests/#{inst}_monoasm.txt`
+      `objdump -D -Mintel,x86-64 -b binary -m i386 monoasm/tests/gen/#{inst}.bin > monoasm/tests/gen/#{inst}.txt`
+      `objdump -D -Mintel,x86-64 -b binary -m i386 monoasm/tests/gen/#{inst}_monoasm.bin > monoasm/tests/gen/#{inst}_monoasm.txt`
     end
   end
 
@@ -242,7 +244,7 @@ EOS
     <<EOS
       }
       jit.finalize();
-      let mut buf = std::fs::File::create("tests/#{inst}_monoasm.bin").unwrap();
+      let mut buf = std::fs::File::create("tests/gen/#{inst}_monoasm.bin").unwrap();
       buf.write_all(jit.as_slice()).unwrap();
   }
 EOS
@@ -318,11 +320,8 @@ EOS
     operand(inst, asm_inst, size, MODE_REG, MODE_INDIRECT)
   end
 
-  def self.gen(inst, asm_inst, size)
-    r_r(inst, asm_inst, size)
-    rm_i(inst, asm_inst, size)
-    m_r(inst, asm_inst, size)
-    r_m(inst, asm_inst, size)
+  def self.gen
+    [:r_r, :rm_i, :m_r, :r_m]
   end
 
 end
@@ -376,10 +375,8 @@ class Xchg < Inst
   @inst = "xchg"
   @size = [8]
 
-  def self.gen(inst, asm_inst, size)
-    r_r(inst, asm_inst, size)
-    m_r(inst, asm_inst, size)
-    r_m(inst, asm_inst, size)
+  def self.gen
+    [:r_r, :m_r, :r_m]
   end
 end
 
@@ -387,10 +384,8 @@ class Test < Inst
   @inst = "test"
   @size = [8, 1]
 
-  def self.gen(inst, asm_inst, size)
-    r_r(inst, asm_inst, size)
-    rm_i(inst, asm_inst, size)
-    m_r(inst, asm_inst, size)
+  def self.gen
+    [:r_r, :rm_i, :m_r]
   end
 end
 
@@ -398,8 +393,8 @@ class Push < Inst
   @inst = "push"
   @size = [8]
 
-  def self.gen(inst, asm_inst, size)
-    rm(inst, asm_inst, size)
+  def self.gen
+    [:rm]
   end
 end
 
@@ -407,8 +402,8 @@ class Pop < Inst
   @inst = "pop"
   @size = [8]
 
-  def self.gen(inst, asm_inst, size)
-    rm(inst, asm_inst, size)
+  def self.gen
+    [:rm]
   end
 end
 
@@ -416,15 +411,14 @@ class Neg < Inst
   @inst = "neg"
   @size = [8]
 
-  def self.gen(inst, asm_inst, size)
-    rm(inst, asm_inst, size)
+  def self.gen
+    [:rm]
   end
 end
 
 class Shift < Inst
-  def self.gen(inst, asm_inst, size)
-    rm_i(inst, asm_inst, size)
-    rm_1(inst, asm_inst, size)
+  def self.gen
+    [:rm_i, :rm_1]
   end
 end
 
@@ -463,8 +457,8 @@ class Setcc < Inst
   @has_cond = true
   @size = 1
 
-  def self.gen(inst, asm_inst, size)
-    rm(inst, asm_inst, size)
+  def self.gen
+    [:rm]
   end
 end
 
@@ -473,16 +467,16 @@ class Cmov < Inst
   @has_cond = true
   @size = [8, 4, 2]
 
-  def self.gen(inst, asm_inst, size)
-    r_r(inst, asm_inst, size)
-    r_m(inst, asm_inst, size)
+  def self.gen
+    [:r_r, :r_m]
   end
 end
 
 instructions = [Mov, Add, Adc, Sub, Sbb, And, Or, Xor, Cmp, Shl, Shr, Sal, Sar, Rol, Ror] +
 [Test, Xchg, Push, Pop, Neg, Cmov, Setcc]
 
-`rm monoasm/tests/*.txt`
+`rm -rf monoasm/tests/gen`
+`mkdir monoasm/tests/gen`
 instructions.each do |inst|
   inst.make_files
 end
@@ -490,6 +484,5 @@ end
 instructions.each do |inst|
   inst.compare_files
 end
-`rm monoasm/tests/*.bin`
-`rm monoasm/tests/*.s`
+`rm -rf monoasm/tests/gen`
 `rm monoasm/tests/gen_*.rs`

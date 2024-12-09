@@ -1,9 +1,9 @@
 extern crate monoasm;
 extern crate monoasm_macro;
 
-use std::ops::Neg;
 use monoasm::*;
 use monoasm_macro::monoasm;
+use std::ops::Neg;
 
 #[test]
 fn xorpd() {
@@ -18,6 +18,7 @@ fn xorpd() {
 
             xorpd xmm0, xmm1;
             ret;
+            movq rax, (foo);
     );
     jit.finalize();
 
@@ -25,3 +26,5 @@ fn xorpd() {
     let ret = f(pi);
     assert_eq!(ret, pi.neg());
 }
+
+extern "C" fn foo() {}

@@ -382,14 +382,14 @@ fn movq(op1: MovOperand, op2: MovOperand) -> TokenStream {
                 quote!(
                     let imm = (#i) as i64;
                     let rm_op = Rm::reg(#expr);
-                    if let Ok(imm) = i32::try_from(imm) {
-                        // MOV r/m64, imm32
-                        jit.enc_rexw_mi(0xc7, rm_op, Imm::L(imm));
-                    } else {
-                        // MOV r64, imm64
+                    //if let Ok(imm) = i32::try_from(imm) {
+                    //    // MOV r/m64, imm32
+                    //    jit.enc_rexw_mi(0xc7, rm_op, Imm::L(imm));
+                    //} else {
+                    //    // MOV r64, imm64
                         jit.enc_rexw_o(0xb8, #expr);
                         jit.emitq(imm as u64);
-                    };
+                    //};
                 )
             }
         }
