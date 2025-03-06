@@ -376,18 +376,17 @@ impl JitMemory {
 
     /// Bind the current location to `label`.
     pub fn bind_label(&mut self, label: DestLabel) {
-        let page = self.page;
-        self.bind_label_with_page(page, label);
+        let src_page = self.page;
+        self.bind_label_with_page(src_page, label);
     }
 
-    pub fn bind_label_with_page(&mut self, page: Page, label: DestLabel) {
-        self.labels[label].loc = Some((page, self[page].counter));
+    pub fn bind_label_with_page(&mut self, src_page: Page, label: DestLabel) {
+        let src_pos = self[src_page].counter;
+        for target in std::mem::take(&mut self.labels[label].target) {
+            self.write_reloc(src_page, src_pos, target);
+        }
+        self.labels[label].loc = Some((src_page, src_pos));
     }
-
-    /*/// Bind the current location to `label`.
-    pub fn bind_label_to_pos(&mut self, label: DestLabel, pos: usize) {
-        self.reloc[label].loc = Some(Pos::from(pos));
-    }*/
 
     /// Bind the current location to `label`.
     fn get_label_pos(&self, label: DestLabel) -> (Page, Pos) {
@@ -566,14 +565,6 @@ impl JitMemory {
     /// Emit bytes.
     pub fn emit(&mut self, slice: &[u8]) {
         slice.iter().for_each(|b| self.emitb(*b));
-    }
-
-    ///
-    /// Apply patch for the displacement of the jmp instruction in *patch_point*.
-    ///
-    pub fn apply_jmp_patch(&mut self, patch_point: DestLabel, jmp_dest: DestLabel) {
-        let patch_point = self.get_label_address(patch_point);
-        self.apply_jmp_patch_address(patch_point, jmp_dest);
     }
 
     ///
