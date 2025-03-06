@@ -295,19 +295,23 @@ impl DestLabel {
 /// and (possibly multiple) target positions for each *DestLabel*.
 ///
 #[derive(Clone, PartialEq, Debug)]
-struct LabelInfo {
+enum LabelInfo {
     /// A location of each *DestLabel* in JitMemory.
     /// None for not yet determined.
-    loc: Option<(Page, Pos)>,
+    Resolved((Page, Pos)),
     /// Target informations.
-    target: Vec<TargetType>,
+    NotResolved(Vec<TargetType>),
 }
 
 impl LabelInfo {
     fn new() -> LabelInfo {
-        LabelInfo {
-            loc: None,
-            target: vec![],
+        LabelInfo::NotResolved(vec![])
+    }
+
+    fn loc(&self) -> (Page, Pos) {
+        match self {
+            LabelInfo::Resolved(loc) => *loc,
+            _ => panic!("The DestLabel has not been resolved"),
         }
     }
 }

@@ -382,17 +382,20 @@ impl JitMemory {
 
     pub fn bind_label_with_page(&mut self, src_page: Page, label: DestLabel) {
         let src_pos = self[src_page].counter;
-        for target in std::mem::take(&mut self.labels[label].target) {
-            self.write_reloc(src_page, src_pos, target);
+        match &mut self.labels[label] {
+            LabelInfo::Resolved(_) => {} //panic!("The DestLabel has already been resolved."),
+            LabelInfo::NotResolved(targets) => {
+                for target in std::mem::take(targets) {
+                    self.write_reloc(src_page, src_pos, target);
+                }
+            }
         }
-        self.labels[label].loc = Some((src_page, src_pos));
+        self.labels[label] = LabelInfo::Resolved((src_page, src_pos));
     }
 
     /// Bind the current location to `label`.
     fn get_label_pos(&self, label: DestLabel) -> (Page, Pos) {
-        self.labels[label]
-            .loc
-            .expect("The DestLabel has no position binding.")
+        self.labels[label].loc()
     }
 
     pub fn get_current_address(&self) -> CodePtr {
@@ -412,10 +415,13 @@ impl JitMemory {
         let pos = self.counter;
         let target = TargetType::Rel { page, offset, pos };
         self.emitl(0);
-        if let Some((src_page, src_pos)) = self.labels[dest].loc {
-            self.write_reloc(src_page, src_pos, target);
-        } else {
-            self.labels[dest].target.push(target);
+        match self.labels[dest] {
+            LabelInfo::Resolved((src_page, src_pos)) => {
+                self.write_reloc(src_page, src_pos, target);
+            }
+            LabelInfo::NotResolved(ref mut targets) => {
+                targets.push(target);
+            }
         }
     }
 
@@ -424,10 +430,13 @@ impl JitMemory {
         let pos = self[page].counter;
         let target = TargetType::Abs { page, pos };
         self[page].emitq(0);
-        if let Some((src_page, src_pos)) = self.labels[dest].loc {
-            self.write_reloc(src_page, src_pos, target);
-        } else {
-            self.labels[dest].target.push(target);
+        match self.labels[dest] {
+            LabelInfo::Resolved((src_page, src_pos)) => {
+                self.write_reloc(src_page, src_pos, target);
+            }
+            LabelInfo::NotResolved(ref mut targets) => {
+                targets.push(target);
+            }
         }
     }
 
@@ -453,15 +462,15 @@ impl JitMemory {
 
     /// Resolve and fill all relocations.
     fn fill_relocs(&mut self) {
-        let mut reloc = std::mem::take(&mut self.labels);
-        for rel in reloc.iter_mut() {
-            if let Some((src_page, src_pos)) = rel.loc {
-                for target in std::mem::take(&mut rel.target) {
-                    self.write_reloc(src_page, src_pos, target);
-                }
-            }
-        }
-        self.labels = reloc;
+        //let mut reloc = std::mem::take(&mut self.labels);
+        //for rel in reloc.iter_mut() {
+        //    if let LabelInfo::Resolved((src_page, src_pos)) = rel {
+        //        for target in std::mem::take(&mut rel.target) {
+        //            self.write_reloc(src_page, src_pos, target);
+        //        }
+        //    }
+        //}
+        //self.labels = reloc;
     }
 
     /// Resolve labels for constant data, and emit them to `contents`.
@@ -539,25 +548,19 @@ impl JitMemory {
     }
 
     pub fn get_label_addr<T, U>(&mut self, label: DestLabel) -> extern "C" fn(T) -> U {
-        let (page, counter) = self.labels[label]
-            .loc
-            .expect("The DestLabel has no position binding.");
+        let (page, counter) = self.labels[label].loc();
         let adr = self[page].contents();
         unsafe { mem::transmute(adr.add(counter.0)) }
     }
 
     pub fn get_label_addr2<S, T, U>(&mut self, label: DestLabel) -> extern "C" fn(S, T) -> U {
-        let (page, counter) = self.labels[label]
-            .loc
-            .expect("The DestLabel has no position binding.");
+        let (page, counter) = self.labels[label].loc();
         let adr = self[page].contents();
         unsafe { mem::transmute(adr.add(counter.0)) }
     }
 
     pub fn get_label_u64(&mut self, label: DestLabel) -> u64 {
-        let (page, counter) = self.labels[label]
-            .loc
-            .expect("The DestLabel has no position binding.");
+        let (page, counter) = self.labels[label].loc();
         let adr = self[page].contents();
         unsafe { adr.add(counter.0) as u64 }
     }
