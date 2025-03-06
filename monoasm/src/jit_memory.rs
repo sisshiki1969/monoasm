@@ -377,7 +377,7 @@ impl JitMemory {
     /// Bind the current location to `label`.
     pub fn bind_label(&mut self, label: DestLabel) {
         let page = self.page;
-        self.labels[label].loc = Some((page, self.counter));
+        self.bind_label_with_page(page, label);
     }
 
     pub fn bind_label_with_page(&mut self, page: Page, label: DestLabel) {
@@ -408,10 +408,11 @@ impl JitMemory {
     }
 
     /// Save relocaton slot for `DestLabel`.
-    pub fn save_reloc(&mut self, dest: DestLabel, offset: u8) {
+    pub fn emit_reloc(&mut self, dest: DestLabel, offset: u8) {
         let page = self.page;
         let pos = self.counter;
         let target = TargetType::Rel { page, offset, pos };
+        self.emitl(0);
         if let Some((src_page, src_pos)) = self.labels[dest].loc {
             self.write_reloc(src_page, src_pos, target);
         } else {
@@ -420,9 +421,10 @@ impl JitMemory {
     }
 
     /// Save relocaton slot for `DestLabel`.
-    fn save_absolute_reloc(&mut self, page: Page, dest: DestLabel) {
+    fn emit_absolute_reloc(&mut self, page: Page, dest: DestLabel) {
         let pos = self[page].counter;
         let target = TargetType::Abs { page, pos };
+        self[page].emitq(0);
         if let Some((src_page, src_pos)) = self.labels[dest].loc {
             self.write_reloc(src_page, src_pos, target);
         } else {
@@ -489,8 +491,7 @@ impl JitMemory {
                     DataType::AbsAddress(label) => {
                         self[Page(id)].align8();
                         self.bind_label_with_page(Page(id), const_label);
-                        self.save_absolute_reloc(Page(id), label);
-                        self[Page(id)].emitq(0);
+                        self.emit_absolute_reloc(Page(id), label);
                     }
                     DataType::Align8 => {
                         self[Page(id)].align8();
@@ -527,8 +528,7 @@ impl JitMemory {
                     DataType::AbsAddress(label) => {
                         self[DATA_PAGE].align8();
                         self.bind_label_with_page(DATA_PAGE, data_label);
-                        self.save_absolute_reloc(DATA_PAGE, label);
-                        self[DATA_PAGE].emitq(0);
+                        self.emit_absolute_reloc(DATA_PAGE, label);
                     }
                     DataType::Align8 => {
                         self[DATA_PAGE].align8();
@@ -661,8 +661,7 @@ impl JitMemory {
     /// Op cd
     pub fn enc_d(&mut self, op: &[u8], dest: DestLabel) {
         self.emit(op);
-        self.save_reloc(dest, 4);
-        self.emitl(0);
+        self.emit_reloc(dest, 4);
     }
 
     /// Encoding: /n  
@@ -882,8 +881,7 @@ impl JitMemory {
             Disp::D8(d) => self.emitb(d as u8),
             Disp::D32(d) => self.emitl(d as u32),
             Disp::Label(label) => {
-                self.save_reloc(label, 4 + imm.offset());
-                self.emitl(0);
+                self.emit_reloc(label, 4 + imm.offset());
             }
             Disp::None => {}
         }

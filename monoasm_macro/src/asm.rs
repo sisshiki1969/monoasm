@@ -281,8 +281,7 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // E8 cd
                 quote! {
                     jit.emitb(0xe8);
-                    jit.save_reloc(#dest, 4);
-                    jit.emitl(0);
+                    jit.emit_reloc(#dest, 4);
                 }
             }
             Dest::Disp(imm) => {
