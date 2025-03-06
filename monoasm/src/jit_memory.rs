@@ -422,29 +422,33 @@ impl JitMemory {
         self.labels[dest].target.push(TargetType::Abs { page, pos });
     }
 
+    fn write_reloc(&mut self, src_page: Page, src_pos: Pos, target: TargetType) {
+        let src_ptr = self[src_page].contents + src_pos.0;
+        match target {
+            TargetType::Rel { page, offset, pos } => {
+                let target_ptr = self[page].contents + pos.0 + (offset as usize);
+                let disp = (src_ptr as i128) - (target_ptr as i128);
+                match i32::try_from(disp) {
+                    Ok(disp) => self[page].write32(pos, disp),
+                    Err(_) => panic!(
+                        "Relocation overflow. src:{:016x} dest:{:016x}",
+                        src_ptr, target_ptr
+                    ),
+                }
+            }
+            TargetType::Abs { page, pos } => {
+                self[page].write64(pos, src_ptr as _);
+            }
+        }
+    }
+
     /// Resolve and fill all relocations.
     fn fill_relocs(&mut self) {
         let mut reloc = std::mem::take(&mut self.labels);
         for rel in reloc.iter_mut() {
             if let Some((src_page, src_pos)) = rel.loc {
-                let src_ptr = self[src_page].contents + src_pos.0;
                 for target in std::mem::take(&mut rel.target) {
-                    match target {
-                        TargetType::Rel { page, offset, pos } => {
-                            let target_ptr = self[page].contents + pos.0 + (offset as usize);
-                            let disp = (src_ptr as i128) - (target_ptr as i128);
-                            match i32::try_from(disp) {
-                                Ok(disp) => self[page].write32(pos, disp),
-                                Err(_) => panic!(
-                                    "Relocation overflow. src:{:016x} dest:{:016x}",
-                                    src_ptr, target_ptr
-                                ),
-                            }
-                        }
-                        TargetType::Abs { page, pos } => {
-                            self[page].write64(pos, src_ptr as _);
-                        }
-                    }
+                    self.write_reloc(src_page, src_pos, target);
                 }
             }
         }
