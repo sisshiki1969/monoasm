@@ -411,15 +411,23 @@ impl JitMemory {
     pub fn save_reloc(&mut self, dest: DestLabel, offset: u8) {
         let page = self.page;
         let pos = self.counter;
-        self.labels[dest]
-            .target
-            .push(TargetType::Rel { page, offset, pos });
+        let target = TargetType::Rel { page, offset, pos };
+        if let Some((src_page, src_pos)) = self.labels[dest].loc {
+            self.write_reloc(src_page, src_pos, target);
+        } else {
+            self.labels[dest].target.push(target);
+        }
     }
 
     /// Save relocaton slot for `DestLabel`.
     fn save_absolute_reloc(&mut self, page: Page, dest: DestLabel) {
         let pos = self[page].counter;
-        self.labels[dest].target.push(TargetType::Abs { page, pos });
+        let target = TargetType::Abs { page, pos };
+        if let Some((src_page, src_pos)) = self.labels[dest].loc {
+            self.write_reloc(src_page, src_pos, target);
+        } else {
+            self.labels[dest].target.push(target);
+        }
     }
 
     fn write_reloc(&mut self, src_page: Page, src_pos: Pos, target: TargetType) {
