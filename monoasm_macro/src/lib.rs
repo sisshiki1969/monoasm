@@ -25,5 +25,7 @@ pub fn monoasm(tokens: TokenStream) -> TokenStream {
     let base = stmts.base;
     let mut ts = quote!(let mut jit = #base;);
     ts.extend(stmts.contents.into_iter().map(compile));
-    quote!({ #ts }).into()
+    let ts = quote!({ #ts }).into();
+    eprintln!("{}", ts);
+    ts
 }

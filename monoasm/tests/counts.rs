@@ -21,7 +21,7 @@ fn popcntq() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(label);
+    let f = jit.get_label_addr::<u64, u64>(&label);
     assert_eq!(magic.count_ones() as u64, dbg!(f(magic)));
 }
 
@@ -42,7 +42,7 @@ fn lzcntq() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(label);
+    let f = jit.get_label_addr::<u64, u64>(&label);
     assert_eq!(magic.leading_zeros() as u64, dbg!(f(magic)));
 }
 
@@ -63,7 +63,7 @@ fn tzcntq() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(label);
+    let f = jit.get_label_addr::<u64, u64>(&label);
     assert_eq!(magic.trailing_zeros() as u64, dbg!(f(magic)));
 }
 
@@ -81,7 +81,7 @@ fn lzcntl() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(begin);
+    let f = jit.get_label_addr::<u64, u64>(&begin);
     let ret = dbg!(f(val));
     assert_eq!(ret, (val as u32).leading_zeros() as _);
 }
@@ -100,7 +100,7 @@ fn tzcntl() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(begin);
+    let f = jit.get_label_addr::<u64, u64>(&begin);
     let ret = dbg!(f(val));
     assert_eq!(ret, (val as u32).trailing_zeros() as _);
 }
@@ -119,7 +119,7 @@ fn popcntl() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(begin);
+    let f = jit.get_label_addr::<u64, u64>(&begin);
     let ret = dbg!(f(val));
     assert_eq!(ret, (val as u32).count_ones() as _);
 }

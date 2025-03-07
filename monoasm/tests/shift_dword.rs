@@ -19,7 +19,7 @@ fn shll() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(begin);
+    let f = jit.get_label_addr::<u64, u64>(&begin);
     let ret = f(val);
     assert_eq!(ret, 0x0000000000000000u64);
 }
@@ -39,7 +39,7 @@ fn shrl() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(begin);
+    let f = jit.get_label_addr::<u64, u64>(&begin);
     let ret = f(val);
     assert_eq!(ret, 0x0000000000000020u64);
 }
@@ -59,7 +59,7 @@ fn sall() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(begin);
+    let f = jit.get_label_addr::<u64, u64>(&begin);
     let ret = f(val);
     assert_eq!(ret, 0x0000000080000000u64);
 }
@@ -79,7 +79,7 @@ fn sarl() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(begin);
+    let f = jit.get_label_addr::<u64, u64>(&begin);
     let ret = f(val);
     assert_eq!(ret, 0x00000000FFFFFFFFu64);
 }
@@ -99,7 +99,7 @@ fn roll() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(begin);
+    let f = jit.get_label_addr::<u64, u64>(&begin);
     let ret = f(val);
     assert_eq!(ret, 0x0000000000000010u64);
 }
@@ -119,7 +119,7 @@ fn rorl() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr::<u64, u64>(begin);
+    let f = jit.get_label_addr::<u64, u64>(&begin);
     let ret = f(val);
     assert_eq!(ret, 0x0000000000000001u64);
 }

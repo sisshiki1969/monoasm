@@ -19,8 +19,6 @@ pub struct JitMemory {
     page: Page,
     /// Information of momory pages.
     pages: [MemPage; 3],
-    /// Relocation information.
-    labels: Labels,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -170,7 +168,7 @@ enum Rex {
     Byte,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum DataType {
     U64(u64),
     U32(u32),
@@ -258,7 +256,6 @@ impl JitMemory {
         JitMemory {
             page: Page(0),
             pages: [initial_page, second_page, data_page],
-            labels: Labels::new(),
         }
     }
 
@@ -311,91 +308,91 @@ impl JitMemory {
 
     /// Create a new label and returns `DestLabel`.
     pub fn label(&mut self) -> DestLabel {
-        self.labels.new_label()
+        DestLabel::default()
     }
 
     pub fn const_f64(&mut self, val: f64) -> DestLabel {
         let label = self.label();
         let val = u64::from_ne_bytes(val.to_ne_bytes());
-        self.constants.push((DataType::U64(val), label));
+        self.constants.push((DataType::U64(val), label.clone()));
         label
     }
 
     pub fn const_i64(&mut self, val: i64) -> DestLabel {
         let label = self.label();
         let val = val as u64;
-        self.constants.push((DataType::U64(val), label));
+        self.constants.push((DataType::U64(val), label.clone()));
         label
     }
 
     pub fn data_i64(&mut self, val: i64) -> DestLabel {
         let label = self.label();
         let val = val as u64;
-        self.data.push((DataType::U64(val), label));
+        self.data.push((DataType::U64(val), label.clone()));
         label
     }
 
     pub fn const_i32(&mut self, val: i32) -> DestLabel {
         let label = self.label();
         let val = val as u32;
-        self.constants.push((DataType::U32(val), label));
+        self.constants.push((DataType::U32(val), label.clone()));
         label
     }
 
     pub fn data_i32(&mut self, val: i32) -> DestLabel {
         let label = self.label();
         let val = val as u32;
-        self.data.push((DataType::U32(val), label));
+        self.data.push((DataType::U32(val), label.clone()));
         label
     }
 
     pub fn constant(&mut self, size: usize) -> DestLabel {
         let label = self.label();
-        self.constants.push((DataType::Bytes(size), label));
+        self.constants.push((DataType::Bytes(size), label.clone()));
         label
     }
 
     pub fn data(&mut self, size: usize) -> DestLabel {
         let label = self.label();
-        self.data.push((DataType::Bytes(size), label));
+        self.data.push((DataType::Bytes(size), label.clone()));
         label
     }
 
     pub fn abs_address(&mut self, addr_label: DestLabel) -> DestLabel {
         let label = self.label();
         self.constants
-            .push((DataType::AbsAddress(addr_label), label));
+            .push((DataType::AbsAddress(addr_label), label.clone()));
         label
     }
 
     pub fn const_align8(&mut self) -> DestLabel {
         let label = self.label();
-        self.constants.push((DataType::Align8, label));
+        self.constants.push((DataType::Align8, label.clone()));
         label
     }
 
     /// Bind the current location to `label`.
-    pub fn bind_label(&mut self, label: DestLabel) {
+    pub fn bind_label(&mut self, label: &DestLabel) {
         let src_page = self.page;
-        self.bind_label_with_page(src_page, label);
+        self.bind_label_with_page(src_page, label.clone());
     }
 
     pub fn bind_label_with_page(&mut self, src_page: Page, label: DestLabel) {
         let src_pos = self[src_page].counter;
-        match &mut self.labels[label] {
+        match label.take() {
             LabelInfo::Resolved(_) => {} //panic!("The DestLabel has already been resolved."),
             LabelInfo::NotResolved(targets) => {
-                for target in std::mem::take(targets) {
+                for target in targets {
                     self.write_reloc(src_page, src_pos, target);
                 }
             }
         }
-        self.labels[label] = LabelInfo::Resolved((src_page, src_pos));
+        *label.0.borrow_mut() = LabelInfo::Resolved((src_page, src_pos));
     }
 
     /// Bind the current location to `label`.
-    fn get_label_pos(&self, label: DestLabel) -> (Page, Pos) {
-        self.labels[label].loc()
+    fn get_label_pos(&self, label: &DestLabel) -> (Page, Pos) {
+        label.loc()
     }
 
     pub fn get_current_address(&self) -> CodePtr {
@@ -403,7 +400,7 @@ impl JitMemory {
         CodePtr::from(ptr)
     }
 
-    pub fn get_label_address(&self, label: DestLabel) -> CodePtr {
+    pub fn get_label_address(&self, label: &DestLabel) -> CodePtr {
         let (page, pos) = self.get_label_pos(label);
         let ptr = unsafe { self[page].contents().add(pos.0) };
         CodePtr::from(ptr)
@@ -415,14 +412,17 @@ impl JitMemory {
         let pos = self.counter;
         let target = TargetType::Rel { page, offset, pos };
         self.emitl(0);
-        match self.labels[dest] {
+        let targets = match dest.take() {
             LabelInfo::Resolved((src_page, src_pos)) => {
                 self.write_reloc(src_page, src_pos, target);
+                return;
             }
-            LabelInfo::NotResolved(ref mut targets) => {
+            LabelInfo::NotResolved(mut targets) => {
                 targets.push(target);
+                targets
             }
-        }
+        };
+        *dest.0.borrow_mut() = LabelInfo::NotResolved(targets);
     }
 
     /// Save relocaton slot for `DestLabel`.
@@ -430,14 +430,17 @@ impl JitMemory {
         let pos = self[page].counter;
         let target = TargetType::Abs { page, pos };
         self[page].emitq(0);
-        match self.labels[dest] {
+        let targets = match dest.take() {
             LabelInfo::Resolved((src_page, src_pos)) => {
                 self.write_reloc(src_page, src_pos, target);
+                return;
             }
-            LabelInfo::NotResolved(ref mut targets) => {
+            LabelInfo::NotResolved(mut targets) => {
                 targets.push(target);
+                targets
             }
-        }
+        };
+        *dest.0.borrow_mut() = LabelInfo::NotResolved(targets);
     }
 
     fn write_reloc(&mut self, src_page: Page, src_pos: Pos, target: TargetType) {
@@ -547,22 +550,22 @@ impl JitMemory {
         }
     }
 
-    pub fn get_label_addr<T, U>(&mut self, label: DestLabel) -> extern "C" fn(T) -> U {
-        let (page, counter) = self.labels[label].loc();
+    fn addr(&self, label: &DestLabel) -> *mut u8 {
+        let (page, counter) = label.loc();
         let adr = self[page].contents();
-        unsafe { mem::transmute(adr.add(counter.0)) }
+        unsafe { adr.add(counter.0) }
     }
 
-    pub fn get_label_addr2<S, T, U>(&mut self, label: DestLabel) -> extern "C" fn(S, T) -> U {
-        let (page, counter) = self.labels[label].loc();
-        let adr = self[page].contents();
-        unsafe { mem::transmute(adr.add(counter.0)) }
+    pub fn get_label_addr<T, U>(&mut self, label: &DestLabel) -> extern "C" fn(T) -> U {
+        unsafe { mem::transmute(self.addr(label)) }
     }
 
-    pub fn get_label_u64(&mut self, label: DestLabel) -> u64 {
-        let (page, counter) = self.labels[label].loc();
-        let adr = self[page].contents();
-        unsafe { adr.add(counter.0) as u64 }
+    pub fn get_label_addr2<S, T, U>(&mut self, label: &DestLabel) -> extern "C" fn(S, T) -> U {
+        unsafe { mem::transmute(self.addr(label)) }
+    }
+
+    pub fn get_label_u64(&mut self, label: &DestLabel) -> u64 {
+        self.addr(label) as u64
     }
 
     /// Emit bytes.
@@ -573,7 +576,7 @@ impl JitMemory {
     ///
     /// Apply patch for the displacement of the jmp instruction in *patch_point*.
     ///
-    pub fn apply_jmp_patch_address(&mut self, patch_point: CodePtr, jmp_dest: DestLabel) {
+    pub fn apply_jmp_patch_address(&mut self, patch_point: CodePtr, jmp_dest: &DestLabel) {
         let jmp_dest = self.get_label_address(jmp_dest);
         let offset = jmp_dest - patch_point - 5;
         unsafe { *(patch_point.as_ptr().add(1) as *mut [u8; 4]) = (offset as i32).to_ne_bytes() };
@@ -653,9 +656,9 @@ impl JitMemory {
 
     /// Encoding: D  
     /// Op cd
-    pub fn enc_d(&mut self, op: &[u8], dest: DestLabel) {
+    pub fn enc_d(&mut self, op: &[u8], dest: &DestLabel) {
         self.emit(op);
-        self.emit_reloc(dest, 4);
+        self.emit_reloc(dest.clone(), 4);
     }
 
     /// Encoding: /n  
@@ -705,24 +708,24 @@ impl JitMemory {
             // For rip, only indirect addressing with disp32 ([rip + disp32]) is allowed.
             // [rip] and [rip + disp8] are to be converted to [rip + disp32].
             let rm = Rm::rip_ind_from(rm);
-            rex_fn(self, reg, rm.base, Reg(0), rm.mode);
+            rex_fn(self, reg, rm.base, Reg(0), rm.mode.clone());
             self.emit(op);
             self.modrm(modrm_mode, Mode::Ind(Scale::None, Disp::None), rm.base);
             self.emit_disp_imm(rm.mode.disp(), imm);
         } else if rm.mode != Mode::Reg && (rm.base.0 & 0b111) == 4 {
             // If mode != Reg and r/m == 4/12 (rsp/r12), use SIB.
-            match rm.mode {
+            match &rm.mode {
                 Mode::Ind(scale, disp) => {
                     let (scale, index) = match scale {
                         Scale::None => (0, Reg(4)), // magic number
-                        Scale::S1(scale, index) => (scale, index),
+                        Scale::S1(scale, index) => (*scale, *index),
                     };
                     let base = rm.base;
-                    rex_fn(self, reg, base, index, rm.mode);
+                    rex_fn(self, reg, base, index, rm.mode.clone());
                     self.emit(op);
-                    self.modrm(modrm_mode, rm.mode, base);
+                    self.modrm(modrm_mode, rm.mode.clone(), base);
                     self.sib(scale, index, base);
-                    self.emit_disp_imm(disp, imm);
+                    self.emit_disp_imm(disp.clone(), imm);
                 }
                 _ => unreachable!(),
             }
@@ -732,7 +735,7 @@ impl JitMemory {
             rex_fn(self, reg, rm.base, scale.index(), rm.mode);
             let mode = Mode::Ind(scale, Disp::D8(0));
             self.emit(op);
-            self.modrm(modrm_mode, mode, rm.base);
+            self.modrm(modrm_mode, mode.clone(), rm.base);
             match scale {
                 Scale::None => {}
                 Scale::S1(scale, index) => self.sib(scale, index, rm.base),
@@ -750,11 +753,11 @@ impl JitMemory {
                         Scale::S1(_, index) => index,
                     },
                 },
-                rm.mode,
+                rm.mode.clone(),
             );
             // index != Reg::RIP
             self.emit(op);
-            self.modrm(modrm_mode, rm.mode, rm.base);
+            self.modrm(modrm_mode, rm.mode.clone(), rm.base);
             match rm.mode {
                 Mode::Reg => {}
                 Mode::Ind(scale, _) => match scale {

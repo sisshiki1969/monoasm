@@ -22,7 +22,7 @@ fn xorpd() {
     );
     jit.finalize();
 
-    let f = jit.get_label_addr::<f64, f64>(begin);
+    let f = jit.get_label_addr::<f64, f64>(&begin);
     let ret = f(pi);
     assert_eq!(ret, pi.neg());
 }

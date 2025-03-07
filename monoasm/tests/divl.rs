@@ -29,7 +29,7 @@ fn divl() {
 
     let dividend = 7777777;
     let divisor = 111112;
-    let f = jit.get_label_addr2::<u32, u32, UnsignedDiv>(begin);
+    let f = jit.get_label_addr2::<u32, u32, UnsignedDiv>(&begin);
     let ret = dbg!(f(dividend, divisor)); // rax contains (7)
     assert_eq!(ret.quotient as u32, dividend / divisor);
     assert_eq!(ret.remainder as u32, dividend % divisor);

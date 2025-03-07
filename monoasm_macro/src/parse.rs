@@ -460,7 +460,7 @@ impl ToTokens for Disp {
                 Disp::from_disp(#ts)
             ),
             Disp::Label(label) => quote!(
-                Disp::from_label(#label)
+                Disp::from_label(#label.clone())
             ),
         };
         tokens.extend(ts);

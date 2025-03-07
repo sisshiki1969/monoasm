@@ -24,8 +24,8 @@ fn minmaxsd() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f1 = jit.get_label_addr2::<f64, f64, f64>(label0);
-    let f2 = jit.get_label_addr2::<f64, f64, f64>(label1);
+    let f1 = jit.get_label_addr2::<f64, f64, f64>(&label0);
+    let f2 = jit.get_label_addr2::<f64, f64, f64>(&label1);
     assert_eq!(-0.1, dbg!(f1(0.02, -0.1)));
     assert_eq!(0.02, dbg!(f2(0.02, -0.1)));
 }

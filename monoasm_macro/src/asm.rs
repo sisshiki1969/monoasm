@@ -4,7 +4,7 @@ use quote::quote;
 
 pub fn compile(inst: Inst) -> TokenStream {
     match inst {
-        Inst::Label(ident) => quote!( jit.bind_label(#ident); ),
+        Inst::Label(ident) => quote!( jit.bind_label(&#ident); ),
         Inst::F64(f) => {
             quote!( jit.emit(&#f.to_ne_bytes()); )
         }
@@ -311,18 +311,18 @@ pub fn compile(inst: Inst) -> TokenStream {
                 // FF /4
                 // M
                 quote! (
-                    jit.enc_digit(&[0xff], #ind, 4);
+                    jit.enc_digit(&[0xff], #ind.clone(), 4);
                 )
             }
             // JMP rel32
             // E9 cd
             // D
-            Dest::Rel(dest) => quote! ( jit.enc_d(&[0xe9], #dest); ),
+            Dest::Rel(dest) => quote! ( jit.enc_d(&[0xe9], &#dest); ),
             dest => unimplemented!("JMP {:?}", dest),
         },
         Inst::Jcc(cond, dest) => {
             let cond = 0x80 + cond as u8;
-            quote!( jit.enc_d(&[0x0f, #cond], #dest); )
+            quote!( jit.enc_d(&[0x0f, #cond], &#dest); )
         }
 
         Inst::UComIsd(op1, op2) => {

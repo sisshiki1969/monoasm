@@ -1,6 +1,6 @@
 extern crate libc;
 use std::mem;
-use std::ops::{Add, Deref, DerefMut, Index, IndexMut, Sub};
+use std::ops::{Add, Index, IndexMut, Sub};
 mod jit_memory;
 pub mod test;
 pub use jit_memory::*;
@@ -87,7 +87,7 @@ impl std::fmt::Display for Reg {
 }
 
 /// Displacement for indirect addressing.
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Disp {
     None,
     D8(i8),
@@ -160,7 +160,7 @@ pub enum Dest {
 }
 
 /// Adressing modes.
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Mode {
     Reg,
     Ind(Scale, Disp), // [reg + disp]
@@ -187,7 +187,7 @@ impl Mode {
     fn disp(&self) -> Disp {
         match self {
             Mode::Reg => Disp::None,
-            Mode::Ind(_, disp) => *disp,
+            Mode::Ind(_, disp) => disp.clone(),
         }
     }
 
@@ -197,7 +197,7 @@ impl Mode {
 }
 
 /// Register / Memory reference Operands.
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Rm {
     base: Reg,
     mode: Mode,
@@ -278,16 +278,27 @@ impl Sub<Pos> for Pos {
 }
 
 /// Id for destination label.
-#[derive(Copy, Clone, PartialEq, Default, Debug)]
+#[derive(Clone, PartialEq, Default, Debug)]
 #[repr(transparent)]
-pub struct DestLabel(usize);
+pub struct DestLabel(std::rc::Rc<std::cell::RefCell<LabelInfo>>);
 
 impl DestLabel {
-    pub fn to_usize(&self) -> usize {
-        self.0
+    pub fn new() -> Self {
+        DestLabel(std::rc::Rc::new(std::cell::RefCell::new(LabelInfo::new())))
+    }
+
+    fn borrow(&self) -> std::cell::Ref<LabelInfo> {
+        self.0.borrow()
+    }
+
+    fn take(&self) -> LabelInfo {
+        std::mem::take(&mut self.0.borrow_mut())
+    }
+
+    pub fn loc(&self) -> (Page, Pos) {
+        self.0.borrow().loc()
     }
 }
-
 ///
 /// Relocation
 ///
@@ -301,6 +312,12 @@ enum LabelInfo {
     Resolved((Page, Pos)),
     /// Target informations.
     NotResolved(Vec<TargetType>),
+}
+
+impl std::default::Default for LabelInfo {
+    fn default() -> Self {
+        LabelInfo::NotResolved(vec![])
+    }
 }
 
 impl LabelInfo {
@@ -320,47 +337,4 @@ impl LabelInfo {
 enum TargetType {
     Rel { page: Page, offset: u8, pos: Pos },
     Abs { page: Page, pos: Pos },
-}
-
-/// Relocation tabla.
-#[derive(Debug, Default)]
-struct Labels(Vec<LabelInfo>);
-
-impl Labels {
-    fn new() -> Self {
-        Labels(vec![])
-    }
-
-    fn new_label(&mut self) -> DestLabel {
-        let label = DestLabel(self.0.len());
-        self.0.push(LabelInfo::new());
-        label
-    }
-}
-
-impl Index<DestLabel> for Labels {
-    type Output = LabelInfo;
-
-    fn index(&self, dest: DestLabel) -> &Self::Output {
-        &self.0[dest.0]
-    }
-}
-
-impl IndexMut<DestLabel> for Labels {
-    fn index_mut(&mut self, dest: DestLabel) -> &mut Self::Output {
-        &mut self.0[dest.0]
-    }
-}
-
-impl Deref for Labels {
-    type Target = Vec<LabelInfo>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Labels {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
 }

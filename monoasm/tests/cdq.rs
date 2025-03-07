@@ -18,7 +18,7 @@ fn cdq() {
     );
     jit.finalize();
 
-    let f = jit.get_label_addr::<u64, u64>(begin);
+    let f = jit.get_label_addr::<u64, u64>(&begin);
     let ret = f(0x80000000); // rax contains 0x00000000FFFFFFFF
     assert_eq!(ret, 0x00000000FFFFFFFF);
 }
@@ -35,7 +35,7 @@ fn notq() {
     );
     jit.finalize();
 
-    let f = jit.get_label_addr::<i64, i64>(begin);
+    let f = jit.get_label_addr::<i64, i64>(&begin);
     assert_eq!(f(354), !354);
     assert_eq!(f(-354), !(-354));
 }

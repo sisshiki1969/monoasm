@@ -23,7 +23,7 @@ fn udiv() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr2::<u128, u64, UnsignedDiv>(label);
+    let f = jit.get_label_addr2::<u128, u64, UnsignedDiv>(&label);
     let dividend = 0x0123456789abcdef;
     let divisor = 0x56789a;
     let res = dbg!(f(dividend, divisor));
@@ -55,7 +55,7 @@ fn idiv() {
     jit.finalize();
     eprintln!("{}", jit.dump_code().unwrap());
 
-    let f = jit.get_label_addr2::<i128, i64, SignedDiv>(label);
+    let f = jit.get_label_addr2::<i128, i64, SignedDiv>(&label);
     let dividend = 0x0123456789abcdef;
     let divisor = 0x56789a;
     let res = dbg!(f(dividend, divisor));
