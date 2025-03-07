@@ -19,6 +19,8 @@ pub struct JitMemory {
     page: Page,
     /// Information of momory pages.
     pages: [MemPage; 3],
+    ///
+    labels: Vec<DestLabel>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -256,6 +258,7 @@ impl JitMemory {
         JitMemory {
             page: Page(0),
             pages: [initial_page, second_page, data_page],
+            labels: vec![],
         }
     }
 
@@ -308,7 +311,9 @@ impl JitMemory {
 
     /// Create a new label and returns `DestLabel`.
     pub fn label(&mut self) -> DestLabel {
-        DestLabel::default()
+        let label = DestLabel::new();
+        self.labels.push(label.clone());
+        label
     }
 
     pub fn const_f64(&mut self, val: f64) -> DestLabel {
@@ -372,27 +377,21 @@ impl JitMemory {
     }
 
     /// Bind the current location to `label`.
-    pub fn bind_label(&mut self, label: &DestLabel) {
+    pub fn bind_label(&mut self, label: DestLabel) {
         let src_page = self.page;
-        self.bind_label_with_page(src_page, label.clone());
+        self.bind_label_with_page(src_page, label);
     }
 
-    pub fn bind_label_with_page(&mut self, src_page: Page, label: DestLabel) {
+    pub fn bind_label_with_page(&mut self, src_page: Page, mut label: DestLabel) {
         let src_pos = self[src_page].counter;
-        match label.take() {
-            LabelInfo::Resolved(_) => {} //panic!("The DestLabel has already been resolved."),
+        match label.bind(src_page, src_pos) {
+            LabelInfo::Resolved(_) => panic!("The DestLabel has already been resolved."),
             LabelInfo::NotResolved(targets) => {
                 for target in targets {
                     self.write_reloc(src_page, src_pos, target);
                 }
             }
         }
-        *label.0.borrow_mut() = LabelInfo::Resolved((src_page, src_pos));
-    }
-
-    /// Bind the current location to `label`.
-    fn get_label_pos(&self, label: &DestLabel) -> (Page, Pos) {
-        label.loc()
     }
 
     pub fn get_current_address(&self) -> CodePtr {
@@ -401,9 +400,20 @@ impl JitMemory {
     }
 
     pub fn get_label_address(&self, label: &DestLabel) -> CodePtr {
-        let (page, pos) = self.get_label_pos(label);
+        let (page, pos) = label.loc();
         let ptr = unsafe { self[page].contents().add(pos.0) };
         CodePtr::from(ptr)
+    }
+
+    fn handle_reloc(&mut self, label: DestLabel, target: TargetType) {
+        match *label.0.borrow_mut() {
+            LabelInfo::Resolved((src_page, src_pos)) => {
+                self.write_reloc(src_page, src_pos, target);
+            }
+            LabelInfo::NotResolved(ref mut targets) => {
+                targets.push(target);
+            }
+        };
     }
 
     /// Save relocaton slot for `DestLabel`.
@@ -412,17 +422,7 @@ impl JitMemory {
         let pos = self.counter;
         let target = TargetType::Rel { page, offset, pos };
         self.emitl(0);
-        let targets = match dest.take() {
-            LabelInfo::Resolved((src_page, src_pos)) => {
-                self.write_reloc(src_page, src_pos, target);
-                return;
-            }
-            LabelInfo::NotResolved(mut targets) => {
-                targets.push(target);
-                targets
-            }
-        };
-        *dest.0.borrow_mut() = LabelInfo::NotResolved(targets);
+        self.handle_reloc(dest, target);
     }
 
     /// Save relocaton slot for `DestLabel`.
@@ -430,17 +430,7 @@ impl JitMemory {
         let pos = self[page].counter;
         let target = TargetType::Abs { page, pos };
         self[page].emitq(0);
-        let targets = match dest.take() {
-            LabelInfo::Resolved((src_page, src_pos)) => {
-                self.write_reloc(src_page, src_pos, target);
-                return;
-            }
-            LabelInfo::NotResolved(mut targets) => {
-                targets.push(target);
-                targets
-            }
-        };
-        *dest.0.borrow_mut() = LabelInfo::NotResolved(targets);
+        self.handle_reloc(dest, target);
     }
 
     fn write_reloc(&mut self, src_page: Page, src_pos: Pos, target: TargetType) {
@@ -465,15 +455,16 @@ impl JitMemory {
 
     /// Resolve and fill all relocations.
     fn fill_relocs(&mut self) {
-        //let mut reloc = std::mem::take(&mut self.labels);
-        //for rel in reloc.iter_mut() {
-        //    if let LabelInfo::Resolved((src_page, src_pos)) = rel {
-        //        for target in std::mem::take(&mut rel.target) {
-        //            self.write_reloc(src_page, src_pos, target);
+        self.labels
+            .retain(|label| matches!(&*label.0.borrow(), LabelInfo::NotResolved(_)));
+        //for label in std::mem::take(&mut self.labels) {
+        //    match &*label.0.borrow() {
+        //        LabelInfo::Resolved(_) => {}
+        //        LabelInfo::NotResolved(targets) => {
+        //            assert!(targets.is_empty());
         //        }
         //    }
         //}
-        //self.labels = reloc;
     }
 
     /// Resolve labels for constant data, and emit them to `contents`.
@@ -656,9 +647,9 @@ impl JitMemory {
 
     /// Encoding: D  
     /// Op cd
-    pub fn enc_d(&mut self, op: &[u8], dest: &DestLabel) {
+    pub fn enc_d(&mut self, op: &[u8], dest: DestLabel) {
         self.emit(op);
-        self.emit_reloc(dest.clone(), 4);
+        self.emit_reloc(dest, 4);
     }
 
     /// Encoding: /n  
@@ -714,11 +705,11 @@ impl JitMemory {
             self.emit_disp_imm(rm.mode.disp(), imm);
         } else if rm.mode != Mode::Reg && (rm.base.0 & 0b111) == 4 {
             // If mode != Reg and r/m == 4/12 (rsp/r12), use SIB.
-            match &rm.mode {
+            match rm.mode.clone() {
                 Mode::Ind(scale, disp) => {
                     let (scale, index) = match scale {
                         Scale::None => (0, Reg(4)), // magic number
-                        Scale::S1(scale, index) => (*scale, *index),
+                        Scale::S1(scale, index) => (scale, index),
                     };
                     let base = rm.base;
                     rex_fn(self, reg, base, index, rm.mode.clone());
@@ -746,7 +737,7 @@ impl JitMemory {
                 self,
                 reg,
                 rm.base,
-                match rm.mode {
+                match rm.mode.clone() {
                     Mode::Reg => Reg(0),
                     Mode::Ind(scale, _) => match scale {
                         Scale::None => Reg(0),

@@ -284,19 +284,15 @@ pub struct DestLabel(std::rc::Rc<std::cell::RefCell<LabelInfo>>);
 
 impl DestLabel {
     pub fn new() -> Self {
-        DestLabel(std::rc::Rc::new(std::cell::RefCell::new(LabelInfo::new())))
-    }
-
-    fn borrow(&self) -> std::cell::Ref<LabelInfo> {
-        self.0.borrow()
-    }
-
-    fn take(&self) -> LabelInfo {
-        std::mem::take(&mut self.0.borrow_mut())
+        Self(std::rc::Rc::new(std::cell::RefCell::new(LabelInfo::new())))
     }
 
     pub fn loc(&self) -> (Page, Pos) {
         self.0.borrow().loc()
+    }
+
+    fn bind(&mut self, page: Page, pos: Pos) -> LabelInfo {
+        std::mem::replace(&mut *self.0.borrow_mut(), LabelInfo::Resolved((page, pos)))
     }
 }
 ///
