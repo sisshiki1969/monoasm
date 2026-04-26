@@ -219,7 +219,7 @@ pub fn compile(inst: Inst) -> TokenStream {
         Inst::Cvttsd2siq(op1, op2) => {
             quote! {
                 jit.emitb(0xf2);
-                jit.enc_mr(&[0x0f, 0x2c], #op1, #op2);
+                jit.enc_rexw_mr(&[0x0f, 0x2c], #op1, #op2);
             }
         }
 
