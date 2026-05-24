@@ -189,7 +189,11 @@ impl Arm64Reloc {
                 word | (imm as u32 & 0x03ff_ffff)
             }
             Arm64Reloc::Imm19 => {
-                assert_eq!(disp & 0b11, 0, "conditional branch target not 4-byte aligned");
+                assert_eq!(
+                    disp & 0b11,
+                    0,
+                    "conditional branch target not 4-byte aligned"
+                );
                 let imm = disp >> 2;
                 assert!(
                     (-(1 << 18)..(1 << 18)).contains(&imm),
@@ -494,12 +498,16 @@ impl JitMemory {
 
     /// `CSEL Xd, Xn, Xm, cond`.
     pub fn csel(&mut self, rd: GReg, rn: GReg, rm: GReg, cond: Cond) {
-        self.emitl(0x9a80_0000 | (rm.enc() << 16) | (cond.enc() << 12) | (rn.enc() << 5) | rd.enc());
+        self.emitl(
+            0x9a80_0000 | (rm.enc() << 16) | (cond.enc() << 12) | (rn.enc() << 5) | rd.enc(),
+        );
     }
 
     /// `CSINC Xd, Xn, Xm, cond`.
     pub fn csinc(&mut self, rd: GReg, rn: GReg, rm: GReg, cond: Cond) {
-        self.emitl(0x9a80_0400 | (rm.enc() << 16) | (cond.enc() << 12) | (rn.enc() << 5) | rd.enc());
+        self.emitl(
+            0x9a80_0400 | (rm.enc() << 16) | (cond.enc() << 12) | (rn.enc() << 5) | rd.enc(),
+        );
     }
 
     /// `CSET Xd, cond` — set `Xd` to 1 if `cond` holds, else 0
@@ -521,7 +529,10 @@ impl JitMemory {
     // ===================================================================
 
     fn ldst_uimm(&mut self, base: u32, scale: u32, rt: u32, rn: GReg, byte_off: u32) {
-        debug_assert!(byte_off & ((1 << scale) - 1) == 0, "load/store offset misaligned");
+        debug_assert!(
+            byte_off & ((1 << scale) - 1) == 0,
+            "load/store offset misaligned"
+        );
         let imm12 = byte_off >> scale;
         debug_assert!(imm12 < (1 << 12), "load/store offset out of range");
         self.emitl(base | (imm12 << 10) | (rn.enc() << 5) | rt);
@@ -575,7 +586,10 @@ impl JitMemory {
     // ---- pre/post-indexed (9-bit signed, unscaled) ----
 
     fn ldst_idx(&mut self, base: u32, rt: u32, rn: GReg, imm9: i32) {
-        debug_assert!((-256..256).contains(&imm9), "pre/post-index imm out of range");
+        debug_assert!(
+            (-256..256).contains(&imm9),
+            "pre/post-index imm out of range"
+        );
         self.emitl(base | (((imm9 as u32) & 0x1ff) << 12) | (rn.enc() << 5) | rt);
     }
 
@@ -623,10 +637,7 @@ impl JitMemory {
         let imm7 = byte_off / 8;
         debug_assert!((-64..64).contains(&imm7), "ldp/stp offset out of range");
         self.emitl(
-            base | (((imm7 as u32) & 0x7f) << 15)
-                | (rt2.enc() << 10)
-                | (rn.enc() << 5)
-                | rt.enc(),
+            base | (((imm7 as u32) & 0x7f) << 15) | (rt2.enc() << 10) | (rn.enc() << 5) | rt.enc(),
         );
     }
 

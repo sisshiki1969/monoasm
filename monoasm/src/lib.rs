@@ -333,8 +333,15 @@ impl LabelInfo {
 
 #[derive(Clone, PartialEq, Debug)]
 enum TargetType {
-    Rel { page: Page, offset: u8, pos: Pos },
-    Abs { page: Page, pos: Pos },
+    Rel {
+        page: Page,
+        offset: u8,
+        pos: Pos,
+    },
+    Abs {
+        page: Page,
+        pos: Pos,
+    },
     /// AArch64 PC-relative branch/ADR: patch a scaled immediate into the
     /// bitfields of the instruction word already emitted at `pos`.
     Arm64 {
