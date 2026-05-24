@@ -7,10 +7,9 @@
 use crate::*;
 //use monoasm_inst::Reg;
 use region::{protect, Protection};
-use std::{
-    alloc::{alloc, Layout},
-    io::Write,
-};
+use std::alloc::{alloc, Layout};
+#[cfg(target_arch = "x86_64")]
+use std::io::Write;
 
 /// Memory manager.
 #[derive(Debug)]
@@ -159,11 +158,13 @@ impl MemPage {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 enum ModRM {
     Reg(Reg),
     Digit(u8),
 }
 
+#[cfg(target_arch = "x86_64")]
 enum Rex {
     REXW,
     None,
@@ -417,6 +418,7 @@ impl JitMemory {
     }
 
     /// Save relocaton slot for `DestLabel`.
+    #[cfg(target_arch = "x86_64")]
     pub fn emit_reloc(&mut self, dest: DestLabel, offset: u8) {
         let page = self.page;
         let pos = self.counter;
@@ -436,6 +438,7 @@ impl JitMemory {
     fn write_reloc(&mut self, src_page: Page, src_pos: Pos, target: TargetType) {
         let src_ptr = self[src_page].contents + src_pos.0;
         match target {
+            #[cfg(target_arch = "x86_64")]
             TargetType::Rel { page, offset, pos } => {
                 let target_ptr = self[page].contents + pos.0 + (offset as usize);
                 let disp = (src_ptr as i128) - (target_ptr as i128);
@@ -450,6 +453,7 @@ impl JitMemory {
             TargetType::Abs { page, pos } => {
                 self[page].write64(pos, src_ptr as _);
             }
+            #[cfg(target_arch = "aarch64")]
             TargetType::Arm64 { page, pos, kind } => {
                 // AArch64 branches are relative to the address of the
                 // branch instruction itself, and the displacement is
@@ -473,6 +477,7 @@ impl JitMemory {
     /// is a [`DestLabel`]. `base_word` is the fully-encoded instruction
     /// with a zeroed immediate field; `kind` describes how the
     /// displacement is later patched in.
+    #[cfg(target_arch = "aarch64")]
     pub fn emit_arm64_branch(&mut self, base_word: u32, kind: crate::Arm64Reloc, dest: DestLabel) {
         let page = self.page;
         let pos = self.counter;
@@ -595,6 +600,7 @@ impl JitMemory {
     ///
     /// Apply patch for the displacement of the jmp instruction in *patch_point*.
     ///
+    #[cfg(target_arch = "x86_64")]
     pub fn apply_jmp_patch_address(&mut self, patch_point: CodePtr, jmp_dest: &DestLabel) {
         let jmp_dest = self.get_label_address(jmp_dest);
         let offset = jmp_dest - patch_point - 5;
@@ -602,9 +608,10 @@ impl JitMemory {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 #[allow(dead_code)]
 impl JitMemory {
-    /// Encoding: Opcode +rd  
+    /// Encoding: Opcode +rd
     /// Op+ rd
     pub fn enc_o(&mut self, op: u8, reg: Reg) {
         assert!(!reg.is_rip());
@@ -789,6 +796,7 @@ impl JitMemory {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 impl JitMemory {
     /// ModRM
     ///
@@ -910,6 +918,7 @@ impl JitMemory {
         }
     }
 }
+#[cfg(target_arch = "x86_64")]
 impl JitMemory {
     /// Dump generated code.
     pub fn dump_code(&self) -> Result<String, std::io::Error> {

@@ -1,9 +1,11 @@
 extern crate libc;
 use std::mem;
 use std::ops::{Add, Index, IndexMut, Sub};
+#[cfg(target_arch = "aarch64")]
 pub mod arm64;
 mod jit_memory;
 pub mod test;
+#[cfg(target_arch = "aarch64")]
 pub use arm64::*;
 pub use jit_memory::*;
 
@@ -44,9 +46,11 @@ impl CodePtr {
 }
 
 /// Register.
+#[cfg(target_arch = "x86_64")]
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Reg(u8);
 
+#[cfg(target_arch = "x86_64")]
 impl Reg {
     pub fn from(num: u64) -> Self {
         Reg(num as u8)
@@ -65,6 +69,7 @@ impl Reg {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Reg {
     fn rax() -> Self {
         Self::from(0)
@@ -82,6 +87,7 @@ impl Reg {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 impl std::fmt::Display for Reg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "R({})", self.0)
@@ -89,6 +95,7 @@ impl std::fmt::Display for Reg {
 }
 
 /// Displacement for indirect addressing.
+#[cfg(target_arch = "x86_64")]
 #[derive(Clone, PartialEq, Debug)]
 pub enum Disp {
     None,
@@ -97,6 +104,7 @@ pub enum Disp {
     Label(DestLabel),
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Disp {
     pub fn from_disp(disp: i32) -> Self {
         match disp {
@@ -117,12 +125,14 @@ impl Disp {
 }
 
 /// Scale index for indirect addressing.
+#[cfg(target_arch = "x86_64")]
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Scale {
     None,
     S1(u8, Reg),
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Scale {
     fn index(&self) -> Reg {
         match self {
@@ -132,6 +142,7 @@ impl Scale {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 pub enum Imm {
     None,
     B(i8),
@@ -140,6 +151,7 @@ pub enum Imm {
     Q(i64),
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Imm {
     pub fn offset(&self) -> u8 {
         match self {
@@ -153,6 +165,7 @@ impl Imm {
 }
 
 /// Destination for jump and call instructions.
+#[cfg(target_arch = "x86_64")]
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Dest {
     /// Register
@@ -162,12 +175,14 @@ pub enum Dest {
 }
 
 /// Adressing modes.
+#[cfg(target_arch = "x86_64")]
 #[derive(Clone, PartialEq, Debug)]
 pub enum Mode {
     Reg,
     Ind(Scale, Disp), // [reg + disp]
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Mode {
     fn encode(&self) -> u8 {
         match self {
@@ -199,18 +214,21 @@ impl Mode {
 }
 
 /// Register / Memory reference Operands.
+#[cfg(target_arch = "x86_64")]
 #[derive(Clone, PartialEq, Debug)]
 pub struct Rm {
     base: Reg,
     mode: Mode,
 }
 
+#[cfg(target_arch = "x86_64")]
 impl std::convert::From<Reg> for Rm {
     fn from(value: Reg) -> Self {
         Rm::reg(value)
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Rm {
     pub fn reg(base: Reg) -> Self {
         Self {
@@ -333,6 +351,7 @@ impl LabelInfo {
 
 #[derive(Clone, PartialEq, Debug)]
 enum TargetType {
+    #[cfg(target_arch = "x86_64")]
     Rel {
         page: Page,
         offset: u8,
@@ -344,6 +363,7 @@ enum TargetType {
     },
     /// AArch64 PC-relative branch/ADR: patch a scaled immediate into the
     /// bitfields of the instruction word already emitted at `pos`.
+    #[cfg(target_arch = "aarch64")]
     Arm64 {
         page: Page,
         pos: Pos,

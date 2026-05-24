@@ -1,3 +1,4 @@
+#![cfg(target_arch = "x86_64")]
 extern crate monoasm;
 extern crate monoasm_macro;
 

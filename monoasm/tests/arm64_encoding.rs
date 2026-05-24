@@ -1,10 +1,18 @@
-//! Host-portable encoding tests for the AArch64 backend.
+//! Encoding tests for the AArch64 backend.
 //!
-//! These run on any host (they only *read* the emitted bytes from the
-//! JIT page, they never execute them), so the encoders stay verified
-//! even when the test suite runs natively on x86-64. Expected encodings
-//! are taken from `llvm-mc --triple=aarch64` (instruction-level
-//! `--show-encoding` plus object disassembly for resolved branches).
+//! These only *read* the emitted bytes from the JIT page (they never
+//! execute them), so they need no AArch64 hardware or emulator — but the
+//! backend itself is compiled only when targeting AArch64, so build the
+//! tests for that target to run them:
+//!
+//! ```text
+//! cargo test --target aarch64-unknown-linux-gnu --test arm64_encoding
+//! ```
+//!
+//! Expected encodings are taken from `llvm-mc --triple=aarch64`
+//! (instruction-level `--show-encoding` plus object disassembly for
+//! resolved branches).
+#![cfg(target_arch = "aarch64")]
 
 use monoasm::*;
 
