@@ -1,0 +1,17 @@
+# Cross-build + emulated-execution wiring for the AArch64 backend.
+#
+# The arm64 instruction encoder is only compiled when the *target* is
+# aarch64 (see the `#[cfg(target_arch = "aarch64")]` gates). To build and
+# run its tests from a non-aarch64 host (e.g. the x86-64 CI / web
+# container), use the GNU cross toolchain and run the binaries under qemu:
+#
+#   rustup target add aarch64-unknown-linux-gnu
+#   cargo test --target aarch64-unknown-linux-gnu --test arm64_exec
+#
+# Note: these settings also apply to a *native* aarch64-unknown-linux-gnu
+# build. On real Apple/ARM hardware you will normally want to drop the
+# `runner` (no emulation needed) and the `linker` override (use the native
+# linker).
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+runner = "qemu-aarch64 -L /usr/aarch64-linux-gnu"
