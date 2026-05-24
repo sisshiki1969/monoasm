@@ -450,7 +450,35 @@ impl JitMemory {
             TargetType::Abs { page, pos } => {
                 self[page].write64(pos, src_ptr as _);
             }
+            TargetType::Arm64 { page, pos, kind } => {
+                // AArch64 branches are relative to the address of the
+                // branch instruction itself, and the displacement is
+                // packed into the bitfields of the existing instruction
+                // word (rather than a separate displacement slot).
+                let branch_ptr = self[page].contents + pos.0;
+                let disp = (src_ptr as i128) - (branch_ptr as i128);
+                let disp = i64::try_from(disp).expect("AArch64 relocation displacement overflow");
+                let word = u32::from_le_bytes([
+                    self[page][pos],
+                    self[page][pos + 1],
+                    self[page][pos + 2],
+                    self[page][pos + 3],
+                ]);
+                self[page].write32(pos, kind.patch(word, disp) as i32);
+            }
         }
+    }
+
+    /// Emit an AArch64 PC-relative branch/ADR instruction whose target
+    /// is a [`DestLabel`]. `base_word` is the fully-encoded instruction
+    /// with a zeroed immediate field; `kind` describes how the
+    /// displacement is later patched in.
+    pub fn emit_arm64_branch(&mut self, base_word: u32, kind: crate::Arm64Reloc, dest: DestLabel) {
+        let page = self.page;
+        let pos = self.counter;
+        self.emitl(base_word);
+        let target = TargetType::Arm64 { page, pos, kind };
+        self.handle_reloc(dest, target);
     }
 
     /// Resolve and fill all relocations.

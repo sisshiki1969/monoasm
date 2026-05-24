@@ -1,3 +1,4 @@
+#[cfg(target_arch = "x86_64")]
 use std::arch::asm;
 
 // Utility functions
@@ -18,6 +19,12 @@ extern "C" fn panic() {
     panic!("panic() is called.")
 }
 
+#[cfg(not(target_arch = "x86_64"))]
+extern "C" fn dump() {
+    eprintln!("dump(): register dump is only implemented for x86_64.");
+}
+
+#[cfg(target_arch = "x86_64")]
 extern "C" fn dump() {
     #[allow(unused_assignments)]
     let (mut rax, mut rdi, mut rsi, mut rdx, mut rcx, mut r8) =

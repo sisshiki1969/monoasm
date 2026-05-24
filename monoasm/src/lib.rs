@@ -1,8 +1,10 @@
 extern crate libc;
 use std::mem;
 use std::ops::{Add, Index, IndexMut, Sub};
+pub mod arm64;
 mod jit_memory;
 pub mod test;
+pub use arm64::*;
 pub use jit_memory::*;
 
 const PAGE_SIZE: usize = 1024 * 1024 * 256;
@@ -333,4 +335,11 @@ impl LabelInfo {
 enum TargetType {
     Rel { page: Page, offset: u8, pos: Pos },
     Abs { page: Page, pos: Pos },
+    /// AArch64 PC-relative branch/ADR: patch a scaled immediate into the
+    /// bitfields of the instruction word already emitted at `pos`.
+    Arm64 {
+        page: Page,
+        pos: Pos,
+        kind: crate::Arm64Reloc,
+    },
 }
