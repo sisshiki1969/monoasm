@@ -11,6 +11,10 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
 
+# Run asynchronously so the session starts without waiting for the toolchain
+# install and full build to finish.
+echo '{"async": true, "asyncTimeout": 600000}'
+
 cd "$CLAUDE_PROJECT_DIR"
 
 # Verbose toolchain/build output goes to stderr to keep it out of session context.
@@ -19,6 +23,5 @@ cd "$CLAUDE_PROJECT_DIR"
   rustup default nightly
   cargo fetch
   cargo build --workspace --tests
+  echo "monoasm web environment ready: nightly toolchain installed, workspace built."
 } 1>&2
-
-echo "monoasm web environment ready: nightly toolchain installed, workspace built."
