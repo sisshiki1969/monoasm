@@ -1,5 +1,7 @@
 /target
 /.*
+!/.claude/
+.claude/settings.local.json
 **/*.rs.bk
 a.out
 *.s
