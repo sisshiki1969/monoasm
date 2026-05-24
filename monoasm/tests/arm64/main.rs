@@ -3,5 +3,6 @@
 //! `cargo test --target aarch64-unknown-linux-gnu --test arm64`.
 #![cfg(target_arch = "aarch64")]
 
+mod dsl;
 mod encoding;
 mod exec;
