@@ -1,4 +1,3 @@
-#![cfg(target_arch = "x86_64")]
 use monoasm::*;
 use monoasm_macro::monoasm;
 

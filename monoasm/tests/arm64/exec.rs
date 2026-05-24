@@ -5,11 +5,10 @@
 //! development host run them under emulation:
 //!
 //! ```text
-//! cargo test --target aarch64-unknown-linux-gnu --test arm64_exec
+//! cargo test --target aarch64-unknown-linux-gnu --test arm64
 //! ```
 //!
 //! (see `.cargo/config.toml` for the qemu runner wiring).
-#![cfg(target_arch = "aarch64")]
 
 use monoasm::*;
 

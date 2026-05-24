@@ -3,6 +3,9 @@ name = "monoasm"
 version = "0.1.0"
 authors = ["monochrome <sisshiki@mac.com>"]
 edition = "2021"
+# Integration tests are split by target architecture into tests/x64 and
+# tests/arm64, so disable autodiscovery and declare them explicitly.
+autotests = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,3 +17,11 @@ proc-macro2 = "1.0.24"
 syn = "2.0.28"
 chrono = "0.4.26"
 tempfile = "3.13.0"
+
+[[test]]
+name = "x64"
+path = "tests/x64/main.rs"
+
+[[test]]
+name = "arm64"
+path = "tests/arm64/main.rs"

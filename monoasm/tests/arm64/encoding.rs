@@ -6,13 +6,12 @@
 //! tests for that target to run them:
 //!
 //! ```text
-//! cargo test --target aarch64-unknown-linux-gnu --test arm64_encoding
+//! cargo test --target aarch64-unknown-linux-gnu --test arm64
 //! ```
 //!
 //! Expected encodings are taken from `llvm-mc --triple=aarch64`
 //! (instruction-level `--show-encoding` plus object disassembly for
 //! resolved branches).
-#![cfg(target_arch = "aarch64")]
 
 use monoasm::*;
 
