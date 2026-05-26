@@ -6,8 +6,143 @@
 
 use crate::*;
 //use monoasm_inst::Reg;
+#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
 use region::{protect, Protection};
 use std::alloc::{alloc, Layout};
+
+// ---------------------------------------------------------------------------
+// Platform-specific JIT memory allocation and W^X handling.
+//
+// Apple Silicon (aarch64-apple-darwin) rejects RWX heap pages: JIT memory
+// must be allocated with `mmap(..., MAP_JIT, ...)` and the per-thread write
+// permission is toggled via `pthread_jit_write_protect_np`. After writing
+// code, `sys_icache_invalidate` (or equivalent cache maintenance) must be
+// run so the CPU sees the freshly written instructions. On Linux/AArch64
+// the toggle is a no-op but the cache maintenance is still required; on
+// x86-64 both are no-ops.
+// ---------------------------------------------------------------------------
+
+#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+mod apple_jit {
+    use libc::{
+        c_void, mmap, MAP_ANON, MAP_FAILED, MAP_JIT, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE,
+    };
+
+    extern "C" {
+        fn pthread_jit_write_protect_np(enabled: i32);
+        pub fn sys_icache_invalidate(addr: *mut c_void, len: usize);
+    }
+
+    /// Map `size` bytes of MAP_JIT memory. As far as the MMU is
+    /// concerned the mapping is RWX, but the *per-thread* writability is
+    /// gated by [`set_writable`] / [`set_executable`].
+    pub unsafe fn alloc(size: usize) -> *mut u8 {
+        let p = mmap(
+            std::ptr::null_mut(),
+            size,
+            PROT_READ | PROT_WRITE | PROT_EXEC,
+            MAP_PRIVATE | MAP_ANON | MAP_JIT,
+            -1,
+            0,
+        );
+        assert!(
+            p != MAP_FAILED,
+            "monoasm: mmap MAP_JIT failed ({}). On macOS, JIT processes \
+             typically need the `com.apple.security.cs.allow-jit` entitlement.",
+            std::io::Error::last_os_error()
+        );
+        p as *mut u8
+    }
+
+    #[inline]
+    pub fn set_writable() {
+        unsafe { pthread_jit_write_protect_np(0) }
+    }
+
+    #[inline]
+    pub fn set_executable() {
+        unsafe { pthread_jit_write_protect_np(1) }
+    }
+}
+
+/// Toggle MAP_JIT pages to writable for the current thread (macOS/AArch64);
+/// no-op elsewhere.
+#[inline]
+fn flip_writable() {
+    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+    apple_jit::set_writable();
+}
+
+/// Toggle MAP_JIT pages to executable for the current thread
+/// (macOS/AArch64); no-op elsewhere.
+#[inline]
+fn flip_executable() {
+    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+    apple_jit::set_executable();
+}
+
+/// Allocate the two contiguous code pages plus a separate data page,
+/// returning `(code_pages_base, data_page_base)`.
+#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+fn allocate_pages() -> (*mut u8, *mut u8) {
+    let code = unsafe { apple_jit::alloc(PAGE_SIZE * 2) };
+    let data_layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).expect("Bad Layout.");
+    let data = unsafe { alloc(data_layout) };
+    (code, data)
+}
+
+#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
+fn allocate_pages() -> (*mut u8, *mut u8) {
+    let layout = Layout::from_size_align(PAGE_SIZE * 3, PAGE_SIZE).expect("Bad Layout.");
+    let contents = unsafe { alloc(layout) };
+    unsafe {
+        protect(contents, PAGE_SIZE * 2, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
+        protect(
+            contents.add(PAGE_SIZE * 2),
+            PAGE_SIZE,
+            Protection::READ_WRITE,
+        )
+        .expect("Mprotect failed.");
+    }
+    (contents, unsafe { contents.add(PAGE_SIZE * 2) })
+}
+
+/// Synchronize the instruction and data caches over `[ptr, ptr+len)`.
+/// Required on AArch64 after writing generated code so the CPU sees the
+/// new instructions; x86-64 has coherent I-caches so this is a no-op.
+#[inline]
+#[allow(unused_variables)]
+unsafe fn invalidate_icache(ptr: *const u8, len: usize) {
+    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+    {
+        apple_jit::sys_icache_invalidate(ptr as *mut _, len);
+    }
+    #[cfg(all(target_arch = "aarch64", not(target_os = "macos")))]
+    {
+        if len == 0 {
+            return;
+        }
+        // Conservative 64-byte cache line: every current AArch64 core
+        // has D/I-cache lines that are a multiple of 64, and walking
+        // smaller lines than the actual size is always safe.
+        let line: usize = 64;
+        let start = (ptr as usize) & !(line - 1);
+        let end = ((ptr as usize) + len + line - 1) & !(line - 1);
+        let mut p = start;
+        while p < end {
+            core::arch::asm!("dc cvau, {x}", x = in(reg) p, options(nostack, preserves_flags));
+            p += line;
+        }
+        core::arch::asm!("dsb ish", options(nostack, preserves_flags));
+        let mut p = start;
+        while p < end {
+            core::arch::asm!("ic ivau, {x}", x = in(reg) p, options(nostack, preserves_flags));
+            p += line;
+        }
+        core::arch::asm!("dsb ish", options(nostack, preserves_flags));
+        core::arch::asm!("isb", options(nostack, preserves_flags));
+    }
+}
 
 /// Memory manager.
 #[derive(Debug)]
@@ -226,25 +361,42 @@ impl JitMemory {
     /// ### panic
     /// Panic if Layout::from_size_align() or region::protect() returned Err.
     pub fn new() -> JitMemory {
-        let layout = Layout::from_size_align(PAGE_SIZE * 3, PAGE_SIZE).expect("Bad Layout.");
-        let contents = unsafe { alloc(layout) };
-        unsafe {
-            protect(contents, PAGE_SIZE * 2, Protection::READ_WRITE_EXECUTE)
-                .expect("Mprotect failed.");
-            protect(
-                contents.add(PAGE_SIZE * 2),
-                PAGE_SIZE,
-                Protection::READ_WRITE,
-            )
-            .expect("Mprotect failed.");
-        }
-        let initial_page = MemPage::new(contents);
-        let second_page = MemPage::new(unsafe { contents.add(PAGE_SIZE) });
-        let data_page = MemPage::new(unsafe { contents.add(PAGE_SIZE * 2) });
+        let (code_contents, data_contents) = allocate_pages();
+        // MAP_JIT pages start out write-protected on macOS; switch them
+        // to writable for the initial code generation. No-op elsewhere.
+        flip_writable();
+        let initial_page = MemPage::new(code_contents);
+        let second_page = MemPage::new(unsafe { code_contents.add(PAGE_SIZE) });
+        let data_page = MemPage::new(data_contents);
         JitMemory {
             page: Page(0),
             pages: [initial_page, second_page, data_page],
             labels: vec![],
+        }
+    }
+
+    /// Switch JIT memory back to writable mode for the current thread.
+    /// On macOS/AArch64 this calls `pthread_jit_write_protect_np(0)`;
+    /// elsewhere it is a no-op. Use this if you need to emit more code
+    /// after a previous [`finalize`](Self::finalize) call.
+    pub fn set_writable(&mut self) {
+        flip_writable();
+    }
+
+    /// Switch JIT memory to executable mode for the current thread and
+    /// synchronize the I-cache so the CPU sees the freshly written
+    /// instructions. Called automatically at the end of
+    /// [`finalize`](Self::finalize).
+    pub fn set_executable(&mut self) {
+        flip_executable();
+        #[cfg(target_arch = "aarch64")]
+        {
+            for page in &self.pages[..2] {
+                let len = page.code_len.max(page.counter.0);
+                if len > 0 {
+                    unsafe { invalidate_icache(page.contents(), len) }
+                }
+            }
         }
     }
 
@@ -278,6 +430,10 @@ impl JitMemory {
         for page in &mut self.pages {
             page.code_block_top = page.counter;
         }
+        // Publish the freshly written code: flip MAP_JIT pages to
+        // executable on macOS/AArch64 and synchronize the I-cache on
+        // AArch64. No-op on x86-64.
+        self.set_executable();
     }
 
     pub fn as_slice(&self) -> &[u8] {

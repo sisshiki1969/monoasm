@@ -46,5 +46,15 @@ cd "$CLAUDE_PROJECT_DIR"
     echo "warning: could not add aarch64 rust target; skipping arm64 cross-build." >&2
   fi
 
+  # --- Best-effort: typecheck the macOS Apple Silicon backend ---
+  # We can't link or run Mach-O here without the Apple SDK, but installing
+  # the rust-std lets `cargo check --target aarch64-apple-darwin` validate
+  # the MAP_JIT / pthread_jit_write_protect_np code path stays compiling.
+  if rustup target add aarch64-apple-darwin; then
+    cargo check --workspace --tests --target aarch64-apple-darwin || true
+  else
+    echo "warning: could not add aarch64-apple-darwin target; skipping macOS typecheck." >&2
+  fi
+
   echo "monoasm web environment ready."
 } 1>&2
