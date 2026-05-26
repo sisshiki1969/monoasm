@@ -153,6 +153,14 @@ pub struct JitMemory {
     pages: [MemPage; 3],
     ///
     labels: Vec<DestLabel>,
+    /// MAP_JIT pages are write-protected per-thread on macOS/aarch64.
+    /// Track the current writability so every emit path can lazily flip
+    /// the region back to writable when a previous `finalize()` (or
+    /// explicit `set_executable()`) left it executable. Outside macOS/
+    /// aarch64 the W^X toggle is a no-op, so the field is only compiled
+    /// in there to keep the struct size identical for other targets.
+    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+    writable: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -309,6 +317,10 @@ impl std::ops::Deref for JitMemory {
 
 impl std::ops::DerefMut for JitMemory {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        // All `JitMemory.<emit*>()` / `MemPage` mutation routes go
+        // through this deref, so lazily flipping back to writable here
+        // covers method-style writes (`jit.emitb`, `jit.label`, …).
+        self.ensure_writable();
         &mut self.pages[self.page.0]
     }
 }
@@ -323,6 +335,10 @@ impl Index<Page> for JitMemory {
 
 impl IndexMut<Page> for JitMemory {
     fn index_mut(&mut self, index: Page) -> &mut MemPage {
+        // `self[page]` is the explicit-page write path used by
+        // `write_reloc` / `fill_relocs`; same lazy flip rationale as
+        // `DerefMut`.
+        self.ensure_writable();
         &mut self.pages[index.0]
     }
 }
@@ -343,6 +359,10 @@ impl IndexMut<Pos> for JitMemory {
         if index.0 >= PAGE_SIZE {
             panic!("Page size overflow")
         }
+        // Byte-level write entry point; ensure W^X is in writable
+        // state so callers (incl. MemPage's emit helpers via deref)
+        // don't fault on Apple Silicon.
+        self.ensure_writable();
         unsafe { &mut *self.contents().add(index.0) }
     }
 }
@@ -372,15 +392,38 @@ impl JitMemory {
             page: Page(0),
             pages: [initial_page, second_page, data_page],
             labels: vec![],
+            #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+            writable: true,
+        }
+    }
+
+    /// Ensure the MAP_JIT region is writable for the current thread
+    /// before an emit / patch operation. On macOS/aarch64, calling
+    /// `set_executable()` (or `finalize()`, which delegates to it)
+    /// leaves the pages write-protected; the next emit would SIGBUS
+    /// without this lazy flip. Outside macOS/aarch64 this is an
+    /// inlined no-op so the hot path stays branch-free.
+    #[inline]
+    fn ensure_writable(&mut self) {
+        #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+        {
+            if !self.writable {
+                flip_writable();
+                self.writable = true;
+            }
         }
     }
 
     /// Switch JIT memory back to writable mode for the current thread.
     /// On macOS/AArch64 this calls `pthread_jit_write_protect_np(0)`;
-    /// elsewhere it is a no-op. Use this if you need to emit more code
-    /// after a previous [`finalize`](Self::finalize) call.
+    /// elsewhere it is a no-op. Callers don't normally need this — every
+    /// emit path lazily flips back to writable via `ensure_writable`.
     pub fn set_writable(&mut self) {
         flip_writable();
+        #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+        {
+            self.writable = true;
+        }
     }
 
     /// Switch JIT memory to executable mode for the current thread and
@@ -389,6 +432,10 @@ impl JitMemory {
     /// [`finalize`](Self::finalize).
     pub fn set_executable(&mut self) {
         flip_executable();
+        #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+        {
+            self.writable = false;
+        }
         #[cfg(target_arch = "aarch64")]
         {
             for page in &self.pages[..2] {
