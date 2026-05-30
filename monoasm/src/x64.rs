@@ -8,6 +8,7 @@
 //! the AArch64 backend lives in [`crate::arm64`].
 
 use crate::*;
+use std::alloc::{alloc, Layout};
 use std::io::Write;
 
 /// Register.
@@ -579,4 +580,101 @@ impl JitMemory {
                     .collect()
             })
     }
+}
+
+// ===========================================================================
+// Relocations
+// ===========================================================================
+
+/// Relocation target descriptor for the x86-64 backend.
+///
+/// Queued by [`JitMemory::handle_reloc`] and resolved by
+/// [`JitMemory::write_reloc`] once the target [`DestLabel`] is bound.
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) enum TargetType {
+    /// A 32-bit PC-relative displacement slot at `pos`. The displacement
+    /// is measured from `pos + offset` (the end of the instruction), as
+    /// used by `jmp`/`call`/`jcc` and RIP-relative addressing.
+    Rel { page: Page, offset: u8, pos: Pos },
+    /// An absolute 64-bit address slot at `pos` (constant / data pools).
+    Abs { page: Page, pos: Pos },
+}
+
+impl JitMemory {
+    /// Save a 32-bit PC-relative relocation slot for `dest`. `offset` is
+    /// the number of bytes from the slot to the end of the instruction.
+    pub fn emit_reloc(&mut self, dest: DestLabel, offset: u8) {
+        let page = self.cur_page();
+        let pos = self.cur_pos();
+        let target = TargetType::Rel { page, offset, pos };
+        self.emitl(0);
+        self.handle_reloc(dest, target);
+    }
+
+    /// Patch a single relocation `target` now that its label resolves to
+    /// `(src_page, src_pos)`.
+    pub(crate) fn write_reloc(&mut self, src_page: Page, src_pos: Pos, target: TargetType) {
+        let src_ptr = self[src_page].contents() as usize + src_pos.0;
+        match target {
+            TargetType::Rel { page, offset, pos } => {
+                let target_ptr = self[page].contents() as usize + pos.0 + (offset as usize);
+                let disp = (src_ptr as i128) - (target_ptr as i128);
+                match i32::try_from(disp) {
+                    Ok(disp) => self[page].write32(pos, disp),
+                    Err(_) => panic!(
+                        "Relocation overflow. src:{:016x} dest:{:016x}",
+                        src_ptr, target_ptr
+                    ),
+                }
+            }
+            TargetType::Abs { page, pos } => {
+                self[page].write64(pos, src_ptr as _);
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// JIT page protection (W^X)
+// ===========================================================================
+
+/// x86-64 JIT page protection: the code pages are plain RWX and the
+/// I-cache is coherent with the D-cache, so every W^X operation is a
+/// no-op and this carries no state.
+#[derive(Debug)]
+pub(crate) struct JitProtect;
+
+impl JitProtect {
+    #[inline]
+    pub(crate) fn new() -> Self {
+        JitProtect
+    }
+
+    /// Allocate the two contiguous RWX code pages plus a separate RW data
+    /// page, returning `(code_pages_base, data_page_base)`.
+    pub(crate) fn allocate_pages() -> (*mut u8, *mut u8) {
+        use region::{protect, Protection};
+        let layout = Layout::from_size_align(PAGE_SIZE * 3, PAGE_SIZE).expect("Bad Layout.");
+        let contents = unsafe { alloc(layout) };
+        unsafe {
+            protect(contents, PAGE_SIZE * 2, Protection::READ_WRITE_EXECUTE)
+                .expect("Mprotect failed.");
+            protect(contents.add(PAGE_SIZE * 2), PAGE_SIZE, Protection::READ_WRITE)
+                .expect("Mprotect failed.");
+        }
+        (contents, unsafe { contents.add(PAGE_SIZE * 2) })
+    }
+
+    #[inline]
+    pub(crate) fn ensure_writable(&mut self) {}
+
+    #[inline]
+    pub(crate) fn set_writable(&mut self) {}
+
+    #[inline]
+    pub(crate) fn set_executable(&mut self) {}
+
+    /// No-op: x86-64 I-caches are kept coherent by hardware.
+    #[inline]
+    pub(crate) unsafe fn invalidate_icache(_ptr: *const u8, _len: usize) {}
 }

@@ -11,7 +11,8 @@
 //! Manual (A64 ISA) and are cross-checked against
 //! `llvm-mc --triple=aarch64 --show-encoding`.
 
-use crate::{DestLabel, JitMemory};
+use crate::{DestLabel, JitMemory, Page, Pos, PAGE_SIZE};
+use std::alloc::{alloc, Layout};
 
 /// An AArch64 general-purpose register.
 ///
@@ -48,8 +49,9 @@ pub const XZR: GReg = GReg(31);
 pub const SP: GReg = GReg(31);
 
 impl GReg {
+    /// The 5-bit register field encoding (`0..=31`).
     #[inline]
-    fn enc(self) -> u32 {
+    pub fn enc(self) -> u32 {
         debug_assert!(self.0 < 32, "invalid AArch64 register index {}", self.0);
         self.0
     }
@@ -77,8 +79,9 @@ fregs! {
 }
 
 impl FReg {
+    /// The 5-bit register field encoding (`0..=31`).
     #[inline]
-    fn enc(self) -> u32 {
+    pub fn enc(self) -> u32 {
         debug_assert!(self.0 < 32, "invalid AArch64 FP register index {}", self.0);
         self.0
     }
@@ -226,309 +229,74 @@ impl Arm64Reloc {
 
 impl JitMemory {
     // ===================================================================
-    // MOV (wide immediate) family
+    // Generic A64 instruction-word encoders (the encoding "machinery").
+    //
+    // Each takes a `base` word — the opcode together with all fixed bits —
+    // and ORs in the operand fields at their canonical positions. The
+    // per-instruction base words live in the `monoasm_arm64!` macro, the
+    // same way the x86-64 `monoasm!` macro feeds opcodes to the generic
+    // `enc_*` encoders. For programmatic emission that needs runtime
+    // `Cond` / `DestLabel` values or expands to several instructions, the
+    // convenience methods further down wrap these encoders.
     // ===================================================================
 
-    /// `MOVZ Xd, #imm16, LSL #(16 * hw)` — move zero-extended 16-bit
-    /// immediate into a cleared register. `hw` selects the halfword
-    /// position (`0..=3`).
-    pub fn movz(&mut self, rd: GReg, imm16: u16, hw: u32) {
-        debug_assert!(hw < 4, "movz: hw out of range");
-        self.emitl(0xd280_0000 | (hw << 21) | ((imm16 as u32) << 5) | rd.enc());
+    /// MOV-wide family (`MOVZ`/`MOVN`/`MOVK`):
+    /// `base | hw<<21 | imm16<<5 | Rd`.
+    pub fn movewide(&mut self, base: u32, rd: GReg, imm16: u32, hw: u32) {
+        debug_assert!(hw < 4, "movewide: hw out of range");
+        self.emitl(base | (hw << 21) | ((imm16 & 0xffff) << 5) | rd.enc());
     }
 
-    /// `MOVN Xd, #imm16, LSL #(16 * hw)` — move bitwise-NOT of the
-    /// zero-extended 16-bit immediate.
-    pub fn movn(&mut self, rd: GReg, imm16: u16, hw: u32) {
-        debug_assert!(hw < 4, "movn: hw out of range");
-        self.emitl(0x9280_0000 | (hw << 21) | ((imm16 as u32) << 5) | rd.enc());
-    }
-
-    /// `MOVK Xd, #imm16, LSL #(16 * hw)` — keep the other bits and set
-    /// one 16-bit halfword.
-    pub fn movk(&mut self, rd: GReg, imm16: u16, hw: u32) {
-        debug_assert!(hw < 4, "movk: hw out of range");
-        self.emitl(0xf280_0000 | (hw << 21) | ((imm16 as u32) << 5) | rd.enc());
-    }
-
-    /// `MOV Xd, Xm` (register-to-register copy), encoded as the
-    /// canonical alias `ORR Xd, XZR, Xm`.
-    pub fn mov(&mut self, rd: GReg, rm: GReg) {
-        self.emitl(0xaa00_0000 | (rm.enc() << 16) | (XZR.enc() << 5) | rd.enc());
-    }
-
-    /// `MOV Xd|SP, Xn|SP` involving the stack pointer, encoded as
-    /// `ADD Xd, Xn, #0`.
-    pub fn mov_sp(&mut self, rd: GReg, rn: GReg) {
-        self.add_imm(rd, rn, 0, 0);
-    }
-
-    /// Materialize an arbitrary 64-bit immediate into `rd` using a
-    /// `MOVZ` followed by `MOVK` for each remaining non-zero halfword
-    /// (1–4 instructions).
-    pub fn mov_imm(&mut self, rd: GReg, imm: u64) {
-        let hw = [
-            (imm & 0xffff) as u16,
-            ((imm >> 16) & 0xffff) as u16,
-            ((imm >> 32) & 0xffff) as u16,
-            ((imm >> 48) & 0xffff) as u16,
-        ];
-        self.movz(rd, hw[0], 0);
-        for (i, &h) in hw.iter().enumerate().skip(1) {
-            if h != 0 {
-                self.movk(rd, h, i as u32);
-            }
-        }
-    }
-
-    // ===================================================================
-    // Add / subtract — immediate (12-bit, optional LSL #12)
-    // ===================================================================
-
-    fn addsub_imm(&mut self, base: u32, rd: GReg, rn: GReg, imm12: u32, shift12: u32) {
+    /// Add/subtract (immediate):
+    /// `base | shift12<<22 | imm12<<10 | Rn<<5 | Rd`.
+    pub fn addsub_imm(&mut self, base: u32, rd: GReg, rn: GReg, imm12: u32, shift12: u32) {
         debug_assert!(imm12 < (1 << 12), "addsub_imm: imm12 out of range");
         debug_assert!(shift12 < 2, "addsub_imm: shift must be 0 or 1");
         self.emitl(base | (shift12 << 22) | (imm12 << 10) | (rn.enc() << 5) | rd.enc());
     }
 
-    /// `ADD Xd|SP, Xn|SP, #imm12 {, LSL #12}`.
-    pub fn add_imm(&mut self, rd: GReg, rn: GReg, imm12: u32, shift12: u32) {
-        self.addsub_imm(0x9100_0000, rd, rn, imm12, shift12);
-    }
-
-    /// `ADDS Xd, Xn|SP, #imm12 {, LSL #12}` (sets flags).
-    pub fn adds_imm(&mut self, rd: GReg, rn: GReg, imm12: u32, shift12: u32) {
-        self.addsub_imm(0xb100_0000, rd, rn, imm12, shift12);
-    }
-
-    /// `SUB Xd|SP, Xn|SP, #imm12 {, LSL #12}`.
-    pub fn sub_imm(&mut self, rd: GReg, rn: GReg, imm12: u32, shift12: u32) {
-        self.addsub_imm(0xd100_0000, rd, rn, imm12, shift12);
-    }
-
-    /// `SUBS Xd, Xn|SP, #imm12 {, LSL #12}` (sets flags).
-    pub fn subs_imm(&mut self, rd: GReg, rn: GReg, imm12: u32, shift12: u32) {
-        self.addsub_imm(0xf100_0000, rd, rn, imm12, shift12);
-    }
-
-    /// `CMP Xn|SP, #imm12 {, LSL #12}` — alias of `SUBS XZR, Xn, #imm`.
-    pub fn cmp_imm(&mut self, rn: GReg, imm12: u32, shift12: u32) {
-        self.subs_imm(XZR, rn, imm12, shift12);
-    }
-
-    /// `CMN Xn|SP, #imm12 {, LSL #12}` — alias of `ADDS XZR, Xn, #imm`.
-    pub fn cmn_imm(&mut self, rn: GReg, imm12: u32, shift12: u32) {
-        self.adds_imm(XZR, rn, imm12, shift12);
-    }
-
-    // ===================================================================
-    // Add / subtract — shifted register (LSL amount in `shift`)
-    // ===================================================================
-
-    fn addsub_reg(&mut self, base: u32, rd: GReg, rn: GReg, rm: GReg, shift: u32) {
+    /// Add/subtract (shifted register):
+    /// `base | Rm<<16 | shift<<10 | Rn<<5 | Rd`.
+    pub fn addsub_reg(&mut self, base: u32, rd: GReg, rn: GReg, rm: GReg, shift: u32) {
         debug_assert!(shift < 64, "addsub_reg: LSL amount out of range");
         self.emitl(base | (rm.enc() << 16) | (shift << 10) | (rn.enc() << 5) | rd.enc());
     }
 
-    /// `ADD Xd, Xn, Xm` (LSL #0).
-    pub fn add(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.addsub_reg(0x8b00_0000, rd, rn, rm, 0);
-    }
-
-    /// `ADD Xd, Xn, Xm, LSL #shift`.
-    pub fn add_lsl(&mut self, rd: GReg, rn: GReg, rm: GReg, shift: u32) {
-        self.addsub_reg(0x8b00_0000, rd, rn, rm, shift);
-    }
-
-    /// `ADDS Xd, Xn, Xm` (LSL #0, sets flags).
-    pub fn adds(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.addsub_reg(0xab00_0000, rd, rn, rm, 0);
-    }
-
-    /// `SUB Xd, Xn, Xm` (LSL #0).
-    pub fn sub(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.addsub_reg(0xcb00_0000, rd, rn, rm, 0);
-    }
-
-    /// `SUBS Xd, Xn, Xm` (LSL #0, sets flags).
-    pub fn subs(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.addsub_reg(0xeb00_0000, rd, rn, rm, 0);
-    }
-
-    /// `CMP Xn, Xm` — alias of `SUBS XZR, Xn, Xm`.
-    pub fn cmp(&mut self, rn: GReg, rm: GReg) {
-        self.subs(XZR, rn, rm);
-    }
-
-    /// `CMN Xn, Xm` — alias of `ADDS XZR, Xn, Xm`.
-    pub fn cmn(&mut self, rn: GReg, rm: GReg) {
-        self.adds(XZR, rn, rm);
-    }
-
-    /// `NEG Xd, Xm` — alias of `SUB Xd, XZR, Xm`.
-    pub fn neg(&mut self, rd: GReg, rm: GReg) {
-        self.sub(rd, XZR, rm);
-    }
-
-    // ===================================================================
-    // Logical — shifted register
-    // ===================================================================
-
-    fn logical_reg(&mut self, base: u32, rd: GReg, rn: GReg, rm: GReg, shift: u32) {
+    /// Logical (shifted register):
+    /// `base | Rm<<16 | shift<<10 | Rn<<5 | Rd`.
+    pub fn logical_reg(&mut self, base: u32, rd: GReg, rn: GReg, rm: GReg, shift: u32) {
         debug_assert!(shift < 64, "logical_reg: LSL amount out of range");
         self.emitl(base | (rm.enc() << 16) | (shift << 10) | (rn.enc() << 5) | rd.enc());
     }
 
-    /// `AND Xd, Xn, Xm`.
-    pub fn and_(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.logical_reg(0x8a00_0000, rd, rn, rm, 0);
-    }
-
-    /// `ORR Xd, Xn, Xm`.
-    pub fn orr(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.logical_reg(0xaa00_0000, rd, rn, rm, 0);
-    }
-
-    /// `ORR Xd, Xn, Xm, LSL #shift`.
-    pub fn orr_lsl(&mut self, rd: GReg, rn: GReg, rm: GReg, shift: u32) {
-        self.logical_reg(0xaa00_0000, rd, rn, rm, shift);
-    }
-
-    /// `EOR Xd, Xn, Xm`.
-    pub fn eor(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.logical_reg(0xca00_0000, rd, rn, rm, 0);
-    }
-
-    /// `ANDS Xd, Xn, Xm` (sets flags).
-    pub fn ands(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.logical_reg(0xea00_0000, rd, rn, rm, 0);
-    }
-
-    /// `MVN Xd, Xm` — alias of `ORN Xd, XZR, Xm`.
-    pub fn mvn(&mut self, rd: GReg, rm: GReg) {
-        // ORN (shifted register): ORR base with the N bit (bit 21) set.
-        self.logical_reg(0xaa20_0000, rd, XZR, rm, 0);
-    }
-
-    /// `TST Xn, Xm` — alias of `ANDS XZR, Xn, Xm`.
-    pub fn tst(&mut self, rn: GReg, rm: GReg) {
-        self.ands(XZR, rn, rm);
-    }
-
-    // ===================================================================
-    // Multiply / divide
-    // ===================================================================
-
-    /// `MADD Xd, Xn, Xm, Xa` (`Xd = Xa + Xn * Xm`).
-    pub fn madd(&mut self, rd: GReg, rn: GReg, rm: GReg, ra: GReg) {
-        self.emitl(0x9b00_0000 | (rm.enc() << 16) | (ra.enc() << 10) | (rn.enc() << 5) | rd.enc());
-    }
-
-    /// `MSUB Xd, Xn, Xm, Xa` (`Xd = Xa - Xn * Xm`).
-    pub fn msub(&mut self, rd: GReg, rn: GReg, rm: GReg, ra: GReg) {
-        self.emitl(0x9b00_8000 | (rm.enc() << 16) | (ra.enc() << 10) | (rn.enc() << 5) | rd.enc());
-    }
-
-    /// `MUL Xd, Xn, Xm` — alias of `MADD Xd, Xn, Xm, XZR`.
-    pub fn mul(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.madd(rd, rn, rm, XZR);
-    }
-
-    /// `SDIV Xd, Xn, Xm` (signed division).
-    pub fn sdiv(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.emitl(0x9ac0_0c00 | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
-    }
-
-    /// `UDIV Xd, Xn, Xm` (unsigned division).
-    pub fn udiv(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.emitl(0x9ac0_0800 | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
-    }
-
-    // ===================================================================
-    // Shifts
-    // ===================================================================
-
-    /// `LSLV Xd, Xn, Xm` (variable logical shift left).
-    pub fn lslv(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.emitl(0x9ac0_2000 | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
-    }
-
-    /// `LSRV Xd, Xn, Xm` (variable logical shift right).
-    pub fn lsrv(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.emitl(0x9ac0_2400 | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
-    }
-
-    /// `ASRV Xd, Xn, Xm` (variable arithmetic shift right).
-    pub fn asrv(&mut self, rd: GReg, rn: GReg, rm: GReg) {
-        self.emitl(0x9ac0_2800 | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
-    }
-
-    fn bfm(&mut self, base: u32, rd: GReg, rn: GReg, immr: u32, imms: u32) {
-        // 64-bit bitfield ops set the N bit (bit 22), already folded into
-        // the supplied `base`.
+    /// Bitfield move (`UBFM`/`SBFM`):
+    /// `base | immr<<16 | imms<<10 | Rn<<5 | Rd`.
+    pub fn bfm(&mut self, base: u32, rd: GReg, rn: GReg, immr: u32, imms: u32) {
         self.emitl(base | (immr << 16) | (imms << 10) | (rn.enc() << 5) | rd.enc());
     }
 
-    /// `LSL Xd, Xn, #shift` — alias of `UBFM`.
-    pub fn lsl_imm(&mut self, rd: GReg, rn: GReg, shift: u32) {
-        debug_assert!(shift < 64, "lsl_imm: shift out of range");
-        self.bfm(0xd340_0000, rd, rn, (64 - shift) & 63, 63 - shift);
+    /// Two-source data processing: `base | Rm<<16 | Rn<<5 | Rd`
+    /// (`SDIV`/`UDIV`/`LSLV`/`LSRV`/`ASRV`).
+    pub fn dp_2src(&mut self, base: u32, rd: GReg, rn: GReg, rm: GReg) {
+        self.emitl(base | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
     }
 
-    /// `LSR Xd, Xn, #shift` — alias of `UBFM`.
-    pub fn lsr_imm(&mut self, rd: GReg, rn: GReg, shift: u32) {
-        debug_assert!(shift < 64, "lsr_imm: shift out of range");
-        self.bfm(0xd340_0000, rd, rn, shift, 63);
+    /// Three-source data processing: `base | Rm<<16 | Ra<<10 | Rn<<5 | Rd`
+    /// (`MADD`/`MSUB`).
+    pub fn dp_3src(&mut self, base: u32, rd: GReg, rn: GReg, rm: GReg, ra: GReg) {
+        self.emitl(base | (rm.enc() << 16) | (ra.enc() << 10) | (rn.enc() << 5) | rd.enc());
     }
 
-    /// `ASR Xd, Xn, #shift` — alias of `SBFM`.
-    pub fn asr_imm(&mut self, rd: GReg, rn: GReg, shift: u32) {
-        debug_assert!(shift < 64, "asr_imm: shift out of range");
-        self.bfm(0x9340_0000, rd, rn, shift, 63);
+    /// Conditional select: `base | Rm<<16 | cond<<12 | Rn<<5 | Rd`.
+    pub fn condsel(&mut self, base: u32, rd: GReg, rn: GReg, rm: GReg, cond: Cond) {
+        self.emitl(base | (rm.enc() << 16) | (cond.enc() << 12) | (rn.enc() << 5) | rd.enc());
     }
 
-    /// `SXTW Xd, Wn` — sign-extend a 32-bit value (`SBFM Xd, Xn, #0, #31`).
-    pub fn sxtw(&mut self, rd: GReg, rn: GReg) {
-        self.bfm(0x9340_0000, rd, rn, 0, 31);
-    }
-
-    // ===================================================================
-    // Conditional select
-    // ===================================================================
-
-    /// `CSEL Xd, Xn, Xm, cond`.
-    pub fn csel(&mut self, rd: GReg, rn: GReg, rm: GReg, cond: Cond) {
-        self.emitl(
-            0x9a80_0000 | (rm.enc() << 16) | (cond.enc() << 12) | (rn.enc() << 5) | rd.enc(),
-        );
-    }
-
-    /// `CSINC Xd, Xn, Xm, cond`.
-    pub fn csinc(&mut self, rd: GReg, rn: GReg, rm: GReg, cond: Cond) {
-        self.emitl(
-            0x9a80_0400 | (rm.enc() << 16) | (cond.enc() << 12) | (rn.enc() << 5) | rd.enc(),
-        );
-    }
-
-    /// `CSET Xd, cond` — set `Xd` to 1 if `cond` holds, else 0
-    /// (`CSINC Xd, XZR, XZR, invert(cond)`).
-    pub fn cset(&mut self, rd: GReg, cond: Cond) {
-        self.csinc(rd, XZR, XZR, cond.invert());
-    }
-
-    /// `CSETM Xd, cond` — set `Xd` to all-ones if `cond` holds, else 0
-    /// (`CSINV Xd, XZR, XZR, invert(cond)`).
-    pub fn csetm(&mut self, rd: GReg, cond: Cond) {
-        let c = cond.invert();
-        // CSINV base.
-        self.emitl(0xda80_0000 | (XZR.enc() << 16) | (c.enc() << 12) | (XZR.enc() << 5) | rd.enc());
-    }
-
-    // ===================================================================
-    // Load / store — immediate (unsigned scaled offset)
-    // ===================================================================
-
-    fn ldst_uimm(&mut self, base: u32, scale: u32, rt: u32, rn: GReg, byte_off: u32) {
+    /// Load/store (unsigned scaled immediate):
+    /// `base | imm12<<10 | Rn<<5 | Rt`. `byte_off` is scaled down by
+    /// `scale`; `rt` is a pre-encoded register field so the one encoder
+    /// serves both general-purpose and SIMD&FP forms.
+    pub fn ldst_uimm(&mut self, base: u32, scale: u32, rt: u32, rn: GReg, byte_off: u32) {
         debug_assert!(
             byte_off & ((1 << scale) - 1) == 0,
             "load/store offset misaligned"
@@ -538,54 +306,9 @@ impl JitMemory {
         self.emitl(base | (imm12 << 10) | (rn.enc() << 5) | rt);
     }
 
-    /// `LDR Xt, [Xn|SP, #off]` (off scaled by 8).
-    pub fn ldr(&mut self, rt: GReg, rn: GReg, off: u32) {
-        self.ldst_uimm(0xf940_0000, 3, rt.enc(), rn, off);
-    }
-
-    /// `STR Xt, [Xn|SP, #off]` (off scaled by 8).
-    pub fn str(&mut self, rt: GReg, rn: GReg, off: u32) {
-        self.ldst_uimm(0xf900_0000, 3, rt.enc(), rn, off);
-    }
-
-    /// `LDR Wt, [Xn|SP, #off]` (32-bit, off scaled by 4).
-    pub fn ldr32(&mut self, rt: GReg, rn: GReg, off: u32) {
-        self.ldst_uimm(0xb940_0000, 2, rt.enc(), rn, off);
-    }
-
-    /// `STR Wt, [Xn|SP, #off]` (32-bit, off scaled by 4).
-    pub fn str32(&mut self, rt: GReg, rn: GReg, off: u32) {
-        self.ldst_uimm(0xb900_0000, 2, rt.enc(), rn, off);
-    }
-
-    /// `LDRB Wt, [Xn|SP, #off]` (byte, unscaled).
-    pub fn ldrb(&mut self, rt: GReg, rn: GReg, off: u32) {
-        self.ldst_uimm(0x3940_0000, 0, rt.enc(), rn, off);
-    }
-
-    /// `STRB Wt, [Xn|SP, #off]` (byte, unscaled).
-    pub fn strb(&mut self, rt: GReg, rn: GReg, off: u32) {
-        self.ldst_uimm(0x3900_0000, 0, rt.enc(), rn, off);
-    }
-
-    /// `LDRH Wt, [Xn|SP, #off]` (halfword, off scaled by 2).
-    pub fn ldrh(&mut self, rt: GReg, rn: GReg, off: u32) {
-        self.ldst_uimm(0x7940_0000, 1, rt.enc(), rn, off);
-    }
-
-    /// `STRH Wt, [Xn|SP, #off]` (halfword, off scaled by 2).
-    pub fn strh(&mut self, rt: GReg, rn: GReg, off: u32) {
-        self.ldst_uimm(0x7900_0000, 1, rt.enc(), rn, off);
-    }
-
-    /// `LDRSW Xt, [Xn|SP, #off]` (load 32-bit, sign-extend; off scaled by 4).
-    pub fn ldrsw(&mut self, rt: GReg, rn: GReg, off: u32) {
-        self.ldst_uimm(0xb980_0000, 2, rt.enc(), rn, off);
-    }
-
-    // ---- pre/post-indexed (9-bit signed, unscaled) ----
-
-    fn ldst_idx(&mut self, base: u32, rt: u32, rn: GReg, imm9: i32) {
+    /// Load/store (9-bit signed pre/post-indexed):
+    /// `base | imm9<<12 | Rn<<5 | Rt`.
+    pub fn ldst_idx(&mut self, base: u32, rt: u32, rn: GReg, imm9: i32) {
         debug_assert!(
             (-256..256).contains(&imm9),
             "pre/post-index imm out of range"
@@ -593,46 +316,16 @@ impl JitMemory {
         self.emitl(base | (((imm9 as u32) & 0x1ff) << 12) | (rn.enc() << 5) | rt);
     }
 
-    /// `LDR Xt, [Xn|SP, #imm]!` (pre-indexed).
-    pub fn ldr_pre(&mut self, rt: GReg, rn: GReg, imm9: i32) {
-        self.ldst_idx(0xf840_0c00, rt.enc(), rn, imm9);
-    }
-
-    /// `LDR Xt, [Xn|SP], #imm` (post-indexed).
-    pub fn ldr_post(&mut self, rt: GReg, rn: GReg, imm9: i32) {
-        self.ldst_idx(0xf840_0400, rt.enc(), rn, imm9);
-    }
-
-    /// `STR Xt, [Xn|SP, #imm]!` (pre-indexed).
-    pub fn str_pre(&mut self, rt: GReg, rn: GReg, imm9: i32) {
-        self.ldst_idx(0xf800_0c00, rt.enc(), rn, imm9);
-    }
-
-    /// `STR Xt, [Xn|SP], #imm` (post-indexed).
-    pub fn str_post(&mut self, rt: GReg, rn: GReg, imm9: i32) {
-        self.ldst_idx(0xf800_0400, rt.enc(), rn, imm9);
-    }
-
-    // ---- register offset ----
-
-    /// `LDR Xt, [Xn|SP, Xm {, LSL #3}]`. `scaled` selects `LSL #3`.
-    pub fn ldr_reg(&mut self, rt: GReg, rn: GReg, rm: GReg, scaled: bool) {
+    /// Load/store (register offset): `base | Rm<<16 | S<<12 | Rn<<5 | Rt`.
+    /// `scaled` selects the scaled-index (`LSL`) form.
+    pub fn ldst_reg(&mut self, base: u32, rt: GReg, rn: GReg, rm: GReg, scaled: bool) {
         let s = if scaled { 1 } else { 0 };
-        // option = 011 (LSL/UXTX).
-        self.emitl(0xf860_6800 | (rm.enc() << 16) | (s << 12) | (rn.enc() << 5) | rt.enc());
+        self.emitl(base | (rm.enc() << 16) | (s << 12) | (rn.enc() << 5) | rt.enc());
     }
 
-    /// `STR Xt, [Xn|SP, Xm {, LSL #3}]`. `scaled` selects `LSL #3`.
-    pub fn str_reg(&mut self, rt: GReg, rn: GReg, rm: GReg, scaled: bool) {
-        let s = if scaled { 1 } else { 0 };
-        self.emitl(0xf820_6800 | (rm.enc() << 16) | (s << 12) | (rn.enc() << 5) | rt.enc());
-    }
-
-    // ===================================================================
-    // Load / store pair (64-bit, signed 7-bit offset scaled by 8)
-    // ===================================================================
-
-    fn ldstp(&mut self, base: u32, rt: GReg, rt2: GReg, rn: GReg, byte_off: i32) {
+    /// Load/store pair (7-bit signed offset scaled by 8):
+    /// `base | imm7<<15 | Rt2<<10 | Rn<<5 | Rt`.
+    pub fn ldstp(&mut self, base: u32, rt: GReg, rt2: GReg, rn: GReg, byte_off: i32) {
         debug_assert!(byte_off % 8 == 0, "ldp/stp offset not a multiple of 8");
         let imm7 = byte_off / 8;
         debug_assert!((-64..64).contains(&imm7), "ldp/stp offset out of range");
@@ -641,127 +334,74 @@ impl JitMemory {
         );
     }
 
-    /// `STP Xt, Xt2, [Xn|SP, #off]`.
-    pub fn stp(&mut self, rt: GReg, rt2: GReg, rn: GReg, off: i32) {
-        self.ldstp(0xa900_0000, rt, rt2, rn, off);
+    /// Three-register scalar SIMD&FP op: `base | Rm<<16 | Rn<<5 | Rd`
+    /// (`FADD`/`FSUB`/`FMUL`/`FDIV`).
+    pub fn fp_3op(&mut self, base: u32, rd: FReg, rn: FReg, rm: FReg) {
+        self.emitl(base | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
     }
 
-    /// `LDP Xt, Xt2, [Xn|SP, #off]`.
-    pub fn ldp(&mut self, rt: GReg, rt2: GReg, rn: GReg, off: i32) {
-        self.ldstp(0xa940_0000, rt, rt2, rn, off);
+    /// Scalar SIMD&FP compare: `base | Rm<<16 | Rn<<5` (`FCMP Dn, Dm`).
+    pub fn fp_cmp(&mut self, base: u32, rn: FReg, rm: FReg) {
+        self.emitl(base | (rm.enc() << 16) | (rn.enc() << 5));
     }
 
-    /// `STP Xt, Xt2, [Xn|SP, #off]!` (pre-indexed).
-    pub fn stp_pre(&mut self, rt: GReg, rt2: GReg, rn: GReg, off: i32) {
-        self.ldstp(0xa980_0000, rt, rt2, rn, off);
-    }
-
-    /// `LDP Xt, Xt2, [Xn|SP], #off` (post-indexed).
-    pub fn ldp_post(&mut self, rt: GReg, rt2: GReg, rn: GReg, off: i32) {
-        self.ldstp(0xa8c0_0000, rt, rt2, rn, off);
-    }
-
-    /// Push a register pair: `STP Xa, Xb, [SP, #-16]!`.
-    pub fn push_pair(&mut self, ra: GReg, rb: GReg) {
-        self.stp_pre(ra, rb, SP, -16);
-    }
-
-    /// Pop a register pair: `LDP Xa, Xb, [SP], #16`.
-    pub fn pop_pair(&mut self, ra: GReg, rb: GReg) {
-        self.ldp_post(ra, rb, SP, 16);
+    /// Two-field word `base | Rn<<5 | Rd`. Used for cross-class register
+    /// moves (`FMOV` variants, `SCVTF`, `FCVTZS`), `FCMP Dn, #0.0`,
+    /// single-register branches (`RET`/`BR`/`BLR`), and `BRK`. `rd`/`rn`
+    /// are pre-encoded register (or immediate) fields.
+    pub fn emit_rr(&mut self, base: u32, rd: u32, rn: u32) {
+        self.emitl(base | (rn << 5) | rd);
     }
 
     // ===================================================================
-    // Floating-point (scalar double precision)
+    // Convenience methods kept as a programmatic API.
+    //
+    // These take runtime `Cond` / `DestLabel` values or expand to several
+    // instructions, so the compile-time `monoasm_arm64!` macro cannot
+    // inline them: it emits them by calling these methods, and they are
+    // also used directly for programmatic code generation.
     // ===================================================================
 
-    /// `FMOV Dd, Dn` (register copy).
-    pub fn fmov(&mut self, rd: FReg, rn: FReg) {
-        self.emitl(0x1e60_4000 | (rn.enc() << 5) | rd.enc());
+    /// Materialize an arbitrary 64-bit immediate into `rd` using a `MOVZ`
+    /// followed by a `MOVK` for each remaining non-zero halfword
+    /// (1–4 instructions).
+    pub fn mov_imm(&mut self, rd: GReg, imm: u64) {
+        let hw = [
+            (imm & 0xffff) as u32,
+            ((imm >> 16) & 0xffff) as u32,
+            ((imm >> 32) & 0xffff) as u32,
+            ((imm >> 48) & 0xffff) as u32,
+        ];
+        // MOVZ Rd, #hw0, LSL #0.
+        self.movewide(0xd280_0000, rd, hw[0], 0);
+        for (i, &h) in hw.iter().enumerate().skip(1) {
+            if h != 0 {
+                // MOVK Rd, #h, LSL #(16 * i).
+                self.movewide(0xf280_0000, rd, h, i as u32);
+            }
+        }
     }
 
-    /// `FMOV Dd, Xn` (move 64-bit GPR bits into a double).
-    pub fn fmov_from_gpr(&mut self, rd: FReg, rn: GReg) {
-        self.emitl(0x9e67_0000 | (rn.enc() << 5) | rd.enc());
+    /// `CSEL Xd, Xn, Xm, cond`.
+    pub fn csel(&mut self, rd: GReg, rn: GReg, rm: GReg, cond: Cond) {
+        self.condsel(0x9a80_0000, rd, rn, rm, cond);
     }
 
-    /// `FMOV Xd, Dn` (move double bits into a 64-bit GPR).
-    pub fn fmov_to_gpr(&mut self, rd: GReg, rn: FReg) {
-        self.emitl(0x9e66_0000 | (rn.enc() << 5) | rd.enc());
+    /// `CSINC Xd, Xn, Xm, cond`.
+    pub fn csinc(&mut self, rd: GReg, rn: GReg, rm: GReg, cond: Cond) {
+        self.condsel(0x9a80_0400, rd, rn, rm, cond);
     }
 
-    /// `FADD Dd, Dn, Dm`.
-    pub fn fadd(&mut self, rd: FReg, rn: FReg, rm: FReg) {
-        self.emitl(0x1e60_2800 | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
+    /// `CSET Xd, cond` — set `Xd` to 1 if `cond` holds, else 0
+    /// (`CSINC Xd, XZR, XZR, invert(cond)`).
+    pub fn cset(&mut self, rd: GReg, cond: Cond) {
+        self.condsel(0x9a80_0400, rd, XZR, XZR, cond.invert());
     }
 
-    /// `FSUB Dd, Dn, Dm`.
-    pub fn fsub(&mut self, rd: FReg, rn: FReg, rm: FReg) {
-        self.emitl(0x1e60_3800 | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
-    }
-
-    /// `FMUL Dd, Dn, Dm`.
-    pub fn fmul(&mut self, rd: FReg, rn: FReg, rm: FReg) {
-        self.emitl(0x1e60_0800 | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
-    }
-
-    /// `FDIV Dd, Dn, Dm`.
-    pub fn fdiv(&mut self, rd: FReg, rn: FReg, rm: FReg) {
-        self.emitl(0x1e60_1800 | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
-    }
-
-    /// `FCMP Dn, Dm`.
-    pub fn fcmp(&mut self, rn: FReg, rm: FReg) {
-        self.emitl(0x1e60_2000 | (rm.enc() << 16) | (rn.enc() << 5));
-    }
-
-    /// `FCMP Dn, #0.0`.
-    pub fn fcmp_zero(&mut self, rn: FReg) {
-        self.emitl(0x1e60_2008 | (rn.enc() << 5));
-    }
-
-    /// `SCVTF Dd, Xn` (signed 64-bit integer → double).
-    pub fn scvtf(&mut self, rd: FReg, rn: GReg) {
-        self.emitl(0x9e62_0000 | (rn.enc() << 5) | rd.enc());
-    }
-
-    /// `FCVTZS Xd, Dn` (double → signed 64-bit integer, round toward zero).
-    pub fn fcvtzs(&mut self, rd: GReg, rn: FReg) {
-        self.emitl(0x9e78_0000 | (rn.enc() << 5) | rd.enc());
-    }
-
-    /// `LDR Dt, [Xn|SP, #off]` (off scaled by 8).
-    pub fn ldr_f(&mut self, rt: FReg, rn: GReg, off: u32) {
-        self.ldst_uimm(0xfd40_0000, 3, rt.enc(), rn, off);
-    }
-
-    /// `STR Dt, [Xn|SP, #off]` (off scaled by 8).
-    pub fn str_f(&mut self, rt: FReg, rn: GReg, off: u32) {
-        self.ldst_uimm(0xfd00_0000, 3, rt.enc(), rn, off);
-    }
-
-    // ===================================================================
-    // Branches
-    // ===================================================================
-
-    /// `RET Xn` — return to the address held in `rn`.
-    pub fn ret_reg(&mut self, rn: GReg) {
-        self.emitl(0xd65f_0000 | (rn.enc() << 5));
-    }
-
-    /// `RET` — return to the address held in the link register (`X30`).
-    pub fn ret(&mut self) {
-        self.ret_reg(LR);
-    }
-
-    /// `BR Xn` — branch to the address in `rn`.
-    pub fn br(&mut self, rn: GReg) {
-        self.emitl(0xd61f_0000 | (rn.enc() << 5));
-    }
-
-    /// `BLR Xn` — branch with link to the address in `rn`.
-    pub fn blr(&mut self, rn: GReg) {
-        self.emitl(0xd63f_0000 | (rn.enc() << 5));
+    /// `CSETM Xd, cond` — set `Xd` to all-ones if `cond` holds, else 0
+    /// (`CSINV Xd, XZR, XZR, invert(cond)`).
+    pub fn csetm(&mut self, rd: GReg, cond: Cond) {
+        self.condsel(0xda80_0000, rd, XZR, XZR, cond.invert());
     }
 
     /// `B label` — unconditional branch to a label.
@@ -817,18 +457,216 @@ impl JitMemory {
     pub fn adr(&mut self, rd: GReg, label: &DestLabel) {
         self.emit_arm64_branch(0x1000_0000 | rd.enc(), Arm64Reloc::Adr, label.clone());
     }
+}
 
-    // ===================================================================
-    // System / misc
-    // ===================================================================
+// ===========================================================================
+// Relocations
+// ===========================================================================
 
-    /// `NOP`.
-    pub fn nop(&mut self) {
-        self.emitl(0xd503_201f);
+/// Relocation target descriptor for the AArch64 backend.
+///
+/// Queued by [`JitMemory::handle_reloc`] and resolved by
+/// [`JitMemory::write_reloc`] once the target [`DestLabel`] is bound.
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) enum TargetType {
+    /// An absolute 64-bit address slot at `pos` (constant / data pools).
+    Abs { page: Page, pos: Pos },
+    /// A PC-relative branch / `ADR`: the scaled immediate is patched into
+    /// the bitfields of the instruction word already emitted at `pos`,
+    /// rather than into a separate displacement slot. `kind` selects the
+    /// immediate layout.
+    Rel { page: Page, pos: Pos, kind: Arm64Reloc },
+}
+
+impl JitMemory {
+    /// Emit an AArch64 PC-relative branch / `ADR` instruction whose target
+    /// is `dest`. `base_word` is the fully-encoded instruction with a
+    /// zeroed immediate field; `kind` describes how the displacement is
+    /// later patched in.
+    pub fn emit_arm64_branch(&mut self, base_word: u32, kind: Arm64Reloc, dest: DestLabel) {
+        let page = self.cur_page();
+        let pos = self.cur_pos();
+        self.emitl(base_word);
+        let target = TargetType::Rel { page, pos, kind };
+        self.handle_reloc(dest, target);
     }
 
-    /// `BRK #imm16` — software breakpoint.
-    pub fn brk(&mut self, imm16: u16) {
-        self.emitl(0xd420_0000 | ((imm16 as u32) << 5));
+    /// Patch a single relocation `target` now that its label resolves to
+    /// `(src_page, src_pos)`.
+    pub(crate) fn write_reloc(&mut self, src_page: Page, src_pos: Pos, target: TargetType) {
+        let src_ptr = self[src_page].contents() as usize + src_pos.0;
+        match target {
+            TargetType::Abs { page, pos } => {
+                self[page].write64(pos, src_ptr as _);
+            }
+            TargetType::Rel { page, pos, kind } => {
+                // AArch64 branches are relative to the address of the
+                // branch instruction itself, and the displacement is
+                // packed into the bitfields of the existing instruction
+                // word (rather than a separate displacement slot).
+                let branch_ptr = self[page].contents() as usize + pos.0;
+                let disp = (src_ptr as i128) - (branch_ptr as i128);
+                let disp = i64::try_from(disp).expect("AArch64 relocation displacement overflow");
+                let word = u32::from_le_bytes([
+                    self[page][pos],
+                    self[page][pos + 1],
+                    self[page][pos + 2],
+                    self[page][pos + 3],
+                ]);
+                self[page].write32(pos, kind.patch(word, disp) as i32);
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// JIT page protection (W^X) and I-cache maintenance
+// ===========================================================================
+
+/// Apple Silicon (aarch64-apple-darwin) rejects RWX heap pages: JIT
+/// memory must be mapped with `mmap(..., MAP_JIT, ...)` and the per-thread
+/// write permission toggled via `pthread_jit_write_protect_np`.
+#[cfg(target_os = "macos")]
+mod apple_jit {
+    use libc::{
+        c_void, mmap, MAP_ANON, MAP_FAILED, MAP_JIT, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE,
+    };
+
+    extern "C" {
+        pub fn pthread_jit_write_protect_np(enabled: i32);
+        pub fn sys_icache_invalidate(addr: *mut c_void, len: usize);
+    }
+
+    /// Map `size` bytes of MAP_JIT memory. As far as the MMU is concerned
+    /// the mapping is RWX, but the *per-thread* writability is gated by
+    /// `pthread_jit_write_protect_np`.
+    pub unsafe fn alloc(size: usize) -> *mut u8 {
+        let p = mmap(
+            std::ptr::null_mut(),
+            size,
+            PROT_READ | PROT_WRITE | PROT_EXEC,
+            MAP_PRIVATE | MAP_ANON | MAP_JIT,
+            -1,
+            0,
+        );
+        assert!(
+            p != MAP_FAILED,
+            "monoasm: mmap MAP_JIT failed ({}). On macOS, JIT processes \
+             typically need the `com.apple.security.cs.allow-jit` entitlement.",
+            std::io::Error::last_os_error()
+        );
+        p as *mut u8
+    }
+}
+
+/// AArch64 JIT page protection and I-cache maintenance.
+///
+/// On macOS the code pages are `MAP_JIT` and their per-thread writability
+/// is toggled with `pthread_jit_write_protect_np`; `writable` tracks the
+/// current state so emit paths can lazily flip back. On Linux/AArch64 the
+/// toggle is a no-op (the pages are RWX) and `writable` stays `true`. In
+/// both cases the I-cache must be synchronized after writing code.
+#[derive(Debug)]
+pub(crate) struct JitProtect {
+    writable: bool,
+}
+
+impl JitProtect {
+    /// Create the protection state. The pages start out writable for the
+    /// initial code generation (on macOS this flips the MAP_JIT pages
+    /// writable for the current thread).
+    pub(crate) fn new() -> Self {
+        let mut protect = JitProtect { writable: false };
+        protect.set_writable();
+        protect
+    }
+
+    /// Allocate the two contiguous code pages plus a separate data page,
+    /// returning `(code_pages_base, data_page_base)`.
+    pub(crate) fn allocate_pages() -> (*mut u8, *mut u8) {
+        #[cfg(target_os = "macos")]
+        {
+            let code = unsafe { apple_jit::alloc(PAGE_SIZE * 2) };
+            let data_layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).expect("Bad Layout.");
+            let data = unsafe { alloc(data_layout) };
+            (code, data)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            use region::{protect, Protection};
+            let layout = Layout::from_size_align(PAGE_SIZE * 3, PAGE_SIZE).expect("Bad Layout.");
+            let contents = unsafe { alloc(layout) };
+            unsafe {
+                protect(contents, PAGE_SIZE * 2, Protection::READ_WRITE_EXECUTE)
+                    .expect("Mprotect failed.");
+                protect(contents.add(PAGE_SIZE * 2), PAGE_SIZE, Protection::READ_WRITE)
+                    .expect("Mprotect failed.");
+            }
+            (contents, unsafe { contents.add(PAGE_SIZE * 2) })
+        }
+    }
+
+    /// Lazily flip the pages back to writable for the current thread if a
+    /// previous `set_executable` left them write-protected.
+    #[inline]
+    pub(crate) fn ensure_writable(&mut self) {
+        if !self.writable {
+            self.set_writable();
+        }
+    }
+
+    /// Switch the pages to writable for the current thread.
+    #[inline]
+    pub(crate) fn set_writable(&mut self) {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            apple_jit::pthread_jit_write_protect_np(0)
+        };
+        self.writable = true;
+    }
+
+    /// Switch the pages to executable for the current thread.
+    #[inline]
+    pub(crate) fn set_executable(&mut self) {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            apple_jit::pthread_jit_write_protect_np(1)
+        };
+        self.writable = false;
+    }
+
+    /// Synchronize the I-cache over `[ptr, ptr+len)` so the CPU sees the
+    /// freshly written instructions.
+    #[inline]
+    pub(crate) unsafe fn invalidate_icache(ptr: *const u8, len: usize) {
+        if len == 0 {
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            apple_jit::sys_icache_invalidate(ptr as *mut _, len);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Conservative 64-byte cache line: every current AArch64 core
+            // has D/I-cache lines that are a multiple of 64, and walking
+            // smaller lines than the actual size is always safe.
+            let line: usize = 64;
+            let start = (ptr as usize) & !(line - 1);
+            let end = ((ptr as usize) + len + line - 1) & !(line - 1);
+            let mut p = start;
+            while p < end {
+                core::arch::asm!("dc cvau, {x}", x = in(reg) p, options(nostack, preserves_flags));
+                p += line;
+            }
+            core::arch::asm!("dsb ish", options(nostack, preserves_flags));
+            let mut p = start;
+            while p < end {
+                core::arch::asm!("ic ivau, {x}", x = in(reg) p, options(nostack, preserves_flags));
+                p += line;
+            }
+            core::arch::asm!("dsb ish", options(nostack, preserves_flags));
+            core::arch::asm!("isb", options(nostack, preserves_flags));
+        }
     }
 }

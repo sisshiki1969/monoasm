@@ -657,35 +657,89 @@ fn off_i32(o: &Option<Imm>) -> TokenStream {
     }
 }
 
+/// Implicit zero register / stack-pointer operand (`GReg(31)`), used to
+/// synthesize aliases such as `mov`/`cmp`/`neg`/`mvn`/`tst`.
+fn xzr() -> TokenStream {
+    quote!(GReg(31u32))
+}
+
+/// Base word for the add/subtract shifted-register form.
+fn addsub_reg_base(name: &str) -> u32 {
+    match name {
+        "add" => 0x8b00_0000,
+        "adds" => 0xab00_0000,
+        "sub" => 0xcb00_0000,
+        "subs" => 0xeb00_0000,
+        _ => unreachable!(),
+    }
+}
+
+/// Base word for the add/subtract immediate form.
+fn addsub_imm_base(name: &str) -> u32 {
+    match name {
+        "add" => 0x9100_0000,
+        "adds" => 0xb100_0000,
+        "sub" => 0xd100_0000,
+        "subs" => 0xf100_0000,
+        _ => unreachable!(),
+    }
+}
+
+/// Base word for the logical shifted-register form.
+fn logical_base(name: &str) -> u32 {
+    match name {
+        "and" => 0x8a00_0000,
+        "orr" => 0xaa00_0000,
+        "eor" => 0xca00_0000,
+        "ands" => 0xea00_0000,
+        _ => unreachable!(),
+    }
+}
+
+/// Base word for the variable-shift (`LSLV`/`LSRV`/`ASRV`) form. Accepts
+/// both the `lsl`/`lsr`/`asr` (register operand) and `lslv`/`lsrv`/`asrv`
+/// spellings.
+fn shiftv_base(name: &str) -> u32 {
+    match name {
+        "lsl" | "lslv" => 0x9ac0_2000,
+        "lsr" | "lsrv" => 0x9ac0_2400,
+        "asr" | "asrv" => 0x9ac0_2800,
+        _ => unreachable!(),
+    }
+}
+
 fn ldst(kind: &str, rt: Reg, mem: Mem) -> TokenStream {
+    let is_ldr = kind == "ldr";
     match rt.kind {
         RegKind::X => {
             let rtg = rt.greg();
+            // (unsigned-offset, pre-index, post-index, register-offset) bases.
+            let (uimm, pre, post, reg) = if is_ldr {
+                (0xf940_0000u32, 0xf840_0c00u32, 0xf840_0400u32, 0xf860_6800u32)
+            } else {
+                (0xf900_0000u32, 0xf800_0c00u32, 0xf800_0400u32, 0xf820_6800u32)
+            };
             match mem {
                 Mem::Off(b, o) => {
                     let bg = b.greg();
                     let off = off_u32(&o);
-                    let m = id(kind);
-                    quote!(jit.#m(#rtg, #bg, #off);)
+                    quote!(jit.ldst_uimm(#uimm, 3, (#rtg).enc(), #bg, #off);)
                 }
                 Mem::Pre(b, o) => {
                     let bg = b.greg();
                     let off = o.0;
-                    let m = id(&format!("{}_pre", kind));
-                    quote!(jit.#m(#rtg, #bg, (#off) as i32);)
+                    quote!(jit.ldst_idx(#pre, (#rtg).enc(), #bg, (#off) as i32);)
                 }
                 Mem::Post(b, o) => {
                     let bg = b.greg();
                     let off = o.0;
-                    let m = id(&format!("{}_post", kind));
-                    quote!(jit.#m(#rtg, #bg, (#off) as i32);)
+                    quote!(jit.ldst_idx(#post, (#rtg).enc(), #bg, (#off) as i32);)
                 }
                 Mem::RegOff(b, idx, scaled) => {
                     let bg = b.greg();
                     let ig = idx.greg();
                     let s = if scaled { quote!(true) } else { quote!(false) };
-                    let m = id(&format!("{}_reg", kind));
-                    quote!(jit.#m(#rtg, #bg, #ig, #s);)
+                    quote!(jit.ldst_reg(#reg, #rtg, #bg, #ig, #s);)
                 }
             }
         }
@@ -694,8 +748,8 @@ fn ldst(kind: &str, rt: Reg, mem: Mem) -> TokenStream {
                 let rtg = rt.greg();
                 let bg = b.greg();
                 let off = off_u32(&o);
-                let m = id(&format!("{}32", kind));
-                quote!(jit.#m(#rtg, #bg, #off);)
+                let uimm = if is_ldr { 0xb940_0000u32 } else { 0xb900_0000u32 };
+                quote!(jit.ldst_uimm(#uimm, 2, (#rtg).enc(), #bg, #off);)
             }
             _ => panic!("monoasm_arm64: 32-bit {kind} only supports [base, #off] addressing"),
         },
@@ -704,8 +758,8 @@ fn ldst(kind: &str, rt: Reg, mem: Mem) -> TokenStream {
                 let rtf = rt.freg();
                 let bg = b.greg();
                 let off = off_u32(&o);
-                let m = id(&format!("{}_f", kind));
-                quote!(jit.#m(#rtf, #bg, #off);)
+                let uimm = if is_ldr { 0xfd40_0000u32 } else { 0xfd00_0000u32 };
+                quote!(jit.ldst_uimm(#uimm, 3, (#rtf).enc(), #bg, #off);)
             }
             _ => panic!("monoasm_arm64: D-register {kind} only supports [base, #off] addressing"),
         },
@@ -720,9 +774,12 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
             let a = rd.greg();
             let b = rm.greg();
             if rd.is_sp || rm.is_sp {
-                quote!(jit.mov_sp(#a, #b);)
+                // MOV to/from SP = ADD Xd|SP, Xn|SP, #0.
+                quote!(jit.addsub_imm(0x9100_0000u32, #a, #b, 0, 0);)
             } else {
-                quote!(jit.mov(#a, #b);)
+                // MOV = ORR Xd, XZR, Xm.
+                let z = xzr();
+                quote!(jit.logical_reg(0xaa00_0000u32, #a, #z, #b, 0);)
             }
         }
         Inst::MovImm(rd, imm) => {
@@ -733,9 +790,14 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
         Inst::MovWide(name, rd, imm, lsl) => {
             let a = rd.greg();
             let i = imm.0;
-            let m = id(&name);
             let hw = hw_ts(&lsl);
-            quote!(jit.#m(#a, (#i) as u16, #hw);)
+            let base = match name.as_str() {
+                "movz" => 0xd280_0000u32,
+                "movn" => 0x9280_0000u32,
+                "movk" => 0xf280_0000u32,
+                _ => unreachable!(),
+            };
+            quote!(jit.movewide(#base, #a, (#i) as u32, #hw);)
         }
 
         Inst::AddSub(name, rd, rn, op3, lsl) => {
@@ -744,100 +806,107 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
             match op3 {
                 RegOrImm::Reg(rm) => {
                     let rmg = rm.greg();
+                    let base = addsub_reg_base(&name);
                     match lsl {
                         Some(s) if name == "add" => {
                             let sh = s.0;
-                            quote!(jit.add_lsl(#rdg, #rng, #rmg, (#sh) as u32);)
+                            quote!(jit.addsub_reg(#base, #rdg, #rng, #rmg, (#sh) as u32);)
                         }
                         Some(_) => panic!(
                             "monoasm_arm64: shifted-register form is only supported for `add`"
                         ),
-                        None => {
-                            let m = id(&name);
-                            quote!(jit.#m(#rdg, #rng, #rmg);)
-                        }
+                        None => quote!(jit.addsub_reg(#base, #rdg, #rng, #rmg, 0);),
                     }
                 }
                 RegOrImm::Imm(i) => {
                     let imm = i.0;
-                    let m = id(&format!("{}_imm", name));
+                    let base = addsub_imm_base(&name);
                     let sh = shift12_ts(&lsl);
-                    quote!(jit.#m(#rdg, #rng, (#imm) as u32, #sh);)
+                    quote!(jit.addsub_imm(#base, #rdg, #rng, (#imm) as u32, #sh);)
                 }
             }
         }
         Inst::CmpCmn(name, rn, op2, lsl) => {
             let rng = rn.greg();
+            let z = xzr();
             match op2 {
                 RegOrImm::Reg(rm) => {
                     let rmg = rm.greg();
-                    let m = id(&name);
-                    quote!(jit.#m(#rng, #rmg);)
+                    // cmp = SUBS XZR, Xn, Xm; cmn = ADDS XZR, Xn, Xm.
+                    let base = if name == "cmp" { 0xeb00_0000u32 } else { 0xab00_0000u32 };
+                    quote!(jit.addsub_reg(#base, #z, #rng, #rmg, 0);)
                 }
                 RegOrImm::Imm(i) => {
                     let imm = i.0;
-                    let m = id(&format!("{}_imm", name));
                     let sh = shift12_ts(&lsl);
-                    quote!(jit.#m(#rng, (#imm) as u32, #sh);)
+                    // cmp = SUBS XZR, Xn, #imm; cmn = ADDS XZR, Xn, #imm.
+                    let base = if name == "cmp" { 0xf100_0000u32 } else { 0xb100_0000u32 };
+                    quote!(jit.addsub_imm(#base, #z, #rng, (#imm) as u32, #sh);)
                 }
             }
         }
         Inst::Neg(rd, rm) => {
             let a = rd.greg();
             let b = rm.greg();
-            quote!(jit.neg(#a, #b);)
+            let z = xzr();
+            // NEG = SUB Xd, XZR, Xm.
+            quote!(jit.addsub_reg(0xcb00_0000u32, #a, #z, #b, 0);)
         }
         Inst::Logic(name, rd, rn, rm, lsl) => {
             let rdg = rd.greg();
             let rng = rn.greg();
             let rmg = rm.greg();
+            let base = logical_base(&name);
             match lsl {
                 Some(s) if name == "orr" => {
                     let sh = s.0;
-                    quote!(jit.orr_lsl(#rdg, #rng, #rmg, (#sh) as u32);)
+                    quote!(jit.logical_reg(#base, #rdg, #rng, #rmg, (#sh) as u32);)
                 }
                 Some(_) => {
                     panic!(
                         "monoasm_arm64: shifted-register logical form is only supported for `orr`"
                     )
                 }
-                None => {
-                    let m = id(if name == "and" { "and_" } else { &name });
-                    quote!(jit.#m(#rdg, #rng, #rmg);)
-                }
+                None => quote!(jit.logical_reg(#base, #rdg, #rng, #rmg, 0);),
             }
         }
         Inst::Mvn(rd, rm) => {
             let a = rd.greg();
             let b = rm.greg();
-            quote!(jit.mvn(#a, #b);)
+            let z = xzr();
+            // MVN = ORN Xd, XZR, Xm.
+            quote!(jit.logical_reg(0xaa20_0000u32, #a, #z, #b, 0);)
         }
         Inst::Tst(rn, rm) => {
             let a = rn.greg();
             let b = rm.greg();
-            quote!(jit.tst(#a, #b);)
+            let z = xzr();
+            // TST = ANDS XZR, Xn, Xm.
+            quote!(jit.logical_reg(0xea00_0000u32, #z, #a, #b, 0);)
         }
 
         Inst::Mul(rd, rn, rm) => {
             let a = rd.greg();
             let b = rn.greg();
             let c = rm.greg();
-            quote!(jit.mul(#a, #b, #c);)
+            let z = xzr();
+            // MUL = MADD Xd, Xn, Xm, XZR.
+            quote!(jit.dp_3src(0x9b00_0000u32, #a, #b, #c, #z);)
         }
         Inst::MAddSub(name, rd, rn, rm, ra) => {
             let a = rd.greg();
             let b = rn.greg();
             let c = rm.greg();
             let d = ra.greg();
-            let m = id(&name);
-            quote!(jit.#m(#a, #b, #c, #d);)
+            let base = if name == "madd" { 0x9b00_0000u32 } else { 0x9b00_8000u32 };
+            quote!(jit.dp_3src(#base, #a, #b, #c, #d);)
         }
         Inst::Div(name, rd, rn, rm) => {
             let a = rd.greg();
             let b = rn.greg();
             let c = rm.greg();
-            let m = id(&name);
-            quote!(jit.#m(#a, #b, #c);)
+            let base = if name == "sdiv" { 0x9ac0_0c00u32 } else { 0x9ac0_0800u32 };
+            quote!(jit.dp_2src(#base, #a, #b, #c);)
         }
 
         Inst::Shift(name, rd, rn, op3) => {
@@ -846,13 +915,27 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
             match op3 {
                 RegOrImm::Reg(rm) => {
                     let rmg = rm.greg();
-                    let m = id(&format!("{}v", name));
-                    quote!(jit.#m(#rdg, #rng, #rmg);)
+                    let base = shiftv_base(&name);
+                    quote!(jit.dp_2src(#base, #rdg, #rng, #rmg);)
                 }
                 RegOrImm::Imm(i) => {
                     let imm = i.0;
-                    let m = id(&format!("{}_imm", name));
-                    quote!(jit.#m(#rdg, #rng, (#imm) as u32);)
+                    // LSL/LSR/ASR #imm are UBFM/SBFM aliases.
+                    match name.as_str() {
+                        "lsl" => quote!({
+                            let __s = (#imm) as u32;
+                            jit.bfm(0xd340_0000u32, #rdg, #rng, (64 - __s) & 63, 63 - __s);
+                        }),
+                        "lsr" => quote!({
+                            let __s = (#imm) as u32;
+                            jit.bfm(0xd340_0000u32, #rdg, #rng, __s, 63);
+                        }),
+                        "asr" => quote!({
+                            let __s = (#imm) as u32;
+                            jit.bfm(0x9340_0000u32, #rdg, #rng, __s, 63);
+                        }),
+                        _ => unreachable!(),
+                    }
                 }
             }
         }
@@ -860,13 +943,14 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
             let a = rd.greg();
             let b = rn.greg();
             let c = rm.greg();
-            let m = id(&name);
-            quote!(jit.#m(#a, #b, #c);)
+            let base = shiftv_base(&name);
+            quote!(jit.dp_2src(#base, #a, #b, #c);)
         }
         Inst::Sxtw(rd, rn) => {
             let a = rd.greg();
             let b = rn.greg();
-            quote!(jit.sxtw(#a, #b);)
+            // SXTW = SBFM Xd, Xn, #0, #31.
+            quote!(jit.bfm(0x9340_0000u32, #a, #b, 0, 31);)
         }
 
         Inst::CSel(name, rd, rn, rm, cond) => {
@@ -889,8 +973,15 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
                 let rtg = rt.greg();
                 let bg = b.greg();
                 let off = off_u32(&o);
-                let m = id(&name);
-                quote!(jit.#m(#rtg, #bg, #off);)
+                let (base, scale) = match name.as_str() {
+                    "ldrb" => (0x3940_0000u32, 0u32),
+                    "strb" => (0x3900_0000u32, 0u32),
+                    "ldrh" => (0x7940_0000u32, 1u32),
+                    "strh" => (0x7900_0000u32, 1u32),
+                    "ldrsw" => (0xb980_0000u32, 2u32),
+                    _ => unreachable!(),
+                };
+                quote!(jit.ldst_uimm(#base, #scale, (#rtg).enc(), #bg, #off);)
             }
             _ => panic!("monoasm_arm64: {name} only supports [base, #off] addressing"),
         },
@@ -901,12 +992,12 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
                 Mem::Off(b, o) => {
                     let bg = b.greg();
                     let off = off_i32(&o);
-                    quote!(jit.stp(#a, #b2, #bg, #off);)
+                    quote!(jit.ldstp(0xa900_0000u32, #a, #b2, #bg, #off);)
                 }
                 Mem::Pre(b, o) => {
                     let bg = b.greg();
                     let off = o.0;
-                    quote!(jit.stp_pre(#a, #b2, #bg, (#off) as i32);)
+                    quote!(jit.ldstp(0xa980_0000u32, #a, #b2, #bg, (#off) as i32);)
                 }
                 _ => panic!("monoasm_arm64: stp supports [base, #off] or [base, #off]!"),
             }
@@ -918,12 +1009,12 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
                 Mem::Off(b, o) => {
                     let bg = b.greg();
                     let off = off_i32(&o);
-                    quote!(jit.ldp(#a, #b2, #bg, #off);)
+                    quote!(jit.ldstp(0xa940_0000u32, #a, #b2, #bg, #off);)
                 }
                 Mem::Post(b, o) => {
                     let bg = b.greg();
                     let off = o.0;
-                    quote!(jit.ldp_post(#a, #b2, #bg, (#off) as i32);)
+                    quote!(jit.ldstp(0xa8c0_0000u32, #a, #b2, #bg, (#off) as i32);)
                 }
                 _ => panic!("monoasm_arm64: ldp supports [base, #off] or [base], #off"),
             }
@@ -933,17 +1024,17 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
             (RegKind::D, RegKind::D) => {
                 let a = rd.freg();
                 let b = rn.freg();
-                quote!(jit.fmov(#a, #b);)
+                quote!(jit.emit_rr(0x1e60_4000u32, (#a).enc(), (#b).enc());)
             }
             (RegKind::D, _) => {
                 let a = rd.freg();
                 let b = rn.greg();
-                quote!(jit.fmov_from_gpr(#a, #b);)
+                quote!(jit.emit_rr(0x9e67_0000u32, (#a).enc(), (#b).enc());)
             }
             (_, RegKind::D) => {
                 let a = rd.greg();
                 let b = rn.freg();
-                quote!(jit.fmov_to_gpr(#a, #b);)
+                quote!(jit.emit_rr(0x9e66_0000u32, (#a).enc(), (#b).enc());)
             }
             _ => panic!("monoasm_arm64: fmov requires at least one D register"),
         },
@@ -951,28 +1042,34 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
             let a = rd.freg();
             let b = rn.freg();
             let c = rm.freg();
-            let m = id(&name);
-            quote!(jit.#m(#a, #b, #c);)
+            let base = match name.as_str() {
+                "fadd" => 0x1e60_2800u32,
+                "fsub" => 0x1e60_3800u32,
+                "fmul" => 0x1e60_0800u32,
+                "fdiv" => 0x1e60_1800u32,
+                _ => unreachable!(),
+            };
+            quote!(jit.fp_3op(#base, #a, #b, #c);)
         }
         Inst::Fcmp(rn, rm) => {
             let a = rn.freg();
             match rm {
                 Some(rm) => {
                     let b = rm.freg();
-                    quote!(jit.fcmp(#a, #b);)
+                    quote!(jit.fp_cmp(0x1e60_2000u32, #a, #b);)
                 }
-                None => quote!(jit.fcmp_zero(#a);),
+                None => quote!(jit.emit_rr(0x1e60_2008u32, 0, (#a).enc());),
             }
         }
         Inst::Scvtf(rd, rn) => {
             let a = rd.freg();
             let b = rn.greg();
-            quote!(jit.scvtf(#a, #b);)
+            quote!(jit.emit_rr(0x9e62_0000u32, (#a).enc(), (#b).enc());)
         }
         Inst::Fcvtzs(rd, rn) => {
             let a = rd.greg();
             let b = rn.freg();
-            quote!(jit.fcvtzs(#a, #b);)
+            quote!(jit.emit_rr(0x9e78_0000u32, (#a).enc(), (#b).enc());)
         }
 
         Inst::B(label) => quote!(jit.b_label(&#label);),
@@ -980,17 +1077,18 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
         Inst::Bcond(cond, label) => quote!(jit.bcond_label(#cond, &#label);),
         Inst::Br(rn) => {
             let a = rn.greg();
-            quote!(jit.br(#a);)
+            quote!(jit.emit_rr(0xd61f_0000u32, 0, (#a).enc());)
         }
         Inst::Blr(rn) => {
             let a = rn.greg();
-            quote!(jit.blr(#a);)
+            quote!(jit.emit_rr(0xd63f_0000u32, 0, (#a).enc());)
         }
         Inst::Ret(rn) => match rn {
-            None => quote!(jit.ret();),
+            // RET = ret to LR (X30).
+            None => quote!(jit.emit_rr(0xd65f_0000u32, 0, 30u32);),
             Some(rn) => {
                 let a = rn.greg();
-                quote!(jit.ret_reg(#a);)
+                quote!(jit.emit_rr(0xd65f_0000u32, 0, (#a).enc());)
             }
         },
         Inst::Cbz(rt, label) => {
@@ -1016,10 +1114,11 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
             quote!(jit.adr(#a, &#label);)
         }
 
-        Inst::Nop => quote!(jit.nop();),
+        Inst::Nop => quote!(jit.emitl(0xd503_201fu32);),
         Inst::Brk(imm) => {
             let i = imm.0;
-            quote!(jit.brk((#i) as u16);)
+            // BRK #imm16 = base | imm16 << 5.
+            quote!(jit.emit_rr(0xd420_0000u32, 0, (#i) as u32);)
         }
     }
 }

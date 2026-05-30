@@ -6,143 +6,21 @@
 
 use crate::*;
 //use monoasm_inst::Reg;
-#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
-use region::{protect, Protection};
-use std::alloc::{alloc, Layout};
 
 // ---------------------------------------------------------------------------
-// Platform-specific JIT memory allocation and W^X handling.
+// JIT memory allocation and W^X handling are architecture-specific and
+// live in the backend modules (`x64`, `arm64`) as the `JitProtect` type:
 //
-// Apple Silicon (aarch64-apple-darwin) rejects RWX heap pages: JIT memory
-// must be allocated with `mmap(..., MAP_JIT, ...)` and the per-thread write
-// permission is toggled via `pthread_jit_write_protect_np`. After writing
-// code, `sys_icache_invalidate` (or equivalent cache maintenance) must be
-// run so the CPU sees the freshly written instructions. On Linux/AArch64
-// the toggle is a no-op but the cache maintenance is still required; on
-// x86-64 both are no-ops.
+//   * `JitProtect::allocate_pages()` reserves the code/data pages,
+//   * `ensure_writable` / `set_writable` / `set_executable` toggle the
+//     per-thread write permission of MAP_JIT pages, and
+//   * `invalidate_icache` synchronizes the I-cache after code is written.
+//
+// On x86-64 these are no-ops over plain RWX pages; on AArch64 (notably
+// Apple Silicon) they drive `pthread_jit_write_protect_np` and the cache
+// maintenance instructions. The engine below stays architecture-neutral
+// and only calls into `JitProtect`.
 // ---------------------------------------------------------------------------
-
-#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-mod apple_jit {
-    use libc::{
-        c_void, mmap, MAP_ANON, MAP_FAILED, MAP_JIT, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE,
-    };
-
-    extern "C" {
-        fn pthread_jit_write_protect_np(enabled: i32);
-        pub fn sys_icache_invalidate(addr: *mut c_void, len: usize);
-    }
-
-    /// Map `size` bytes of MAP_JIT memory. As far as the MMU is
-    /// concerned the mapping is RWX, but the *per-thread* writability is
-    /// gated by [`set_writable`] / [`set_executable`].
-    pub unsafe fn alloc(size: usize) -> *mut u8 {
-        let p = mmap(
-            std::ptr::null_mut(),
-            size,
-            PROT_READ | PROT_WRITE | PROT_EXEC,
-            MAP_PRIVATE | MAP_ANON | MAP_JIT,
-            -1,
-            0,
-        );
-        assert!(
-            p != MAP_FAILED,
-            "monoasm: mmap MAP_JIT failed ({}). On macOS, JIT processes \
-             typically need the `com.apple.security.cs.allow-jit` entitlement.",
-            std::io::Error::last_os_error()
-        );
-        p as *mut u8
-    }
-
-    #[inline]
-    pub fn set_writable() {
-        unsafe { pthread_jit_write_protect_np(0) }
-    }
-
-    #[inline]
-    pub fn set_executable() {
-        unsafe { pthread_jit_write_protect_np(1) }
-    }
-}
-
-/// Toggle MAP_JIT pages to writable for the current thread (macOS/AArch64);
-/// no-op elsewhere.
-#[inline]
-fn flip_writable() {
-    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-    apple_jit::set_writable();
-}
-
-/// Toggle MAP_JIT pages to executable for the current thread
-/// (macOS/AArch64); no-op elsewhere.
-#[inline]
-fn flip_executable() {
-    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-    apple_jit::set_executable();
-}
-
-/// Allocate the two contiguous code pages plus a separate data page,
-/// returning `(code_pages_base, data_page_base)`.
-#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-fn allocate_pages() -> (*mut u8, *mut u8) {
-    let code = unsafe { apple_jit::alloc(PAGE_SIZE * 2) };
-    let data_layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).expect("Bad Layout.");
-    let data = unsafe { alloc(data_layout) };
-    (code, data)
-}
-
-#[cfg(not(all(target_arch = "aarch64", target_os = "macos")))]
-fn allocate_pages() -> (*mut u8, *mut u8) {
-    let layout = Layout::from_size_align(PAGE_SIZE * 3, PAGE_SIZE).expect("Bad Layout.");
-    let contents = unsafe { alloc(layout) };
-    unsafe {
-        protect(contents, PAGE_SIZE * 2, Protection::READ_WRITE_EXECUTE).expect("Mprotect failed.");
-        protect(
-            contents.add(PAGE_SIZE * 2),
-            PAGE_SIZE,
-            Protection::READ_WRITE,
-        )
-        .expect("Mprotect failed.");
-    }
-    (contents, unsafe { contents.add(PAGE_SIZE * 2) })
-}
-
-/// Synchronize the instruction and data caches over `[ptr, ptr+len)`.
-/// Required on AArch64 after writing generated code so the CPU sees the
-/// new instructions; x86-64 has coherent I-caches so this is a no-op.
-#[inline]
-#[allow(unused_variables)]
-unsafe fn invalidate_icache(ptr: *const u8, len: usize) {
-    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-    {
-        apple_jit::sys_icache_invalidate(ptr as *mut _, len);
-    }
-    #[cfg(all(target_arch = "aarch64", not(target_os = "macos")))]
-    {
-        if len == 0 {
-            return;
-        }
-        // Conservative 64-byte cache line: every current AArch64 core
-        // has D/I-cache lines that are a multiple of 64, and walking
-        // smaller lines than the actual size is always safe.
-        let line: usize = 64;
-        let start = (ptr as usize) & !(line - 1);
-        let end = ((ptr as usize) + len + line - 1) & !(line - 1);
-        let mut p = start;
-        while p < end {
-            core::arch::asm!("dc cvau, {x}", x = in(reg) p, options(nostack, preserves_flags));
-            p += line;
-        }
-        core::arch::asm!("dsb ish", options(nostack, preserves_flags));
-        let mut p = start;
-        while p < end {
-            core::arch::asm!("ic ivau, {x}", x = in(reg) p, options(nostack, preserves_flags));
-            p += line;
-        }
-        core::arch::asm!("dsb ish", options(nostack, preserves_flags));
-        core::arch::asm!("isb", options(nostack, preserves_flags));
-    }
-}
 
 /// Memory manager.
 #[derive(Debug)]
@@ -153,14 +31,10 @@ pub struct JitMemory {
     pages: [MemPage; 3],
     ///
     labels: Vec<DestLabel>,
-    /// MAP_JIT pages are write-protected per-thread on macOS/aarch64.
-    /// Track the current writability so every emit path can lazily flip
-    /// the region back to writable when a previous `finalize()` (or
-    /// explicit `set_executable()`) left it executable. Outside macOS/
-    /// aarch64 the W^X toggle is a no-op, so the field is only compiled
-    /// in there to keep the struct size identical for other targets.
-    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-    writable: bool,
+    /// Architecture-specific JIT page protection / W^X state. Carries the
+    /// per-thread writability tracking on macOS/aarch64 and is a
+    /// zero-sized no-op on x86-64.
+    protect: JitProtect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -222,7 +96,7 @@ impl MemPage {
         }
     }
 
-    fn contents(&self) -> *mut u8 {
+    pub(crate) fn contents(&self) -> *mut u8 {
         self.contents as *mut u8
     }
 
@@ -278,7 +152,7 @@ impl MemPage {
     }
 
     /// Write 32bit data `val` on `loc`.
-    fn write32(&mut self, loc: Pos, val: i32) {
+    pub(crate) fn write32(&mut self, loc: Pos, val: i32) {
         let val = val as u32;
         self[loc] = val as u8;
         self[loc + 1] = (val >> 8) as u8;
@@ -287,7 +161,7 @@ impl MemPage {
     }
 
     /// Write 64bit data `val` on `loc`.
-    fn write64(&mut self, loc: Pos, val: u64) {
+    pub(crate) fn write64(&mut self, loc: Pos, val: u64) {
         self[loc] = val as u8;
         self[loc + 1] = (val >> 8) as u8;
         self[loc + 2] = (val >> 16) as u8;
@@ -381,10 +255,10 @@ impl JitMemory {
     /// ### panic
     /// Panic if Layout::from_size_align() or region::protect() returned Err.
     pub fn new() -> JitMemory {
-        let (code_contents, data_contents) = allocate_pages();
-        // MAP_JIT pages start out write-protected on macOS; switch them
-        // to writable for the initial code generation. No-op elsewhere.
-        flip_writable();
+        let (code_contents, data_contents) = JitProtect::allocate_pages();
+        // The pages start out writable for the initial code generation
+        // (`JitProtect::new` flips MAP_JIT pages writable on macOS).
+        let protect = JitProtect::new();
         let initial_page = MemPage::new(code_contents);
         let second_page = MemPage::new(unsafe { code_contents.add(PAGE_SIZE) });
         let data_page = MemPage::new(data_contents);
@@ -392,26 +266,19 @@ impl JitMemory {
             page: Page(0),
             pages: [initial_page, second_page, data_page],
             labels: vec![],
-            #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-            writable: true,
+            protect,
         }
     }
 
-    /// Ensure the MAP_JIT region is writable for the current thread
-    /// before an emit / patch operation. On macOS/aarch64, calling
-    /// `set_executable()` (or `finalize()`, which delegates to it)
-    /// leaves the pages write-protected; the next emit would SIGBUS
-    /// without this lazy flip. Outside macOS/aarch64 this is an
-    /// inlined no-op so the hot path stays branch-free.
+    /// Ensure the JIT region is writable for the current thread before an
+    /// emit / patch operation. On macOS/aarch64, calling
+    /// `set_executable()` (or `finalize()`, which delegates to it) leaves
+    /// the pages write-protected; the next emit would SIGBUS without this
+    /// lazy flip. Outside macOS/aarch64 it is an inlined no-op so the hot
+    /// path stays branch-free.
     #[inline]
     fn ensure_writable(&mut self) {
-        #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-        {
-            if !self.writable {
-                flip_writable();
-                self.writable = true;
-            }
-        }
+        self.protect.ensure_writable();
     }
 
     /// Switch JIT memory back to writable mode for the current thread.
@@ -419,11 +286,7 @@ impl JitMemory {
     /// elsewhere it is a no-op. Callers don't normally need this — every
     /// emit path lazily flips back to writable via `ensure_writable`.
     pub fn set_writable(&mut self) {
-        flip_writable();
-        #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-        {
-            self.writable = true;
-        }
+        self.protect.set_writable();
     }
 
     /// Switch JIT memory to executable mode for the current thread and
@@ -431,18 +294,13 @@ impl JitMemory {
     /// instructions. Called automatically at the end of
     /// [`finalize`](Self::finalize).
     pub fn set_executable(&mut self) {
-        flip_executable();
-        #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-        {
-            self.writable = false;
-        }
-        #[cfg(target_arch = "aarch64")]
-        {
-            for page in &self.pages[..2] {
-                let len = page.code_len.max(page.counter.0);
-                if len > 0 {
-                    unsafe { invalidate_icache(page.contents(), len) }
-                }
+        self.protect.set_executable();
+        // Synchronize the I-cache over the freshly written code so the
+        // CPU sees the new instructions (a no-op on x86-64).
+        for page in &self.pages[..2] {
+            let len = page.code_len.max(page.counter.0);
+            if len > 0 {
+                unsafe { JitProtect::invalidate_icache(page.contents(), len) }
             }
         }
     }
@@ -594,7 +452,12 @@ impl JitMemory {
         CodePtr::from(ptr)
     }
 
-    fn handle_reloc(&mut self, label: DestLabel, target: TargetType) {
+    /// Resolve `label`'s relocation `target`: patch it immediately if the
+    /// label is already bound, otherwise queue it for `finalize`. The
+    /// `target` variants and the patching itself
+    /// ([`write_reloc`](Self::write_reloc)) are architecture-specific and
+    /// defined in the backend modules.
+    pub(crate) fn handle_reloc(&mut self, label: DestLabel, target: TargetType) {
         match *label.0.borrow_mut() {
             LabelInfo::Resolved((src_page, src_pos)) => {
                 self.write_reloc(src_page, src_pos, target);
@@ -605,72 +468,21 @@ impl JitMemory {
         };
     }
 
-    /// Save relocaton slot for `DestLabel`.
-    #[cfg(target_arch = "x86_64")]
-    pub fn emit_reloc(&mut self, dest: DestLabel, offset: u8) {
-        let page = self.page;
-        let pos = self.counter;
-        let target = TargetType::Rel { page, offset, pos };
-        self.emitl(0);
-        self.handle_reloc(dest, target);
+    /// The current code page being emitted into.
+    pub(crate) fn cur_page(&self) -> Page {
+        self.page
     }
 
-    /// Save relocaton slot for `DestLabel`.
+    /// The current write cursor within the current page.
+    pub(crate) fn cur_pos(&self) -> Pos {
+        self.counter
+    }
+
+    /// Save an absolute-address relocation slot for `DestLabel`.
     fn emit_absolute_reloc(&mut self, page: Page, dest: DestLabel) {
         let pos = self[page].counter;
         let target = TargetType::Abs { page, pos };
         self[page].emitq(0);
-        self.handle_reloc(dest, target);
-    }
-
-    fn write_reloc(&mut self, src_page: Page, src_pos: Pos, target: TargetType) {
-        let src_ptr = self[src_page].contents + src_pos.0;
-        match target {
-            #[cfg(target_arch = "x86_64")]
-            TargetType::Rel { page, offset, pos } => {
-                let target_ptr = self[page].contents + pos.0 + (offset as usize);
-                let disp = (src_ptr as i128) - (target_ptr as i128);
-                match i32::try_from(disp) {
-                    Ok(disp) => self[page].write32(pos, disp),
-                    Err(_) => panic!(
-                        "Relocation overflow. src:{:016x} dest:{:016x}",
-                        src_ptr, target_ptr
-                    ),
-                }
-            }
-            TargetType::Abs { page, pos } => {
-                self[page].write64(pos, src_ptr as _);
-            }
-            #[cfg(target_arch = "aarch64")]
-            TargetType::Arm64 { page, pos, kind } => {
-                // AArch64 branches are relative to the address of the
-                // branch instruction itself, and the displacement is
-                // packed into the bitfields of the existing instruction
-                // word (rather than a separate displacement slot).
-                let branch_ptr = self[page].contents + pos.0;
-                let disp = (src_ptr as i128) - (branch_ptr as i128);
-                let disp = i64::try_from(disp).expect("AArch64 relocation displacement overflow");
-                let word = u32::from_le_bytes([
-                    self[page][pos],
-                    self[page][pos + 1],
-                    self[page][pos + 2],
-                    self[page][pos + 3],
-                ]);
-                self[page].write32(pos, kind.patch(word, disp) as i32);
-            }
-        }
-    }
-
-    /// Emit an AArch64 PC-relative branch/ADR instruction whose target
-    /// is a [`DestLabel`]. `base_word` is the fully-encoded instruction
-    /// with a zeroed immediate field; `kind` describes how the
-    /// displacement is later patched in.
-    #[cfg(target_arch = "aarch64")]
-    pub fn emit_arm64_branch(&mut self, base_word: u32, kind: crate::Arm64Reloc, dest: DestLabel) {
-        let page = self.page;
-        let pos = self.counter;
-        self.emitl(base_word);
-        let target = TargetType::Arm64 { page, pos, kind };
         self.handle_reloc(dest, target);
     }
 

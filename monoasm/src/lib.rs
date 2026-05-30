@@ -13,6 +13,16 @@ pub use jit_memory::*;
 #[cfg(target_arch = "x86_64")]
 pub use x64::*;
 
+// The relocation target descriptor `TargetType` and the per-thread W^X
+// state `JitProtect` are architecture-specific: each backend defines its
+// own variants/representation instead of a single type with mixed,
+// cfg-gated variants. The architecture-neutral JIT engine in
+// `jit_memory` refers to them through these aliases.
+#[cfg(target_arch = "aarch64")]
+pub(crate) use arm64::{JitProtect, TargetType};
+#[cfg(target_arch = "x86_64")]
+pub(crate) use x64::{JitProtect, TargetType};
+
 const PAGE_SIZE: usize = 1024 * 1024 * 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -125,26 +135,4 @@ impl LabelInfo {
             _ => panic!("The DestLabel has not been resolved"),
         }
     }
-}
-
-#[derive(Clone, PartialEq, Debug)]
-enum TargetType {
-    #[cfg(target_arch = "x86_64")]
-    Rel {
-        page: Page,
-        offset: u8,
-        pos: Pos,
-    },
-    Abs {
-        page: Page,
-        pos: Pos,
-    },
-    /// AArch64 PC-relative branch/ADR: patch a scaled immediate into the
-    /// bitfields of the instruction word already emitted at `pos`.
-    #[cfg(target_arch = "aarch64")]
-    Arm64 {
-        page: Page,
-        pos: Pos,
-        kind: crate::Arm64Reloc,
-    },
 }

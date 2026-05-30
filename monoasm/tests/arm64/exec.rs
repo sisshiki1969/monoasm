@@ -11,6 +11,7 @@
 //! (see `.cargo/config.toml` for the qemu runner wiring).
 
 use monoasm::*;
+use monoasm_macro::monoasm_arm64;
 
 /// Assemble a function body, finalize, and return both the live
 /// [`JitMemory`] (kept alive so the code stays mapped) and the entry
@@ -28,14 +29,18 @@ fn jit_fn(emit: impl FnOnce(&mut JitMemory)) -> (JitMemory, u64) {
 #[test]
 fn returns_constant() {
     let (_jit, addr) = jit_fn(|j| {
-        j.mov_imm(X0, 0x1234_5678_9abc_def0);
-        j.ret();
+        monoasm_arm64!(&mut *j,
+            mov x0, (0x1234_5678_9abc_def0u64);
+            ret;
+        );
     });
     let f: extern "C" fn() -> u64 = unsafe { std::mem::transmute(addr) };
     assert_eq!(f(), 0x1234_5678_9abc_def0);
     let (_jit, addr) = jit_fn(|j| {
-        j.mov_imm(X0, u64::MAX);
-        j.ret();
+        monoasm_arm64!(&mut *j,
+            mov x0, (u64::MAX);
+            ret;
+        );
     });
     let f: extern "C" fn() -> u64 = unsafe { std::mem::transmute(addr) };
     assert_eq!(f(), u64::MAX);
@@ -45,10 +50,12 @@ fn returns_constant() {
 fn arithmetic() {
     // (a + b) * c - 1
     let (_jit, addr) = jit_fn(|j| {
-        j.add(X0, X0, X1);
-        j.mul(X0, X0, X2);
-        j.sub_imm(X0, X0, 1, 0);
-        j.ret();
+        monoasm_arm64!(&mut *j,
+            add x0, x0, x1;
+            mul x0, x0, x2;
+            sub x0, x0, #1;
+            ret;
+        );
     });
     let f: extern "C" fn(u64, u64, u64) -> u64 = unsafe { std::mem::transmute(addr) };
     assert_eq!(f(3, 4, 5), (3 + 4) * 5 - 1);
@@ -58,8 +65,10 @@ fn arithmetic() {
 #[test]
 fn signed_division() {
     let (_jit, addr) = jit_fn(|j| {
-        j.sdiv(X0, X0, X1);
-        j.ret();
+        monoasm_arm64!(&mut *j,
+            sdiv x0, x0, x1;
+            ret;
+        );
     });
     let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(addr) };
     assert_eq!(f(100, 7), 14);
@@ -73,15 +82,17 @@ fn sum_loop() {
     let (_jit, addr) = jit_fn(|j| {
         let loop_top = j.label();
         let done = j.label();
-        j.mov_imm(X1, 0); // acc = 0
-        j.bind_label(loop_top.clone());
-        j.cbz_label(X0, &done); // forward branch
-        j.add(X1, X1, X0);
-        j.sub_imm(X0, X0, 1, 0);
-        j.b_label(&loop_top); // backward branch
-        j.bind_label(done.clone());
-        j.mov(X0, X1);
-        j.ret();
+        monoasm_arm64!(&mut *j,
+            mov x1, #0;          // acc = 0
+        loop_top:
+            cbz x0, done;        // forward branch
+            add x1, x1, x0;
+            sub x0, x0, #1;
+            b loop_top;          // backward branch
+        done:
+            mov x0, x1;
+            ret;
+        );
     });
     let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(addr) };
     assert_eq!(f(0), 0);
@@ -93,9 +104,11 @@ fn sum_loop() {
 #[test]
 fn signed_max_via_csel() {
     let (_jit, addr) = jit_fn(|j| {
-        j.cmp(X0, X1);
-        j.csel(X0, X0, X1, Cond::Gt);
-        j.ret();
+        monoasm_arm64!(&mut *j,
+            cmp x0, x1;
+            csel x0, x0, x1, gt;
+            ret;
+        );
     });
     let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(addr) };
     assert_eq!(f(3, 7), 7);
@@ -108,12 +121,14 @@ fn stack_roundtrip() {
     // Push the two arguments, clobber the registers, pop them back into
     // different registers, and add.
     let (_jit, addr) = jit_fn(|j| {
-        j.push_pair(X0, X1);
-        j.mov_imm(X0, 0);
-        j.mov_imm(X1, 0);
-        j.pop_pair(X2, X3);
-        j.add(X0, X2, X3);
-        j.ret();
+        monoasm_arm64!(&mut *j,
+            stp x0, x1, [sp, #-16]!;
+            mov x0, #0;
+            mov x1, #0;
+            ldp x2, x3, [sp], #16;
+            add x0, x2, x3;
+            ret;
+        );
     });
     let f: extern "C" fn(u64, u64) -> u64 = unsafe { std::mem::transmute(addr) };
     assert_eq!(f(40, 2), 42);
@@ -125,15 +140,15 @@ fn function_call_via_bl() {
     // entry: save fp/lr, bl callee, restore, ret. callee returns 42.
     let (_jit, addr) = jit_fn(|j| {
         let callee = j.label();
-        let end = j.label();
-        j.push_pair(FP, LR);
-        j.bl_label(&callee);
-        j.pop_pair(FP, LR);
-        j.ret();
-        j.bind_label(callee.clone());
-        j.mov_imm(X0, 42);
-        j.ret();
-        j.bind_label(end.clone());
+        monoasm_arm64!(&mut *j,
+            stp fp, lr, [sp, #-16]!;
+            bl callee;
+            ldp fp, lr, [sp], #16;
+            ret;
+        callee:
+            mov x0, #42;
+            ret;
+        );
     });
     let f: extern "C" fn() -> u64 = unsafe { std::mem::transmute(addr) };
     assert_eq!(f(), 42);
@@ -143,9 +158,11 @@ fn function_call_via_bl() {
 fn floating_point() {
     // (a + b) / c
     let (_jit, addr) = jit_fn(|j| {
-        j.fadd(D0, D0, D1);
-        j.fdiv(D0, D0, D2);
-        j.ret();
+        monoasm_arm64!(&mut *j,
+            fadd d0, d0, d1;
+            fdiv d0, d0, d2;
+            ret;
+        );
     });
     let f: extern "C" fn(f64, f64, f64) -> f64 = unsafe { std::mem::transmute(addr) };
     assert_eq!(f(3.0, 5.0, 2.0), 4.0);
@@ -156,12 +173,14 @@ fn floating_point() {
 fn int_float_conversion() {
     // trunc(x * 2.5) using scvtf / fmov-from-gpr / fmul / fcvtzs.
     let (_jit, addr) = jit_fn(|j| {
-        j.scvtf(D0, X0);
-        j.mov_imm(X1, 0x4004_0000_0000_0000); // 2.5 as f64 bits
-        j.fmov_from_gpr(D1, X1);
-        j.fmul(D0, D0, D1);
-        j.fcvtzs(X0, D0);
-        j.ret();
+        monoasm_arm64!(&mut *j,
+            scvtf d0, x0;
+            mov x1, (0x4004_0000_0000_0000u64); // 2.5 as f64 bits
+            fmov d1, x1;
+            fmul d0, d0, d1;
+            fcvtzs x0, d0;
+            ret;
+        );
     });
     let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(addr) };
     assert_eq!(f(4), 10); // 4 * 2.5 = 10
