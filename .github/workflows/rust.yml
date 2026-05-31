@@ -2,27 +2,45 @@ name: Rust
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, aarch ]
   pull_request:
-    branches: [ master ]
+    branches: [ master, aarch ]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  # x86-64 host: build the workspace and run the x64 backend tests.
+  x64:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install latest nightly
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@nightly
       with:
-          toolchain: nightly
-          override: true
-          components: rustfmt, clippy
+        components: rustfmt, clippy
     - name: Build
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+
+  # AArch64 backend: cross-compile and run its tests under qemu, since the
+  # arm64 encoder is only compiled for target_arch = "aarch64".
+  arm64:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install nightly with the aarch64 target
+      uses: dtolnay/rust-toolchain@nightly
+      with:
+        targets: aarch64-unknown-linux-gnu
+    - name: Install the aarch64 cross toolchain and qemu
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          qemu-user-static gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+    - name: Run arm64 backend tests under qemu
+      run: cargo test --target aarch64-unknown-linux-gnu --test arm64 --verbose
+      env:
+        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER: qemu-aarch64-static -L /usr/aarch64-linux-gnu
