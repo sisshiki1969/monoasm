@@ -174,6 +174,8 @@ fn mul_div() {
     );
     assert_eq!(word(|j| monoasm_arm64!(&mut *j, sdiv x11, x12, x13;)), 0x9acd_0d8b);
     assert_eq!(word(|j| monoasm_arm64!(&mut *j, udiv x14, x15, x16;)), 0x9ad0_09ee);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, smulh x0, x1, x2;)), 0x9b42_7c20);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, umulh x0, x1, x2;)), 0x9bc2_7c20);
 }
 
 #[test]

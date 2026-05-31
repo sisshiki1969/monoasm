@@ -309,6 +309,7 @@ pub(crate) enum Inst {
     Tst(Reg, Reg),
 
     Mul(Reg, Reg, Reg),
+    MulH(String, Reg, Reg, Reg),
     MAddSub(String, Reg, Reg, Reg, Reg),
     Div(String, Reg, Reg, Reg),
 
@@ -425,6 +426,13 @@ impl Parse for Inst {
                 let rn = parse_reg(input)?;
                 comma!();
                 Inst::Mul(rd, rn, parse_reg(input)?)
+            }
+            "smulh" | "umulh" => {
+                let rd = parse_reg(input)?;
+                comma!();
+                let rn = parse_reg(input)?;
+                comma!();
+                Inst::MulH(m, rd, rn, parse_reg(input)?)
             }
             "madd" | "msub" => {
                 let rd = parse_reg(input)?;
@@ -892,6 +900,20 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
             let z = xzr();
             // MUL = MADD Xd, Xn, Xm, XZR.
             quote!(jit.dp_3src(0x9b00_0000u32, #a, #b, #c, #z);)
+        }
+        Inst::MulH(name, rd, rn, rm) => {
+            let a = rd.greg();
+            let b = rn.greg();
+            let c = rm.greg();
+            let z = xzr();
+            // SMULH/UMULH Xd, Xn, Xm: Xd <- (Xn * Xm)<127:64>.
+            // Encoded as a 3-source data-processing op with Ra fixed to XZR.
+            let base = if name == "smulh" {
+                0x9b40_0000u32
+            } else {
+                0x9bc0_0000u32
+            };
+            quote!(jit.dp_3src(#base, #a, #b, #c, #z);)
         }
         Inst::MAddSub(name, rd, rn, rm, ra) => {
             let a = rd.greg();

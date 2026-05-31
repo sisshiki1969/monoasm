@@ -76,6 +76,35 @@ fn signed_division() {
 }
 
 #[test]
+fn multiply_high() {
+    // smulh: high 64 bits of the signed 64x64 product.
+    let (_jit, addr) = jit_fn(|j| {
+        monoasm_arm64!(&mut *j,
+            smulh x0, x0, x1;
+            ret;
+        );
+    });
+    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(addr) };
+    let smulh = |a: i64, b: i64| ((a as i128 * b as i128) >> 64) as i64;
+    assert_eq!(f(1 << 62, 4), smulh(1 << 62, 4));
+    assert_eq!(f(-1, 1), smulh(-1, 1));
+    assert_eq!(f(i64::MAX, i64::MAX), smulh(i64::MAX, i64::MAX));
+    assert_eq!(f(i64::MIN, i64::MIN), smulh(i64::MIN, i64::MIN));
+
+    // umulh: high 64 bits of the unsigned 64x64 product.
+    let (_jit, addr) = jit_fn(|j| {
+        monoasm_arm64!(&mut *j,
+            umulh x0, x0, x1;
+            ret;
+        );
+    });
+    let f: extern "C" fn(u64, u64) -> u64 = unsafe { std::mem::transmute(addr) };
+    let umulh = |a: u64, b: u64| ((a as u128 * b as u128) >> 64) as u64;
+    assert_eq!(f(1 << 63, 4), umulh(1 << 63, 4));
+    assert_eq!(f(u64::MAX, u64::MAX), umulh(u64::MAX, u64::MAX));
+}
+
+#[test]
 fn sum_loop() {
     // Sum 1..=n using a backward branch and a forward conditional exit,
     // exercising relocation in both directions.
