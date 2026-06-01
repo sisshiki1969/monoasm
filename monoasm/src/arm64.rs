@@ -276,9 +276,16 @@ impl JitMemory {
     }
 
     /// Two-source data processing: `base | Rm<<16 | Rn<<5 | Rd`
-    /// (`SDIV`/`UDIV`/`LSLV`/`LSRV`/`ASRV`).
+    /// (`SDIV`/`UDIV`/`LSLV`/`LSRV`/`ASRV`/`RORV`).
     pub fn dp_2src(&mut self, base: u32, rd: GReg, rn: GReg, rm: GReg) {
         self.emitl(base | (rm.enc() << 16) | (rn.enc() << 5) | rd.enc());
+    }
+
+    /// Extract register (`EXTR`): `base | Rm<<16 | imms<<10 | Rn<<5 | Rd`.
+    /// `ROR Xd, Xn, #shift` is the alias `EXTR Xd, Xn, Xn, #shift`.
+    pub fn extr(&mut self, base: u32, rd: GReg, rn: GReg, rm: GReg, imms: u32) {
+        debug_assert!(imms < 64, "extr: shift amount out of range");
+        self.emitl(base | (rm.enc() << 16) | (imms << 10) | (rn.enc() << 5) | rd.enc());
     }
 
     /// Three-source data processing: `base | Rm<<16 | Ra<<10 | Rn<<5 | Rd`

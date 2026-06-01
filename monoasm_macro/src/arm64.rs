@@ -315,6 +315,13 @@ pub(crate) enum Inst {
 
     Shift(String, Reg, Reg, RegOrImm),
     ShiftVar(String, Reg, Reg, Reg),
+    /// `ror Xd, Xn, Xm` (register) or `ror Xd, Xn, #shift` (immediate).
+    Ror(Reg, Reg, RegOrImm),
+    /// `rorv Xd, Xn, Xm` — the explicit register-form spelling.
+    Rorv(Reg, Reg, Reg),
+    /// `rol Xd, Xn, #shift` — synthesized as `ror Xd, Xn, #(64 - shift)`
+    /// since AArch64 has no left-rotate instruction.
+    Rol(Reg, Reg, Imm),
     Sxtw(Reg, Reg),
 
     CSel(String, Reg, Reg, Reg, TokenStream),
@@ -463,6 +470,27 @@ impl Parse for Inst {
                 let rn = parse_reg(input)?;
                 comma!();
                 Inst::ShiftVar(m, rd, rn, parse_reg(input)?)
+            }
+            "ror" => {
+                let rd = parse_reg(input)?;
+                comma!();
+                let rn = parse_reg(input)?;
+                comma!();
+                Inst::Ror(rd, rn, parse_reg_or_imm(input)?)
+            }
+            "rorv" => {
+                let rd = parse_reg(input)?;
+                comma!();
+                let rn = parse_reg(input)?;
+                comma!();
+                Inst::Rorv(rd, rn, parse_reg(input)?)
+            }
+            "rol" => {
+                let rd = parse_reg(input)?;
+                comma!();
+                let rn = parse_reg(input)?;
+                comma!();
+                Inst::Rol(rd, rn, parse_imm(input)?)
             }
             "sxtw" => {
                 let rd = parse_reg(input)?;
@@ -967,6 +995,43 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
             let c = rm.greg();
             let base = shiftv_base(&name);
             quote!(jit.dp_2src(#base, #a, #b, #c);)
+        }
+        Inst::Ror(rd, rn, op3) => {
+            let rdg = rd.greg();
+            let rng = rn.greg();
+            match op3 {
+                RegOrImm::Reg(rm) => {
+                    // RORV Xd, Xn, Xm.
+                    let rmg = rm.greg();
+                    quote!(jit.dp_2src(0x9ac0_2c00u32, #rdg, #rng, #rmg);)
+                }
+                RegOrImm::Imm(i) => {
+                    // ROR Xd, Xn, #shift = EXTR Xd, Xn, Xn, #shift.
+                    let imm = i.0;
+                    quote!({
+                        let __rn = #rng;
+                        let __s = (#imm) as u32 & 63;
+                        jit.extr(0x93c0_0000u32, #rdg, __rn, __rn, __s);
+                    })
+                }
+            }
+        }
+        Inst::Rorv(rd, rn, rm) => {
+            let a = rd.greg();
+            let b = rn.greg();
+            let c = rm.greg();
+            quote!(jit.dp_2src(0x9ac0_2c00u32, #a, #b, #c);)
+        }
+        Inst::Rol(rd, rn, imm) => {
+            let rdg = rd.greg();
+            let rng = rn.greg();
+            let i = imm.0;
+            // ROL Xd, Xn, #shift = ROR Xd, Xn, #(64 - shift) = EXTR Xd, Xn, Xn, #(64 - shift).
+            quote!({
+                let __rn = #rng;
+                let __s = (#i) as u32 & 63;
+                jit.extr(0x93c0_0000u32, #rdg, __rn, __rn, (64 - __s) & 63);
+            })
         }
         Inst::Sxtw(rd, rn) => {
             let a = rd.greg();

@@ -190,6 +190,28 @@ fn shifts() {
 }
 
 #[test]
+fn rotates() {
+    // `ror Xd, Xn, Xm` and `rorv Xd, Xn, Xm` both encode the RORV register form.
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, ror x0, x1, x2;)), 0x9ac2_2c20);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, rorv x3, x4, x5;)), 0x9ac5_2c83);
+    // `ror Xd, Xn, #shift` is the `EXTR Xd, Xn, Xn, #shift` alias.
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, ror x9, x10, #4;)), 0x93ca_1149);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, ror x6, x7, #0;)), 0x93c7_00e6);
+    assert_eq!(
+        word(|j| monoasm_arm64!(&mut *j, ror x11, x12, #63;)),
+        0x93cc_fd8b
+    );
+    // AArch64 has no left-rotate: `rol Xd, Xn, #shift` synthesizes
+    // `ror Xd, Xn, #(64 - shift)`.
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, rol x9, x10, #4;)), 0x93ca_f149);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, rol x6, x7, #0;)), 0x93c7_00e6);
+    assert_eq!(
+        word(|j| monoasm_arm64!(&mut *j, rol x11, x12, #1;)),
+        0x93cc_fd8b
+    );
+}
+
+#[test]
 fn conditional_select() {
     assert_eq!(
         word(|j| monoasm_arm64!(&mut *j, csel x0, x1, x2, eq;)),

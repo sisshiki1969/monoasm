@@ -131,6 +131,51 @@ fn sum_loop() {
 }
 
 #[test]
+fn rotates() {
+    // ror by register amount.
+    let (_jit, addr) = jit_fn(|j| {
+        monoasm_arm64!(&mut *j,
+            ror x0, x0, x1;
+            ret;
+        );
+    });
+    let f: extern "C" fn(u64, u64) -> u64 = unsafe { std::mem::transmute(addr) };
+    assert_eq!(f(0x1, 1), 0x1u64.rotate_right(1));
+    assert_eq!(f(0x1234_5678_9abc_def0, 8), 0x1234_5678_9abc_def0u64.rotate_right(8));
+    // The register amount is taken modulo 64.
+    assert_eq!(f(0x1234_5678_9abc_def0, 68), 0x1234_5678_9abc_def0u64.rotate_right(4));
+
+    // ror / rol by immediate amount.
+    let (_jit, addr) = jit_fn(|j| {
+        monoasm_arm64!(&mut *j,
+            ror x0, x0, #12;
+            ret;
+        );
+    });
+    let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(addr) };
+    assert_eq!(f(0x1234_5678_9abc_def0), 0x1234_5678_9abc_def0u64.rotate_right(12));
+
+    let (_jit, addr) = jit_fn(|j| {
+        monoasm_arm64!(&mut *j,
+            rol x0, x0, #12;
+            ret;
+        );
+    });
+    let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(addr) };
+    assert_eq!(f(0x1234_5678_9abc_def0), 0x1234_5678_9abc_def0u64.rotate_left(12));
+
+    // rol #0 must be a no-op (synthesized as ror #64 -> #0).
+    let (_jit, addr) = jit_fn(|j| {
+        monoasm_arm64!(&mut *j,
+            rol x0, x0, #0;
+            ret;
+        );
+    });
+    let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(addr) };
+    assert_eq!(f(0xdead_beef_cafe_babe), 0xdead_beef_cafe_babe);
+}
+
+#[test]
 fn signed_max_via_csel() {
     let (_jit, addr) = jit_fn(|j| {
         monoasm_arm64!(&mut *j,
