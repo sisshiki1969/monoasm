@@ -482,7 +482,11 @@ pub(crate) enum TargetType {
     /// the bitfields of the instruction word already emitted at `pos`,
     /// rather than into a separate displacement slot. `kind` selects the
     /// immediate layout.
-    Rel { page: Page, pos: Pos, kind: Arm64Reloc },
+    Rel {
+        page: Page,
+        pos: Pos,
+        kind: Arm64Reloc,
+    },
 }
 
 impl JitMemory {
@@ -501,11 +505,12 @@ impl JitMemory {
     /// Dump the generated machine code as an objdump-style disassembly
     /// listing (the AArch64 counterpart of the x86-64 `dump_code`).
     ///
-    /// The disassembler binary defaults to `objdump`, which is the native
-    /// tool on an aarch64 host. When running the emulated tests on a
-    /// non-aarch64 host, set the `OBJDUMP` environment variable to a
-    /// cross-capable binutils (e.g. `aarch64-linux-gnu-objdump`) so the
-    /// A64 stream is decoded correctly.
+    /// The disassembler binary is located by [`find_objdump`]: an explicit
+    /// `OBJDUMP` override wins, otherwise `gobjdump` (the GNU binutils name
+    /// on macOS) then `objdump` are searched on `PATH` and the usual
+    /// Homebrew prefixes. `gobjdump` is preferred because the GNU CLI flags
+    /// used here (`-b binary -m aarch64`) differ from the LLVM `objdump`
+    /// shipped as the system tool on macOS.
     pub fn dump_code(&self) -> Result<String, std::io::Error> {
         use std::io::Write;
         use std::process::Command;
@@ -514,7 +519,7 @@ impl JitMemory {
         let (start_pos, code_end, _end_pos) = self.code_block.last().unwrap();
         file.write_all(&asm[start_pos.0..code_end.0]).unwrap();
 
-        let objdump = std::env::var("OBJDUMP").unwrap_or_else(|_| "objdump".to_string());
+        let objdump = find_objdump()?;
         Command::new(objdump)
             .args([
                 "-D",
@@ -528,7 +533,6 @@ impl JitMemory {
             .map(|o| {
                 std::str::from_utf8(&o.stdout)
                     .unwrap()
-                    .to_string()
                     .split_inclusive('\n')
                     .filter(|s| {
                         s.len() > 1
@@ -566,6 +570,65 @@ impl JitMemory {
             }
         }
     }
+}
+
+/// Locate a GNU `objdump` capable of disassembling the AArch64 byte stream
+/// emitted by [`JitMemory::dump_code`].
+///
+/// Resolution order:
+/// 1. the `OBJDUMP` environment variable, if set (e.g. a cross binutils
+///    such as `aarch64-linux-gnu-objdump`);
+/// 2. `gobjdump` then `objdump` on each `PATH` entry;
+/// 3. `gobjdump` then `objdump` under the common Homebrew prefixes. This
+///    includes the keg-only `binutils` location
+///    (`/opt/homebrew/opt/binutils/bin`), which Homebrew does *not* symlink
+///    onto `PATH`, plus the regular `bin` dirs — `cargo test` and the qemu
+///    runner may also launch with a minimal `PATH`.
+///
+/// `gobjdump` is tried first because on macOS the system `objdump` is the
+/// LLVM tool, whose CLI does not accept the GNU `-b binary -m aarch64`
+/// flags used by `dump_code`.
+fn find_objdump() -> Result<std::path::PathBuf, std::io::Error> {
+    use std::path::{Path, PathBuf};
+
+    if let Some(p) = std::env::var_os("OBJDUMP") {
+        return Ok(PathBuf::from(p));
+    }
+
+    // Directories to scan: `PATH` first, then well-known Homebrew prefixes.
+    // Homebrew's `binutils` is keg-only, so `gobjdump` lives under
+    // `opt/binutils/bin` and is absent from a default `PATH`.
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(paths) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&paths));
+    }
+    for prefix in [
+        "/opt/homebrew/opt/binutils/bin",
+        "/usr/local/opt/binutils/bin",
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+    ] {
+        dirs.push(Path::new(prefix).to_path_buf());
+    }
+
+    // Prefer GNU `gobjdump` over plain `objdump` *everywhere*: on macOS the
+    // `objdump` found on `PATH` is the LLVM tool, which rejects the GNU
+    // `-b binary -m aarch64` flags, so a later-in-PATH `gobjdump` must win.
+    for cand in ["gobjdump", "objdump"] {
+        for dir in &dirs {
+            let full = dir.join(cand);
+            if full.is_file() {
+                return Ok(full);
+            }
+        }
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "could not find `gobjdump` or `objdump`; install GNU binutils \
+         (`brew install binutils` provides `gobjdump`) or set $OBJDUMP to a \
+         GNU objdump that understands aarch64",
+    ))
 }
 
 // ===========================================================================
@@ -648,8 +711,12 @@ impl JitProtect {
             unsafe {
                 protect(contents, PAGE_SIZE * 2, Protection::READ_WRITE_EXECUTE)
                     .expect("Mprotect failed.");
-                protect(contents.add(PAGE_SIZE * 2), PAGE_SIZE, Protection::READ_WRITE)
-                    .expect("Mprotect failed.");
+                protect(
+                    contents.add(PAGE_SIZE * 2),
+                    PAGE_SIZE,
+                    Protection::READ_WRITE,
+                )
+                .expect("Mprotect failed.");
             }
             (contents, unsafe { contents.add(PAGE_SIZE * 2) })
         }
