@@ -498,6 +498,48 @@ impl JitMemory {
         self.handle_reloc(dest, target);
     }
 
+    /// Dump the generated machine code as an objdump-style disassembly
+    /// listing (the AArch64 counterpart of the x86-64 `dump_code`).
+    ///
+    /// The disassembler binary defaults to `objdump`, which is the native
+    /// tool on an aarch64 host. When running the emulated tests on a
+    /// non-aarch64 host, set the `OBJDUMP` environment variable to a
+    /// cross-capable binutils (e.g. `aarch64-linux-gnu-objdump`) so the
+    /// A64 stream is decoded correctly.
+    pub fn dump_code(&self) -> Result<String, std::io::Error> {
+        use std::io::Write;
+        use std::process::Command;
+        let asm = self.as_slice();
+        let mut file = tempfile::NamedTempFile::new()?;
+        let (start_pos, code_end, _end_pos) = self.code_block.last().unwrap();
+        file.write_all(&asm[start_pos.0..code_end.0]).unwrap();
+
+        let objdump = std::env::var("OBJDUMP").unwrap_or_else(|_| "objdump".to_string());
+        Command::new(objdump)
+            .args([
+                "-D",
+                "-b",
+                "binary",
+                "-m",
+                "aarch64",
+                file.path().to_str().unwrap(),
+            ])
+            .output()
+            .map(|o| {
+                std::str::from_utf8(&o.stdout)
+                    .unwrap()
+                    .to_string()
+                    .split_inclusive('\n')
+                    .filter(|s| {
+                        s.len() > 1
+                            && !s.contains("file format binary")
+                            && !s.contains("Disassembly of section")
+                            && !s.contains("<.data>")
+                    })
+                    .collect()
+            })
+    }
+
     /// Patch a single relocation `target` now that its label resolves to
     /// `(src_page, src_pos)`.
     pub(crate) fn write_reloc(&mut self, src_page: Page, src_pos: Pos, target: TargetType) {

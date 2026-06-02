@@ -105,6 +105,34 @@ fn multiply_high() {
 }
 
 #[test]
+fn dump_code_disassembles() {
+    // `dump_code` shells out to objdump; on a non-aarch64 host the emulated
+    // test process must reach a cross-capable objdump (set via $OBJDUMP).
+    let (jit, _addr) = jit_fn(|j| {
+        monoasm_arm64!(&mut *j,
+            smulh x0, x1, x2;
+            ret;
+        );
+    });
+    // `dump_code` shells out to objdump. Both the spawn and the disassembly
+    // can fail for environmental reasons that are not bugs in the backend:
+    //   - under qemu-user, fork() can fail with ENOMEM because of the large
+    //     executable mappings the JIT reserves;
+    //   - a host objdump may not understand aarch64.
+    // It is a debug-only helper, so in those cases we skip rather than fail.
+    // On a real aarch64 host both succeed and the assertions run.
+    match jit.dump_code() {
+        Ok(dump) if dump.contains("smulh") => {
+            assert!(dump.contains("ret"), "dump was:\n{dump}");
+        }
+        Ok(dump) => {
+            eprintln!("objdump produced no aarch64 disassembly; skipping. Got:\n{dump}")
+        }
+        Err(e) => eprintln!("could not run objdump ({e}); skipping dump_code assertion"),
+    }
+}
+
+#[test]
 fn sum_loop() {
     // Sum 1..=n using a backward branch and a forward conditional exit,
     // exercising relocation in both directions.
