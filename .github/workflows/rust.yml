@@ -44,3 +44,6 @@ jobs:
       env:
         CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER: qemu-aarch64-static -L /usr/aarch64-linux-gnu
+        # dump_code() shells out to objdump; point it at the cross binutils
+        # so the emulated tests can disassemble the A64 stream.
+        OBJDUMP: aarch64-linux-gnu-objdump
