@@ -335,6 +335,8 @@ pub(crate) enum Inst {
 
     Fmov(Reg, Reg),
     FArith(String, Reg, Reg, Reg),
+    /// Floating-point data-processing (1 source): `fabs`/`fneg`/`fsqrt`.
+    FUnary(String, Reg, Reg),
     Fcmp(Reg, Option<Reg>),
     Scvtf(Reg, Reg),
     Fcvtzs(Reg, Reg),
@@ -551,6 +553,11 @@ impl Parse for Inst {
                 let rn = parse_reg(input)?;
                 comma!();
                 Inst::FArith(m, rd, rn, parse_reg(input)?)
+            }
+            "fabs" | "fneg" | "fsqrt" => {
+                let rd = parse_reg(input)?;
+                comma!();
+                Inst::FUnary(m, rd, parse_reg(input)?)
             }
             "fcmp" => {
                 let rn = parse_reg(input)?;
@@ -1137,6 +1144,18 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
                 _ => unreachable!(),
             };
             quote!(jit.fp_3op(#base, #a, #b, #c);)
+        }
+        Inst::FUnary(name, rd, rn) => {
+            // FP data-processing (1 source), double precision (type=01).
+            let a = rd.freg();
+            let b = rn.freg();
+            let base = match name.as_str() {
+                "fabs" => 0x1e60_c000u32,
+                "fneg" => 0x1e61_4000u32,
+                "fsqrt" => 0x1e61_c000u32,
+                _ => unreachable!(),
+            };
+            quote!(jit.emit_rr(#base, (#a).enc(), (#b).enc());)
         }
         Inst::Fcmp(rn, rm) => {
             let a = rn.freg();
