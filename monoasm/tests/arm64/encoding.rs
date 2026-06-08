@@ -245,6 +245,19 @@ fn loads_stores() {
 }
 
 #[test]
+fn unscaled_loads_stores() {
+    // stur/ldur use an unscaled signed 9-bit byte offset.
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, stur x0, [x1, #-8];)), 0xf81f_8020);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, ldur x2, [x3, #16];)), 0xf841_0062);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, stur x4, [x5];)), 0xf800_00a4);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, stur x10, [sp, #-16];)), 0xf81f_03ea);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, ldur w6, [x7, #-1];)), 0xb85f_f0e6);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, stur w8, [x9, #255];)), 0xb80f_f128);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, ldur d0, [x1, #-256];)), 0xfc50_0020);
+    assert_eq!(word(|j| monoasm_arm64!(&mut *j, stur d2, [x3, #4];)), 0xfc00_4062);
+}
+
+#[test]
 fn load_store_pair() {
     assert_eq!(
         word(|j| monoasm_arm64!(&mut *j, stp x0, x1, [sp, #-16]!;)),

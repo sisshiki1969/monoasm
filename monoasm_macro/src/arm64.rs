@@ -330,6 +330,8 @@ pub(crate) enum Inst {
     Ldr(Reg, Mem),
     Str(Reg, Mem),
     LdStByteHalf(String, Reg, Mem),
+    /// `stur`/`ldur` — load/store with an unscaled signed 9-bit offset.
+    LdStUnscaled(String, Reg, Mem),
     Stp(Reg, Reg, Mem),
     Ldp(Reg, Reg, Mem),
 
@@ -527,6 +529,11 @@ impl Parse for Inst {
                 let rt = parse_reg(input)?;
                 comma!();
                 Inst::LdStByteHalf(m, rt, parse_mem(input)?)
+            }
+            "stur" | "ldur" => {
+                let rt = parse_reg(input)?;
+                comma!();
+                Inst::LdStUnscaled(m, rt, parse_mem(input)?)
             }
             "stp" => {
                 let rt = parse_reg(input)?;
@@ -1076,6 +1083,32 @@ pub(crate) fn compile(inst: Inst) -> TokenStream {
                     _ => unreachable!(),
                 };
                 quote!(jit.ldst_uimm(#base, #scale, (#rtg).enc(), #bg, #off);)
+            }
+            _ => panic!("monoasm_arm64: {name} only supports [base, #off] addressing"),
+        },
+        Inst::LdStUnscaled(name, rt, mem) => match mem {
+            Mem::Off(b, o) => {
+                let bg = b.greg();
+                let off = off_i32(&o);
+                let is_ldur = name == "ldur";
+                let (base, rt_enc) = match rt.kind {
+                    RegKind::X => {
+                        let r = rt.greg();
+                        let base = if is_ldur { 0xf840_0000u32 } else { 0xf800_0000u32 };
+                        (base, quote!((#r).enc()))
+                    }
+                    RegKind::W => {
+                        let r = rt.greg();
+                        let base = if is_ldur { 0xb840_0000u32 } else { 0xb800_0000u32 };
+                        (base, quote!((#r).enc()))
+                    }
+                    RegKind::D => {
+                        let r = rt.freg();
+                        let base = if is_ldur { 0xfc40_0000u32 } else { 0xfc00_0000u32 };
+                        (base, quote!((#r).enc()))
+                    }
+                };
+                quote!(jit.ldst_idx(#base, #rt_enc, #bg, #off);)
             }
             _ => panic!("monoasm_arm64: {name} only supports [base, #off] addressing"),
         },

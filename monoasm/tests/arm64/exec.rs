@@ -204,6 +204,25 @@ fn rotates() {
 }
 
 #[test]
+fn unscaled_load_store() {
+    // Reserve 16 bytes, stur the argument at a negative unscaled offset,
+    // ldur it back, and return it — exercising both stur and ldur.
+    let (_jit, addr) = jit_fn(|j| {
+        monoasm_arm64!(&mut *j,
+            sub sp, sp, #16;
+            stur x0, [sp, #4];
+            mov x0, #0;
+            ldur x0, [sp, #4];
+            add sp, sp, #16;
+            ret;
+        );
+    });
+    let f: extern "C" fn(u64) -> u64 = unsafe { std::mem::transmute(addr) };
+    assert_eq!(f(0xdead_beef_cafe_babe), 0xdead_beef_cafe_babe);
+    assert_eq!(f(42), 42);
+}
+
+#[test]
 fn signed_max_via_csel() {
     let (_jit, addr) = jit_fn(|j| {
         monoasm_arm64!(&mut *j,
