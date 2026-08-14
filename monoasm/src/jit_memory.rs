@@ -35,6 +35,10 @@ pub struct JitMemory {
     /// per-thread writability tracking on macOS/aarch64 and is a
     /// zero-sized no-op on x86-64.
     protect: JitProtect,
+    /// Set by an explicit [`JitMemory::set_writable`], which announces a
+    /// write monoasm cannot track. Makes the next `set_executable()` flush
+    /// the whole code region instead of the dirty range.
+    flush_all: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -308,6 +312,7 @@ impl JitMemory {
             pages: [initial_page, second_page, data_page],
             labels: vec![],
             protect,
+            flush_all: false,
         }
     }
 
@@ -326,7 +331,16 @@ impl JitMemory {
     /// On macOS/AArch64 this calls `pthread_jit_write_protect_np(0)`;
     /// elsewhere it is a no-op. Callers don't normally need this — every
     /// emit path lazily flips back to writable via `ensure_writable`.
+    ///
+    /// Calling this explicitly means the caller is about to write into the
+    /// JIT region behind monoasm's back, so it also arms a conservative
+    /// full-region I-cache flush at the next
+    /// [`set_executable`](Self::set_executable): monoasm cannot see where
+    /// such a raw write landed. Use [`mark_dirty`](Self::mark_dirty)
+    /// instead to make the region writable *and* declare the patched range,
+    /// which keeps the flush proportional to the patch.
     pub fn set_writable(&mut self) {
+        self.flush_all = true;
         self.protect.set_writable();
     }
 
@@ -344,32 +358,48 @@ impl JitMemory {
         // finalizes N times — which is exactly what made repeated JIT
         // compilation crawl on Apple Silicon, where `sys_icache_invalidate`
         // costs time proportional to the range.
+        let flush_all = std::mem::replace(&mut self.flush_all, false);
         for (id, page) in self.pages.iter_mut().enumerate() {
             // Every page's watermark is reset, but only the code pages get
             // cache maintenance — the data page is never executed.
-            let dirty = page.take_dirty();
+            let dirty = if flush_all {
+                // An explicit `set_writable()` may have been followed by a
+                // raw write monoasm never saw; fall back to the whole
+                // written extent of the page.
+                page.take_dirty();
+                Some((0, page.code_len.max(page.counter.0)))
+            } else {
+                page.take_dirty()
+            };
             if id < DATA_PAGE.0 {
                 if let Some((lo, hi)) = dirty {
-                    unsafe { JitProtect::invalidate_icache(page.contents().add(lo), hi - lo) }
+                    if lo < hi {
+                        unsafe { JitProtect::invalidate_icache(page.contents().add(lo), hi - lo) }
+                    }
                 }
             }
         }
     }
 
-    /// Record that `len` bytes at `ptr` were written into the JIT region
-    /// through a raw pointer, bypassing the [`MemPage`] write helpers.
+    /// Declare an out-of-band write of `len` bytes at `ptr`: make the JIT
+    /// region writable for the current thread and record the range so the
+    /// next [`set_executable`](Self::set_executable) synchronizes the
+    /// I-cache over it.
     ///
     /// Writes that go through `emit*`, `write32`/`write64` or `page[pos]`
-    /// mark themselves; this is the escape hatch for code that patches
-    /// already-emitted instructions via an address obtained from
+    /// record themselves; this is for code that patches already-emitted
+    /// instructions through a raw pointer obtained from
     /// [`get_label_address`](Self::get_label_address) or
-    /// [`get_current_address`](Self::get_current_address). Without it the
-    /// patch would not be part of the range handed to `invalidate_icache`
-    /// by the next [`set_executable`](Self::set_executable), and an
-    /// AArch64 core could keep executing the stale instruction.
+    /// [`get_current_address`](Self::get_current_address). Call it *before*
+    /// the write, in place of [`set_writable`](Self::set_writable) — that
+    /// one has to fall back to flushing the whole code region, since it
+    /// says nothing about where the write will land. Skipping both leaves
+    /// the patch out of the flushed range, and an AArch64 core can keep
+    /// executing the stale instruction.
     ///
     /// A `ptr` outside the JIT pages is ignored.
     pub fn mark_dirty(&mut self, ptr: *const u8, len: usize) {
+        self.ensure_writable();
         let p = ptr as usize;
         for page in &mut self.pages {
             let base = page.contents() as usize;
@@ -761,6 +791,32 @@ mod tests {
         jit.mark_dirty(outside, 1);
         assert_eq!(None, dirty(&jit, Page(0)));
         assert_eq!(None, dirty(&jit, Page(1)));
+    }
+
+    /// An explicit `set_writable()` announces a write monoasm can't see, so
+    /// the next publish must fall back to the whole code region — that is
+    /// what pre-existing "make writable, patch raw, make executable"
+    /// callers rely on.
+    #[test]
+    fn explicit_set_writable_forces_a_full_flush() {
+        let mut jit = JitMemory::new();
+        for _ in 0..64 {
+            jit.emitb(0);
+        }
+        jit.finalize();
+        assert!(!jit.flush_all);
+
+        jit.set_writable();
+        assert!(jit.flush_all);
+        // No tracked write at all, yet the whole written extent must still
+        // be considered dirty.
+        assert_eq!(None, dirty(&jit, Page(0)));
+        jit.set_executable();
+        assert!(!jit.flush_all);
+
+        // …and it is one-shot: the next publish is incremental again.
+        jit.emitb(0);
+        assert_eq!(Some((64, 65)), dirty(&jit, Page(0)));
     }
 
     /// The data page is never executed, but its watermark must still be
