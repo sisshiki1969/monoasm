@@ -544,6 +544,9 @@ impl JitMemory {
     pub fn apply_jmp_patch_address(&mut self, patch_point: CodePtr, jmp_dest: &DestLabel) {
         let jmp_dest = self.get_label_address(jmp_dest);
         let offset = jmp_dest - patch_point - 5;
+        // Raw-pointer write: declare it so the next `set_executable()`
+        // covers the patched displacement.
+        self.mark_dirty(unsafe { patch_point.as_ptr().add(1) }, 4);
         unsafe { *(patch_point.as_ptr().add(1) as *mut [u8; 4]) = (offset as i32).to_ne_bytes() };
     }
 
