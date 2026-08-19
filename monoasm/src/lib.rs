@@ -23,7 +23,15 @@ pub(crate) use arm64::{JitProtect, TargetType};
 #[cfg(target_arch = "x86_64")]
 pub(crate) use x64::{JitProtect, TargetType};
 
-const PAGE_SIZE: usize = 1024 * 1024 * 256;
+/// Capacity of one code/data page. The two code pages and the data page
+/// are a single `alloc` of `PAGE_SIZE * 3` (an anonymous mapping under the
+/// hood), so raising this reserves virtual address space only — physical
+/// pages are committed lazily as code is emitted. 1GiB per page keeps a
+/// long-running process (e.g. a full ruby/spec run, which emits ~250MB of
+/// JIT code and side exits without ever reclaiming any) clear of the
+/// "Page size overflow" panic, while two 1GiB code pages still keep every
+/// cross-page x86-64 rel32 within its +/-2GiB reach.
+const PAGE_SIZE: usize = 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
