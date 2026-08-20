@@ -593,16 +593,21 @@ impl JitMemory {
 
     /// Resolve and fill all relocations.
     fn fill_relocs(&mut self) {
+        // Defense: a label that was never bound but has pending relocations
+        // means some emitted branch still carries its zeroed rel32
+        // placeholder — a silent no-op jump in the published code. Panic at
+        // finalize instead of shipping it.
+        for label in &self.labels {
+            if let LabelInfo::NotResolved(targets) = &*label.0.borrow() {
+                assert!(
+                    targets.is_empty(),
+                    "unresolved relocation(s) at finalize: a branch targets a never-bound label ({} pending)",
+                    targets.len()
+                );
+            }
+        }
         self.labels
             .retain(|label| matches!(&*label.0.borrow(), LabelInfo::NotResolved(_)));
-        //for label in std::mem::take(&mut self.labels) {
-        //    match &*label.0.borrow() {
-        //        LabelInfo::Resolved(_) => {}
-        //        LabelInfo::NotResolved(targets) => {
-        //            assert!(targets.is_empty());
-        //        }
-        //    }
-        //}
     }
 
     /// Resolve labels for constant data, and emit them to `contents`.
