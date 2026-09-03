@@ -98,6 +98,7 @@ pub enum Inst {
     Cdq,
 
     Movsd(XmOperand, XmOperand),
+    Movups(XmOperand, XmOperand),
     Addsd(Xmm, XmOperand),
     Subsd(Xmm, XmOperand),
     Mulsd(Xmm, XmOperand),
@@ -389,6 +390,7 @@ impl Parse for Inst {
                 "rorl" => parse_2op_sized!(Ror, DWORD),
 
                 "movsd" => parse_2op!(Movsd),
+                "movups" => parse_2op!(Movups),
                 "addsd" => parse_2op!(Addsd),
                 "subsd" => parse_2op!(Subsd),
                 "mulsd" => parse_2op!(Mulsd),

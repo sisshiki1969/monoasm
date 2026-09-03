@@ -188,6 +188,21 @@ pub fn compile(inst: Inst) -> TokenStream {
                 panic!("'MOVSD m64, m64' does not exists.")
             }
         },
+        // MOVUPS xmm1, xmm2/m128 (0F 10) and MOVUPS xmm2/m128, xmm1 (0F 11):
+        // the unaligned counterpart of MOVAPS. No mandatory prefix, and the
+        // memory operand needs no 16-byte alignment, so a pair of adjacent
+        // 8-byte-aligned stack slots can be moved in one instruction.
+        Inst::Movups(op1, op2) => match (op1, op2) {
+            (XmOperand::Xmm(op1), op2) => quote! {
+                jit.enc_mr(&[0x0f, 0x10], Reg::from(#op1), #op2);
+            },
+            (op1, XmOperand::Xmm(op2)) => quote! {
+                jit.enc_mr(&[0x0f, 0x11], Reg::from(#op2), #op1);
+            },
+            _ => {
+                panic!("'MOVUPS m128, m128' does not exists.")
+            }
+        },
         Inst::Addsd(op1, op2) => binary_sd_op(0x58, op1, op2),
         Inst::Subsd(op1, op2) => binary_sd_op(0x5c, op1, op2),
         Inst::Mulsd(op1, op2) => binary_sd_op(0x59, op1, op2),
