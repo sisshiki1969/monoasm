@@ -79,3 +79,31 @@ fn movups_broadcasts_a_seeded_pair() {
     f(buf.as_mut_ptr(), 4);
     assert_eq!(buf, [4u64; 8]);
 }
+
+/// The rip-relative form, loading a 16-byte pattern out of the constant
+/// pool. Each `const_i64` is individually 16-byte aligned, so a pair of
+/// them is *not* contiguous; four `const_i32` are (they are only 4-byte
+/// aligned), which is how a 16-byte pattern is laid down today.
+#[test]
+fn movups_loads_a_rip_relative_constant_pair() {
+    let mut jit: JitMemory = JitMemory::new();
+    let begin = jit.label();
+    let pair = jit.const_align8();
+    for _ in 0..2 {
+        jit.const_i32(4); // low half of the word
+        jit.const_i32(0); // high half
+    }
+    monoasm!(&mut jit,
+        begin:
+            movups xmm0, [rip + pair];
+            movups [rdi], xmm0;
+            movups [rdi + 16], xmm0;
+            ret;
+    );
+    jit.finalize();
+
+    let mut buf = [0u64; 4];
+    let f = jit.get_label_addr::<*mut u64, ()>(&begin);
+    f(buf.as_mut_ptr());
+    assert_eq!(buf, [4u64; 4], "buf={buf:#x?}");
+}
