@@ -9,6 +9,7 @@ mod div;
 mod divl;
 mod idivl;
 mod minmaxsd;
+mod movups;
 mod roundpd;
 mod shift_dword;
 mod xorpd;
