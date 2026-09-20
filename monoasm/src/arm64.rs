@@ -12,7 +12,6 @@
 //! `llvm-mc --triple=aarch64 --show-encoding`.
 
 use crate::{DestLabel, JitMemory, Page, Pos, PAGE_SIZE};
-use std::alloc::{alloc, Layout};
 
 /// An AArch64 general-purpose register.
 ///
@@ -641,7 +640,8 @@ fn find_objdump() -> Result<std::path::PathBuf, std::io::Error> {
 #[cfg(target_os = "macos")]
 mod apple_jit {
     use libc::{
-        c_void, mmap, MAP_ANON, MAP_FAILED, MAP_JIT, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE,
+        c_void, mmap, munmap, MAP_ANON, MAP_FAILED, MAP_JIT, MAP_PRIVATE, PROT_EXEC, PROT_READ,
+        PROT_WRITE,
     };
 
     extern "C" {
@@ -668,6 +668,21 @@ mod apple_jit {
             std::io::Error::last_os_error()
         );
         p as *mut u8
+    }
+
+    /// Unmap what [`alloc`] returned.
+    ///
+    /// # Safety
+    ///
+    /// `ptr`/`size` must be exactly what one `alloc` call returned and
+    /// was asked for, unmapped once.
+    pub unsafe fn free(ptr: *mut u8, size: usize) {
+        assert_eq!(
+            0,
+            unsafe { munmap(ptr as *mut c_void, size) },
+            "monoasm: munmap of the JIT region failed ({})",
+            std::io::Error::last_os_error()
+        );
     }
 }
 
@@ -699,15 +714,17 @@ impl JitProtect {
         #[cfg(target_os = "macos")]
         {
             let code = unsafe { apple_jit::alloc(PAGE_SIZE * 2) };
-            let data_layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).expect("Bad Layout.");
-            let data = unsafe { alloc(data_layout) };
+            let data = crate::jit_memory::reserve(PAGE_SIZE, PAGE_SIZE);
+            unsafe {
+                use region::{protect, Protection};
+                protect(data, PAGE_SIZE, Protection::READ_WRITE).expect("Mprotect failed.");
+            }
             (code, data)
         }
         #[cfg(not(target_os = "macos"))]
         {
             use region::{protect, Protection};
-            let layout = Layout::from_size_align(PAGE_SIZE * 3, PAGE_SIZE).expect("Bad Layout.");
-            let contents = unsafe { alloc(layout) };
+            let contents = crate::jit_memory::reserve(PAGE_SIZE * 3, PAGE_SIZE);
             unsafe {
                 protect(contents, PAGE_SIZE * 2, Protection::READ_WRITE_EXECUTE)
                     .expect("Mprotect failed.");
@@ -719,6 +736,30 @@ impl JitProtect {
                 .expect("Mprotect failed.");
             }
             (contents, unsafe { contents.add(PAGE_SIZE * 2) })
+        }
+    }
+
+    /// Give back what [`JitProtect::allocate_pages`] returned. On macOS
+    /// that is two allocations; elsewhere the data page is the tail of
+    /// the code allocation and only the base is needed.
+    ///
+    /// # Safety
+    ///
+    /// `code`/`data` must be exactly the pair a previous
+    /// `allocate_pages` returned, released once, and nothing may still
+    /// hold a pointer into either page. On macOS the mapping is
+    /// `MAP_JIT`; unmapping it is allowed whatever the calling thread's
+    /// current `pthread_jit_write_protect_np` state.
+    pub(crate) unsafe fn free_pages(code: *mut u8, data: *mut u8) {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            apple_jit::free(code, PAGE_SIZE * 2);
+            crate::jit_memory::release(data, PAGE_SIZE);
+        }
+        #[cfg(not(target_os = "macos"))]
+        unsafe {
+            let _ = data;
+            crate::jit_memory::release(code, PAGE_SIZE * 3);
         }
     }
 
