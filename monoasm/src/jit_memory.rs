@@ -20,7 +20,89 @@ use crate::*;
 // Apple Silicon) they drive `pthread_jit_write_protect_np` and the cache
 // maintenance instructions. The engine below stays architecture-neutral
 // and only calls into `JitProtect`.
+//
+// The mapping primitives both backends build on are here, because what
+// they have to get right is not architecture-specific: see [`reserve`].
 // ---------------------------------------------------------------------------
+
+///
+/// Map `size` bytes, aligned to `align`, for JIT pages: `PROT_NONE` to
+/// start with, for the caller to open up as it needs.
+///
+/// **`MAP_NORESERVE` is the point of this function.** A `JitMemory`
+/// reserves gigabytes and touches almost none of it, but Linux accounts
+/// a plain private anonymous mapping against commit limits, and does so
+/// per *VMA* — and the kernel merges adjacent mappings that share their
+/// flags into one. Two things then go wrong once an address range is
+/// reused rather than reserved once and leaked: neighbouring reservations
+/// coalesce into a single VMA larger than RAM, and `fork` re-charges
+/// every accountable VMA it copies, so it fails with `ENOMEM` — on a
+/// process that has not actually committed the memory at all. A host that
+/// forks (a Ruby `Kernel#fork`, an `IO.popen`) would see spawning break
+/// for no reason it could act on.
+///
+/// `MAP_NORESERVE` takes the mapping out of that accounting, which is
+/// what a lazily-committed reservation should have been doing anyway. The
+/// flag survives both the merge and the `mprotect` the caller follows up
+/// with, so the code and data pages stay unaccounted.
+///
+/// Returns the aligned base; the surrounding slack is unmapped before
+/// returning, so [`release`] can hand back exactly `size`.
+///
+pub(crate) fn reserve(size: usize, align: usize) -> *mut u8 {
+    use libc::{
+        mmap, munmap, MAP_ANON, MAP_FAILED, MAP_NORESERVE, MAP_PRIVATE, PROT_NONE,
+    };
+    // Over-reserve by one alignment unit so an aligned base exists inside
+    // whatever address the kernel picks.
+    let slack = size + align;
+    let raw = unsafe {
+        mmap(
+            std::ptr::null_mut(),
+            slack,
+            PROT_NONE,
+            MAP_PRIVATE | MAP_ANON | MAP_NORESERVE,
+            -1,
+            0,
+        )
+    };
+    assert!(
+        raw != MAP_FAILED,
+        "monoasm: could not reserve {slack} bytes for the JIT pages ({})",
+        std::io::Error::last_os_error()
+    );
+    let raw = raw as usize;
+    let base = (raw + align - 1) & !(align - 1);
+    // Trim to exactly `size`, so the mapping is the unit `release` frees.
+    unsafe {
+        if base > raw {
+            assert_eq!(0, munmap(raw as _, base - raw), "monoasm: munmap failed");
+        }
+        let tail = base + size;
+        let tail_len = raw + slack - tail;
+        if tail_len > 0 {
+            assert_eq!(0, munmap(tail as _, tail_len), "monoasm: munmap failed");
+        }
+    }
+    base as *mut u8
+}
+
+///
+/// Unmap what [`reserve`] returned.
+///
+/// # Safety
+///
+/// `ptr`/`size` must be exactly one `reserve`'s base and size, released
+/// once, with nothing still pointing into the range.
+///
+pub(crate) unsafe fn release(ptr: *mut u8, size: usize) {
+    assert_eq!(
+        0,
+        unsafe { libc::munmap(ptr as _, size) },
+        "monoasm: could not release the JIT pages ({})",
+        std::io::Error::last_os_error()
+    );
+}
 
 /// Memory manager.
 #[derive(Debug)]
@@ -289,6 +371,37 @@ impl IndexMut<Pos> for JitMemory {
 impl std::default::Default for JitMemory {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+///
+/// Release the code and data pages.
+///
+/// Every `JitMemory` owns a multi-gigabyte reservation (`PAGE_SIZE` is
+/// sized for one instance that lives as long as the process), so a host
+/// that creates one per compilation unit — or per interpreter, or per
+/// test — has to be able to give it back.
+///
+/// **Every `CodePtr`, `DestLabel` address and function pointer taken out
+/// of a `JitMemory` dangles once it is dropped**, and code from it must
+/// not be on any thread's stack. `JitMemory` is neither `Clone` nor
+/// `Copy`, so it is the single owner of its pages; keep it alive for as
+/// long as anything can reach the code it holds.
+///
+impl Drop for JitMemory {
+    fn drop(&mut self) {
+        // SAFETY: these are exactly the two pointers `allocate_pages`
+        // returned in `new` — `pages[0]` is the code base and
+        // `pages[DATA_PAGE]` the data base, neither of which is ever
+        // reassigned — and this is the only owner, so they are released
+        // once. Reachability of the code is the caller's contract, see
+        // above.
+        unsafe {
+            JitProtect::free_pages(
+                self.pages[0].contents(),
+                self.pages[DATA_PAGE.0].contents(),
+            )
+        }
     }
 }
 

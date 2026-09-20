@@ -8,7 +8,6 @@
 //! the AArch64 backend lives in [`crate::arm64`].
 
 use crate::*;
-use std::alloc::{alloc, Layout};
 use std::io::Write;
 
 /// Register.
@@ -657,8 +656,7 @@ impl JitProtect {
     /// page, returning `(code_pages_base, data_page_base)`.
     pub(crate) fn allocate_pages() -> (*mut u8, *mut u8) {
         use region::{protect, Protection};
-        let layout = Layout::from_size_align(PAGE_SIZE * 3, PAGE_SIZE).expect("Bad Layout.");
-        let contents = unsafe { alloc(layout) };
+        let contents = crate::jit_memory::reserve(PAGE_SIZE * 3, PAGE_SIZE);
         unsafe {
             protect(contents, PAGE_SIZE * 2, Protection::READ_WRITE_EXECUTE)
                 .expect("Mprotect failed.");
@@ -666,6 +664,19 @@ impl JitProtect {
                 .expect("Mprotect failed.");
         }
         (contents, unsafe { contents.add(PAGE_SIZE * 2) })
+    }
+
+    /// Give back what [`JitProtect::allocate_pages`] returned. The data
+    /// page is the tail of the same allocation here, so only the base is
+    /// needed.
+    ///
+    /// # Safety
+    ///
+    /// `code` must be the `code_pages_base` a previous `allocate_pages`
+    /// returned, released once, and nothing may still hold a pointer into
+    /// either page.
+    pub(crate) unsafe fn free_pages(code: *mut u8, _data: *mut u8) {
+        unsafe { crate::jit_memory::release(code, PAGE_SIZE * 3) }
     }
 
     #[inline]
