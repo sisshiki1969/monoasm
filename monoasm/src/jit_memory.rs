@@ -111,8 +111,12 @@ pub struct JitMemory {
     page: Page,
     /// Information of momory pages.
     pages: [MemPage; 3],
-    ///
-    labels: Vec<DestLabel>,
+    /// Labels that had a relocation queued while still unbound, since the
+    /// last `finalize`. Only these can leave a placeholder behind, so only
+    /// these are checked there; a label nobody branched to is never listed
+    /// (keeping every label from `label()` until it was bound made each
+    /// `finalize` walk all the never-bound ones created so far).
+    pending_labels: Vec<DestLabel>,
     /// Architecture-specific JIT page protection / W^X state. Carries the
     /// per-thread writability tracking on macOS/aarch64 and is a
     /// zero-sized no-op on x86-64.
@@ -423,7 +427,7 @@ impl JitMemory {
         JitMemory {
             page: Page(0),
             pages: [initial_page, second_page, data_page],
-            labels: vec![],
+            pending_labels: vec![],
             protect,
             flush_all: false,
         }
@@ -576,9 +580,7 @@ impl JitMemory {
 
     /// Create a new label and returns `DestLabel`.
     pub fn label(&mut self) -> DestLabel {
-        let label = DestLabel::new();
-        self.labels.push(label.clone());
-        label
+        DestLabel::new()
     }
 
     pub fn const_f64(&mut self, val: f64) -> DestLabel {
@@ -681,6 +683,9 @@ impl JitMemory {
                 self.write_reloc(src_page, src_pos, target);
             }
             LabelInfo::NotResolved(ref mut targets) => {
+                if targets.is_empty() {
+                    self.pending_labels.push(label.clone());
+                }
                 targets.push(target);
             }
         };
@@ -710,7 +715,7 @@ impl JitMemory {
         // means some emitted branch still carries its zeroed rel32
         // placeholder — a silent no-op jump in the published code. Panic at
         // finalize instead of shipping it.
-        for label in &self.labels {
+        for label in std::mem::take(&mut self.pending_labels) {
             if let LabelInfo::NotResolved(targets) = &*label.0.borrow() {
                 assert!(
                     targets.is_empty(),
@@ -719,8 +724,6 @@ impl JitMemory {
                 );
             }
         }
-        self.labels
-            .retain(|label| matches!(&*label.0.borrow(), LabelInfo::NotResolved(_)));
     }
 
     /// Resolve labels for constant data, and emit them to `contents`.
