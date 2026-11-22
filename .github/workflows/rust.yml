@@ -35,15 +35,18 @@ jobs:
       with:
         targets: aarch64-unknown-linux-gnu
     - name: Install the aarch64 cross toolchain and qemu
+      # `qemu-user-static` is only a virtual package on Ubuntu 26.04
+      # (ubuntu-latest) and has no installation candidate; `qemu-user`
+      # ships `qemu-aarch64` itself.
       run: |
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
-          qemu-user-static gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+          qemu-user gcc-aarch64-linux-gnu libc6-dev-arm64-cross
     - name: Run arm64 backend tests under qemu
       run: cargo test --target aarch64-unknown-linux-gnu --test arm64 --verbose
       env:
         CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER: qemu-aarch64-static -L /usr/aarch64-linux-gnu
+        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER: qemu-aarch64 -L /usr/aarch64-linux-gnu
         # dump_code() shells out to objdump; point it at the cross binutils
         # so the emulated tests can disassemble the A64 stream.
         OBJDUMP: aarch64-linux-gnu-objdump

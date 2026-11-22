@@ -8,6 +8,7 @@ mod cvttsd2si;
 mod div;
 mod divl;
 mod idivl;
+mod labels;
 mod minmaxsd;
 mod movups;
 mod roundpd;
